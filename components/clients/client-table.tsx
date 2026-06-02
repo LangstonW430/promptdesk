@@ -9,10 +9,13 @@ import {
   Users,
   Thermometer,
   ChevronRight,
+  List,
+  LayoutGrid,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/clients/status-badge'
+import { KanbanBoard } from '@/components/clients/kanban-board'
 import { cn } from '@/lib/utils'
 import { CLIENT_STATUSES } from '@/lib/clients/types'
 
@@ -77,6 +80,7 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
   const currentStatus = searchParams.get('status') ?? ''
   const currentTag = searchParams.get('tag') ?? ''
   const isGoingCold = searchParams.get('stale') === '30'
+  const currentView = searchParams.get('view') === 'kanban' ? 'kanban' : 'table'
 
   const [searchInput, setSearchInput] = useState(currentQ)
   const [tagInput, setTagInput] = useState(currentTag)
@@ -117,7 +121,10 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
     setSearchInput('')
     setTagInput('')
     startTransition(() => {
-      router.replace(pathname, { scroll: false })
+      router.replace(
+        `${pathname}${currentView === 'kanban' ? '?view=kanban' : ''}`,
+        { scroll: false },
+      )
     })
   }
 
@@ -137,31 +144,31 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
           />
         </div>
 
-        {/* Status filter */}
-        <select
-          value={currentStatus}
-          onChange={(e) => pushFilters({ status: e.target.value || null })}
-          aria-label="Filter by status"
-          className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          <option value="">All statuses</option>
-          {CLIENT_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
+        {/* Status filter (hidden in Kanban — columns already separate by status) */}
+        {currentView === 'table' && (
+          <select
+            value={currentStatus}
+            onChange={(e) => pushFilters({ status: e.target.value || null })}
+            aria-label="Filter by status"
+            className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <option value="">All statuses</option>
+            {CLIENT_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        )}
 
         {/* Tag filter */}
-        <div className="relative">
-          <Input
-            placeholder="Tag…"
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            className="w-28"
-            aria-label="Filter by tag"
-          />
-        </div>
+        <Input
+          placeholder="Tag…"
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          className="w-28"
+          aria-label="Filter by tag"
+        />
 
         {/* Going cold toggle */}
         <Button
@@ -181,7 +188,33 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
           </Button>
         )}
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {/* View toggle */}
+          <div
+            role="group"
+            aria-label="View mode"
+            className="flex items-center gap-0.5 rounded-lg border border-border p-0.5"
+          >
+            <Button
+              variant={currentView === 'table' ? 'secondary' : 'ghost'}
+              size="icon-sm"
+              onClick={() => pushFilters({ view: null })}
+              aria-label="Table view"
+              aria-pressed={currentView === 'table'}
+            >
+              <List />
+            </Button>
+            <Button
+              variant={currentView === 'kanban' ? 'secondary' : 'ghost'}
+              size="icon-sm"
+              onClick={() => pushFilters({ view: 'kanban' })}
+              aria-label="Kanban view"
+              aria-pressed={currentView === 'kanban'}
+            >
+              <LayoutGrid />
+            </Button>
+          </div>
+
           <Button onClick={() => router.push('/clients/new')}>
             <Plus />
             Add client
@@ -189,58 +222,72 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
         </div>
       </div>
 
-      {/* ── Table ────────────────────────────────────────────────────────── */}
-      <div
-        className={cn(
-          'rounded-xl border border-border bg-card transition-opacity duration-150',
-          isPending && 'opacity-50',
-        )}
-      >
-        {clients.length === 0 ? (
-          <EmptyState hasFilters={hasActiveFilters} onClear={clearAllFilters} />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full caption-bottom text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  {[
-                    'Company / Contact',
-                    'Status',
-                    'Industry',
-                    'Est. Value',
-                    'Last Contact',
-                    'Next Follow-up',
-                    '',
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-3 text-left text-xs font-medium tracking-wide text-muted-foreground first:pl-5 last:w-8"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {clients.map((client) => (
-                  <ClientRow
-                    key={client.id}
-                    client={client}
-                    onClick={() => router.push(`/clients/${client.id}`)}
-                  />
-                ))}
-              </tbody>
-            </table>
+      {/* ── Kanban view ──────────────────────────────────────────────────── */}
+      {currentView === 'kanban' ? (
+        <div className={cn('transition-opacity duration-150', isPending && 'opacity-50')}>
+          <KanbanBoard clients={clients} />
+          {clients.length > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {clients.length} {clients.length === 1 ? 'client' : 'clients'}
+              {hasActiveFilters && ' matching filters'}
+            </p>
+          )}
+        </div>
+      ) : (
+        /* ── Table view ──────────────────────────────────────────────────── */
+        <>
+          <div
+            className={cn(
+              'rounded-xl border border-border bg-card transition-opacity duration-150',
+              isPending && 'opacity-50',
+            )}
+          >
+            {clients.length === 0 ? (
+              <EmptyState hasFilters={hasActiveFilters} onClear={clearAllFilters} />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full caption-bottom text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      {[
+                        'Company / Contact',
+                        'Status',
+                        'Industry',
+                        'Est. Value',
+                        'Last Contact',
+                        'Next Follow-up',
+                        '',
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          className="px-4 py-3 text-left text-xs font-medium tracking-wide text-muted-foreground first:pl-5 last:w-8"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clients.map((client) => (
+                      <ClientRow
+                        key={client.id}
+                        client={client}
+                        onClick={() => router.push(`/clients/${client.id}`)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Row count */}
-      {clients.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {clients.length} {clients.length === 1 ? 'client' : 'clients'}
-          {hasActiveFilters && ' matching filters'}
-        </p>
+          {clients.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {clients.length} {clients.length === 1 ? 'client' : 'clients'}
+              {hasActiveFilters && ' matching filters'}
+            </p>
+          )}
+        </>
       )}
     </div>
   )

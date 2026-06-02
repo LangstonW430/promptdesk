@@ -1,7 +1,7 @@
 import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
 import { buildClientWhere } from './filters'
-import type { ClientFilters } from './types'
+import type { ClientFilters, ClientStatus } from './types'
 import type { CreateClientInput, UpdateClientInput } from './validators'
 
 const withRelations = {
@@ -84,4 +84,33 @@ export async function setClientArchived(
 export async function deleteClient(ownerId: string, id: string): Promise<boolean> {
   const result = await prisma.client.deleteMany({ where: { id, ownerId } })
   return result.count > 0
+}
+
+export async function changeClientStatus(
+  ownerId: string,
+  id: string,
+  newStatus: ClientStatus,
+) {
+  const current = await prisma.client.findFirst({
+    where: { id, ownerId },
+    select: { status: true },
+  })
+  if (!current) return null
+  if (current.status === newStatus) return null
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.client.update({
+      where: { id },
+      data: { status: newStatus },
+    })
+    await tx.activity.create({
+      data: {
+        ownerId,
+        clientId: id,
+        type: 'status_changed',
+        detail: { from: current.status, to: newStatus } as unknown as Prisma.InputJsonValue,
+      },
+    })
+    return updated
+  })
 }

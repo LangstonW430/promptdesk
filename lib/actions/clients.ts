@@ -9,13 +9,14 @@ import {
   updateClient,
   setClientArchived,
   deleteClient,
+  changeClientStatus,
 } from '@/lib/clients'
 import {
   createClientSchema,
   updateClientSchema,
   archiveClientSchema,
 } from '@/lib/clients/validators'
-import type { ClientFilters } from '@/lib/clients/types'
+import type { ClientFilters, ClientStatus } from '@/lib/clients/types'
 
 export async function createClientAction(data: unknown) {
   const ownerId = await getOwnerId()
@@ -71,6 +72,14 @@ export async function deleteClientAction(id: string) {
   const ownerId = await getOwnerId()
   const deleted = await deleteClient(ownerId, id)
   if (!deleted) return { error: 'Not found' }
+  revalidatePath('/clients')
+  return { success: true }
+}
+
+export async function changeClientStatusAction(id: string, newStatus: string) {
+  const ownerId = await getOwnerId()
+  const result = await changeClientStatus(ownerId, id, newStatus as ClientStatus)
+  if (!result) return { error: 'Not found or status unchanged' }
   revalidatePath('/clients')
   return { success: true }
 }
