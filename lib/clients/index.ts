@@ -9,6 +9,7 @@ const withRelations = {
   tasks: { orderBy: [{ isDone: 'asc' as const }, { dueDate: 'asc' as const }] },
   attachments: { orderBy: { createdAt: 'desc' as const } },
   clientTags: { include: { tag: true } },
+  activities: { orderBy: { createdAt: 'desc' as const }, take: 20 },
 }
 
 export async function createClient(ownerId: string, input: CreateClientInput) {

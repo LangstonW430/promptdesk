@@ -2,17 +2,21 @@
 
 import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import type { ReactNode } from 'react'
+import type { ReactNode, FormEvent, ElementType } from 'react'
 import {
   Mail, Phone, Globe, Building2, Users, ArrowUpRight,
   DollarSign, Briefcase, Calendar, CalendarCheck,
   Lightbulb, Tag, X, Pencil, Archive, RotateCcw, Loader2,
+  FileText, PhoneCall, MessagesSquare, Send, Trash2,
+  GitBranch, Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/clients/status-badge'
 import { cn } from '@/lib/utils'
 import { CLIENT_STATUSES } from '@/lib/clients/types'
+import { NOTE_TYPES, type NoteType } from '@/lib/notes/types'
 import { changeClientStatusAction, setClientArchivedAction } from '@/lib/actions/clients'
+import { createNoteAction, deleteNoteAction } from '@/lib/actions/notes'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -47,6 +51,12 @@ export type SerializedClientDetail = {
     sizeBytes: number | null
     createdAt: string
   }>
+  activities: Array<{
+    id: string
+    type: string
+    detail: Record<string, unknown>
+    createdAt: string
+  }>
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -54,6 +64,13 @@ export type SerializedClientDetail = {
 const STATUS_LABELS: Record<string, string> = {
   lead: 'Lead', contacted: 'Contacted', proposal_sent: 'Proposal sent',
   negotiating: 'Negotiating', won: 'Won', lost: 'Lost',
+}
+
+const NOTE_TYPE_CONFIG: Record<NoteType, { label: string; icon: ElementType; className: string }> = {
+  note:    { label: 'Note',    icon: FileText,       className: 'text-blue-500 bg-blue-50 dark:bg-blue-950/40' },
+  call:    { label: 'Call',    icon: PhoneCall,      className: 'text-green-600 bg-green-50 dark:bg-green-950/40' },
+  meeting: { label: 'Meeting', icon: MessagesSquare, className: 'text-purple-600 bg-purple-50 dark:bg-purple-950/40' },
+  email:   { label: 'Email',   icon: Send,           className: 'text-orange-500 bg-orange-50 dark:bg-orange-950/40' },
 }
 
 function formatDate(iso: string | null): string {
@@ -71,6 +88,23 @@ function formatCurrency(value: number): string {
 
 function isOverdue(iso: string | null): boolean {
   return !!iso && new Date(iso) < new Date()
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const secs = Math.floor(diff / 1000)
+  if (secs < 60) return 'just now'
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function todayISO(): string {
+  return new Date().toISOString().split('T')[0]
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -155,7 +189,6 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
           )}
 
           <div className="ml-auto flex items-center gap-1.5">
-            {/* Status change */}
             <select
               value={localStatus}
               onChange={(e) => handleStatusChange(e.target.value)}
@@ -225,12 +258,7 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
       {/* ── Tab content ────────────────────────────────────────────── */}
       <div>
         {activeTab === 'overview' && <OverviewTab client={client} />}
-        {activeTab === 'notes' && (
-          <PlaceholderTab
-            label="Notes"
-            description="Timestamped notes, calls, and meetings will appear here."
-          />
-        )}
+        {activeTab === 'notes' && <NotesTab client={client} />}
         {activeTab === 'intelligence' && (
           <IntelligenceTab
             client={client}
@@ -250,6 +278,141 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
           />
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Notes tab ──────────────────────────────────────────────────────────────
+
+function NotesTab({ client }: { client: SerializedClientDetail }) {
+  const router = useRouter()
+  const [body, setBody] = useState('')
+  const [noteType, setNoteType] = useState<NoteType>('note')
+  const [occurredAt, setOccurredAt] = useState(todayISO())
+  const [formError, setFormError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (!body.trim()) return
+    setFormError(null)
+    startTransition(async () => {
+      const result = await createNoteAction(client.id, {
+        body: body.trim(),
+        noteType,
+        occurredAt,
+      })
+      if ('error' in result) {
+        setFormError(result.error ?? null)
+        return
+      }
+      setBody('')
+      setNoteType('note')
+      setOccurredAt(todayISO())
+      router.refresh()
+    })
+  }
+
+  function handleDelete(noteId: string) {
+    startTransition(async () => {
+      await deleteNoteAction(noteId, client.id)
+      router.refresh()
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-5">
+      {/* Add note form */}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-4">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Add a note, log a call, or record a meeting…"
+          rows={3}
+          disabled={isPending}
+          className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Type select */}
+          <select
+            value={noteType}
+            onChange={(e) => setNoteType(e.target.value as NoteType)}
+            disabled={isPending}
+            aria-label="Note type"
+            className="h-7 rounded-lg border border-input bg-background px-2 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          >
+            {NOTE_TYPES.map((t) => (
+              <option key={t} value={t}>{NOTE_TYPE_CONFIG[t].label}</option>
+            ))}
+          </select>
+
+          {/* Occurred at */}
+          <input
+            type="date"
+            value={occurredAt}
+            onChange={(e) => setOccurredAt(e.target.value)}
+            disabled={isPending}
+            aria-label="Date of note"
+            className="h-7 rounded-lg border border-input bg-background px-2 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          />
+
+          <Button type="submit" size="sm" disabled={isPending || !body.trim()} className="ml-auto">
+            {isPending ? <Loader2 className="animate-spin" /> : null}
+            Add note
+          </Button>
+        </div>
+
+        {formError && (
+          <p className="text-xs text-destructive">{formError}</p>
+        )}
+      </form>
+
+      {/* Note list */}
+      {client.notes.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No notes yet. Add the first one above.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {client.notes.map((note) => {
+            const config = NOTE_TYPE_CONFIG[note.noteType as NoteType] ?? NOTE_TYPE_CONFIG.note
+            const Icon = config.icon
+            return (
+              <li
+                key={note.id}
+                className="group flex gap-3 rounded-xl border border-border bg-card p-4"
+              >
+                {/* Type icon */}
+                <span className={cn('mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-[11px]', config.className)}>
+                  <Icon className="size-3.5" />
+                </span>
+
+                {/* Body + meta */}
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span className="text-xs font-medium">{config.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDate(note.occurredAt)}
+                    </span>
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{note.body}</p>
+                </div>
+
+                {/* Delete */}
+                <button
+                  onClick={() => handleDelete(note.id)}
+                  disabled={isPending}
+                  aria-label="Delete note"
+                  className="mt-0.5 shrink-0 self-start rounded p-1 text-muted-foreground/40 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 disabled:pointer-events-none"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }
@@ -368,7 +531,70 @@ function OverviewTab({ client }: { client: SerializedClientDetail }) {
           </div>
         </section>
       )}
+
+      {/* Activity timeline */}
+      {client.activities.length > 0 && (
+        <section>
+          <SectionHeading>Recent activity</SectionHeading>
+          <ActivityTimeline activities={client.activities} />
+        </section>
+      )}
     </div>
+  )
+}
+
+// ── Activity timeline ──────────────────────────────────────────────────────
+
+type Activity = SerializedClientDetail['activities'][number]
+
+function activityDescription(activity: Activity): string {
+  const d = activity.detail
+  switch (activity.type) {
+    case 'status_changed': {
+      const from = STATUS_LABELS[String(d.from)] ?? String(d.from)
+      const to = STATUS_LABELS[String(d.to)] ?? String(d.to)
+      return `Status: ${from} → ${to}`
+    }
+    case 'note_added': {
+      const type = NOTE_TYPE_CONFIG[String(d.noteType) as NoteType]?.label ?? 'Note'
+      return `${type} logged`
+    }
+    default:
+      return activity.type.replace(/_/g, ' ')
+  }
+}
+
+function activityDotClass(type: string): string {
+  switch (type) {
+    case 'status_changed': return 'bg-blue-500'
+    case 'note_added':     return 'bg-green-500'
+    default:               return 'bg-muted-foreground/40'
+  }
+}
+
+function ActivityTimeline({ activities }: { activities: Activity[] }) {
+  return (
+    <ul className="flex flex-col gap-0">
+      {activities.map((activity, i) => (
+        <li key={activity.id} className="flex items-start gap-3">
+          {/* Dot + line */}
+          <div className="flex flex-col items-center">
+            <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', activityDotClass(activity.type))} />
+            {i < activities.length - 1 && (
+              <span className="mt-1 w-px flex-1 bg-border" style={{ minHeight: '16px' }} />
+            )}
+          </div>
+
+          {/* Text */}
+          <div className="flex min-w-0 flex-1 items-baseline justify-between gap-3 pb-3">
+            <p className="text-sm leading-tight">{activityDescription(activity)}</p>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {timeAgo(activity.createdAt)}
+            </span>
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 

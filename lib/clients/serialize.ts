@@ -31,6 +31,12 @@ type ClientWithRelations = {
     sizeBytes: bigint | null
     createdAt: Date
   }>
+  activities: Array<{
+    id: string
+    type: string
+    detail: unknown
+    createdAt: Date
+  }>
 }
 
 export function serializeClientDetail(client: ClientWithRelations): SerializedClientDetail {
@@ -75,6 +81,12 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
       fileName: a.fileName,
       mimeType: a.mimeType,
       sizeBytes: a.sizeBytes != null ? Number(a.sizeBytes) : null,
+      createdAt: a.createdAt.toISOString(),
+    })),
+    activities: client.activities.map((a) => ({
+      id: a.id,
+      type: a.type,
+      detail: a.detail as Record<string, unknown>,
       createdAt: a.createdAt.toISOString(),
     })),
   }
