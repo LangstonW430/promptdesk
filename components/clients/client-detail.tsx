@@ -9,6 +9,8 @@ import {
   Lightbulb, Tag, X, Pencil, Archive, RotateCcw, Loader2,
   FileText, PhoneCall, MessagesSquare, Send, Trash2,
   Plus, Check,
+  File, FileImage, FileSpreadsheet, Upload, Download,
+  AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/clients/status-badge'
@@ -17,10 +19,14 @@ import { CLIENT_STATUSES } from '@/lib/clients/types'
 import { NOTE_TYPES, type NoteType } from '@/lib/notes/types'
 import { TAG_COLOR_CLASSES, TAG_DOT_CLASSES } from '@/lib/tags/colors'
 import { TAG_COLORS, type TagColor } from '@/lib/tags/validators'
-import { changeClientStatusAction, setClientArchivedAction, updateClientAction } from '@/lib/actions/clients'
+import { changeClientStatusAction, setClientArchivedAction, updateClientAction, deleteClientAction } from '@/lib/actions/clients'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { createNoteAction, deleteNoteAction } from '@/lib/actions/notes'
 import { listTagsAction, attachTagAction, detachTagAction } from '@/lib/actions/tags'
 import { createTaskAction, updateTaskAction, deleteTaskAction } from '@/lib/actions/tasks'
+import { requestSignedUrlAction, saveAttachmentAction, deleteAttachmentAction } from '@/lib/actions/attachments'
+import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES, BUCKET_NAME } from '@/lib/attachments/validators'
+import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -127,6 +133,7 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [localStatus, setLocalStatus] = useState(client.status)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => { setLocalStatus(client.status) }, [client.status])
@@ -160,6 +167,14 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
       if (!('error' in result)) {
         router.refresh()
       }
+    })
+  }
+
+  function handleDelete() {
+    setDeleteOpen(false)
+    startTransition(async () => {
+      await deleteClientAction(client.id)
+      router.push('/clients')
     })
   }
 
@@ -231,6 +246,17 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
               )}
               {client.isArchived ? 'Restore' : 'Archive'}
             </Button>
+
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setDeleteOpen(true)}
+              disabled={isPending}
+              aria-label="Delete client"
+              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 />
+            </Button>
           </div>
         </div>
 
@@ -271,13 +297,19 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
           />
         )}
         {activeTab === 'tasks' && <TasksTab client={client} />}
-        {activeTab === 'attachments' && (
-          <PlaceholderTab
-            label="Attachments"
-            description="Proposals, contracts, and screenshots will appear here."
-          />
-        )}
+        {activeTab === 'attachments' && <AttachmentsTab client={client} />}
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete client?"
+        description={`This will permanently delete ${client.companyName ?? client.contactName ?? 'this client'} and all their notes, tasks, and attachments. This cannot be undone.`}
+        confirmLabel="Delete permanently"
+        variant="destructive"
+        onConfirm={handleDelete}
+        isPending={isPending}
+      />
     </div>
   )
 }
@@ -1299,6 +1331,211 @@ function TaskRow({
       >
         <Trash2 className="size-3.5" />
       </button>
+    </li>
+  )
+}
+
+// ── Attachments tab ───────────────────────────────────────────────────────
+
+type SerializedAttachment = SerializedClientDetail['attachments'][number]
+
+function formatBytes(n: number | null): string {
+  if (n == null) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function FileIcon({ mimeType }: { mimeType: string | null }): React.ReactElement {
+  if (mimeType?.startsWith('image/')) return <FileImage className="size-4 shrink-0 text-blue-500" />
+  if (mimeType === 'application/pdf') return <FileText className="size-4 shrink-0 text-red-500" />
+  if (mimeType?.includes('spreadsheet') || mimeType?.includes('excel') || mimeType === 'text/csv')
+    return <FileSpreadsheet className="size-4 shrink-0 text-green-600" />
+  if (mimeType?.includes('word') || mimeType === 'text/plain')
+    return <FileText className="size-4 shrink-0 text-blue-600" />
+  return <File className="size-4 shrink-0 text-muted-foreground" />
+}
+
+function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
+  const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    // Always reset the input so the same file can be re-selected after an error
+    e.target.value = ''
+    if (!file) return
+
+    // Client-side validation
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadError('File too large — maximum size is 10 MB.')
+      return
+    }
+    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      setUploadError('File type not allowed. Accepted: images, PDF, Word, Excel, CSV, plain text.')
+      return
+    }
+
+    setUploadError(null)
+    setUploading(true)
+
+    try {
+      // 1. Get a signed upload URL from the server
+      const urlResult = await requestSignedUrlAction(client.id, {
+        fileName: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+      })
+      if ('error' in urlResult) {
+        setUploadError(urlResult.error ?? 'Failed to get upload URL')
+        return
+      }
+
+      // 2. Upload directly to Supabase Storage (browser → storage, no server bandwidth)
+      const supabase = createSupabaseClient()
+      const { error: uploadErr } = await supabase.storage
+        .from(BUCKET_NAME)
+        .uploadToSignedUrl(urlResult.storageKey, urlResult.token, file, {
+          contentType: file.type,
+        })
+      if (uploadErr) {
+        setUploadError(uploadErr.message ?? 'Upload failed')
+        return
+      }
+
+      // 3. Save metadata
+      const saveResult = await saveAttachmentAction(client.id, {
+        storageKey: urlResult.storageKey,
+        fileName: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+      })
+      if ('error' in saveResult) {
+        setUploadError(saveResult.error ?? 'Failed to save attachment')
+        return
+      }
+
+      router.refresh()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function handleDelete(attachmentId: string) {
+    startTransition(async () => {
+      await deleteAttachmentAction(attachmentId, client.id)
+      router.refresh()
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-5">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={[...ALLOWED_MIME_TYPES].join(',')}
+        onChange={handleFileChange}
+        className="sr-only"
+        aria-hidden
+      />
+
+      {/* Upload button */}
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading || isPending}
+        >
+          {uploading ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <Upload />
+          )}
+          {uploading ? 'Uploading…' : 'Attach file'}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Max 10 MB · Images, PDF, Word, Excel, CSV, text
+        </p>
+      </div>
+
+      {/* Upload error */}
+      {uploadError && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          {uploadError}
+        </div>
+      )}
+
+      {/* Attachment list */}
+      {client.attachments.length === 0 && !uploading ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No attachments yet. Click <strong>Attach file</strong> to add a proposal, contract, or screenshot.
+        </p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+          {client.attachments.map((attachment) => (
+            <AttachmentRow
+              key={attachment.id}
+              attachment={attachment}
+              isPending={isPending}
+              onDelete={() => handleDelete(attachment.id)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function AttachmentRow({
+  attachment,
+  isPending,
+  onDelete,
+}: {
+  attachment: SerializedAttachment
+  isPending: boolean
+  onDelete: () => void
+}) {
+  return (
+    <li className="group flex items-center gap-3 px-4 py-3">
+      <FileIcon mimeType={attachment.mimeType} />
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium leading-tight">{attachment.fileName}</p>
+        {attachment.sizeBytes != null && (
+          <p className="text-xs text-muted-foreground">{formatBytes(attachment.sizeBytes)}</p>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        {/* Download */}
+        <a
+          href={`/api/attachments/${attachment.id}/download`}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Download ${attachment.fileName}`}
+          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Download className="size-4" />
+        </a>
+
+        {/* Delete */}
+        <button
+          onClick={onDelete}
+          disabled={isPending}
+          aria-label={`Delete ${attachment.fileName}`}
+          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
     </li>
   )
 }
