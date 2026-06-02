@@ -20,6 +20,7 @@ import { TAG_COLORS, type TagColor } from '@/lib/tags/validators'
 import { changeClientStatusAction, setClientArchivedAction, updateClientAction } from '@/lib/actions/clients'
 import { createNoteAction, deleteNoteAction } from '@/lib/actions/notes'
 import { listTagsAction, attachTagAction, detachTagAction } from '@/lib/actions/tags'
+import { createTaskAction, updateTaskAction, deleteTaskAction } from '@/lib/actions/tasks'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -269,12 +270,7 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
             onEdit={() => router.push(`/clients/${client.id}/edit`)}
           />
         )}
-        {activeTab === 'tasks' && (
-          <PlaceholderTab
-            label="Tasks"
-            description="Follow-up tasks and to-dos for this client will appear here."
-          />
-        )}
+        {activeTab === 'tasks' && <TasksTab client={client} />}
         {activeTab === 'attachments' && (
           <PlaceholderTab
             label="Attachments"
@@ -958,6 +954,352 @@ function IntelSection({ title, body }: { title: string; body: string }) {
       <SectionHeading>{title}</SectionHeading>
       <p className="whitespace-pre-wrap text-sm leading-relaxed">{body}</p>
     </section>
+  )
+}
+
+// ── Tasks tab ─────────────────────────────────────────────────────────────
+
+type SerializedTask = SerializedClientDetail['tasks'][number]
+
+function taskDueStatus(
+  dueDate: string | null,
+  isDone: boolean,
+): 'overdue' | 'today' | 'upcoming' | 'none' {
+  if (isDone || !dueDate) return 'none'
+  const due = dueDate.slice(0, 10)
+  const today = new Date().toISOString().split('T')[0]
+  if (due < today) return 'overdue'
+  if (due === today) return 'today'
+  return 'upcoming'
+}
+
+function formatDueBadge(dueDate: string | null): string {
+  if (!dueDate) return ''
+  const due = dueDate.slice(0, 10)
+  const today = new Date().toISOString().split('T')[0]
+  if (due === today) return 'Today'
+  return new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+const DUE_STATUS_CLASSES: Record<string, string> = {
+  overdue:  'text-red-600 dark:text-red-400',
+  today:    'text-amber-600 dark:text-amber-400',
+  upcoming: 'text-muted-foreground',
+  none:     'text-muted-foreground',
+}
+
+function TasksTab({ client }: { client: SerializedClientDetail }) {
+  const router = useRouter()
+
+  // Optimistic local task list (synced from props on refresh)
+  const [tasks, setTasks] = useState<SerializedTask[]>(() => client.tasks)
+  useEffect(() => { setTasks(client.tasks) }, [client.tasks])
+
+  // Add-task form
+  const [addTitle, setAddTitle] = useState('')
+  const [addDate, setAddDate] = useState('')
+  const [addError, setAddError] = useState<string | null>(null)
+
+  // "Plan next" prompt — shown after marking a task done
+  const [planNext, setPlanNext] = useState<{ afterId: string; title: string } | null>(null)
+  const [nextTitle, setNextTitle] = useState('')
+  const [nextDate, setNextDate] = useState('')
+
+  // Inline reschedule — which task's date is being edited
+  const [reschedulingId, setReschedulingId] = useState<string | null>(null)
+
+  const [isPending, startTransition] = useTransition()
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!addTitle.trim()) return
+    setAddError(null)
+    startTransition(async () => {
+      const result = await createTaskAction({
+        title: addTitle.trim(),
+        dueDate: addDate || undefined,
+        clientId: client.id,
+      })
+      if ('error' in result) { setAddError(result.error ?? null); return }
+      setAddTitle('')
+      setAddDate('')
+      router.refresh()
+    })
+  }
+
+  function handleToggleDone(task: SerializedTask) {
+    const nowDone = !task.isDone
+    const snapshot = tasks
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, isDone: nowDone } : t)),
+    )
+    if (nowDone) {
+      setPlanNext({ afterId: task.id, title: task.title })
+      setNextTitle(task.title)
+      setNextDate('')
+    }
+    startTransition(async () => {
+      const result = await updateTaskAction(task.id, { isDone: nowDone })
+      if ('error' in result) { setTasks(snapshot); setPlanNext(null) }
+      else router.refresh()
+    })
+  }
+
+  function handleReschedule(id: string, newDate: string) {
+    setReschedulingId(null)
+    startTransition(async () => {
+      const result = await updateTaskAction(id, { dueDate: newDate || null })
+      if (!('error' in result)) router.refresh()
+    })
+  }
+
+  function handleDelete(id: string) {
+    setTasks((prev) => prev.filter((t) => t.id !== id))
+    startTransition(async () => {
+      const result = await deleteTaskAction(id)
+      if ('error' in result) router.refresh() // revert via refresh
+      else router.refresh()
+    })
+  }
+
+  function handleCreateFollowUp() {
+    if (!nextTitle.trim() || !planNext) return
+    const prompt = planNext
+    setPlanNext(null)
+    startTransition(async () => {
+      await createTaskAction({
+        title: nextTitle.trim(),
+        dueDate: nextDate || undefined,
+        clientId: client.id,
+      })
+      router.refresh()
+    })
+    void prompt
+  }
+
+  const activeTasks = tasks.filter((t) => !t.isDone)
+  const doneTasks = tasks.filter((t) => t.isDone)
+
+  return (
+    <div className="flex flex-col gap-4 p-5">
+      {/* Add-task form */}
+      <form
+        onSubmit={handleCreate}
+        className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 p-3"
+      >
+        <input
+          value={addTitle}
+          onChange={(e) => setAddTitle(e.target.value)}
+          placeholder="New task…"
+          disabled={isPending}
+          className="flex-1 rounded-lg border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+        />
+        <input
+          type="date"
+          value={addDate}
+          onChange={(e) => setAddDate(e.target.value)}
+          disabled={isPending}
+          aria-label="Due date"
+          className="h-[34px] rounded-lg border border-input bg-background px-2 text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+        />
+        <Button type="submit" size="sm" disabled={isPending || !addTitle.trim()}>
+          <Plus />
+          Add
+        </Button>
+      </form>
+      {addError && <p className="text-xs text-destructive">{addError}</p>}
+
+      {/* "Plan next" prompt */}
+      {planNext && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm">
+          <span className="mr-auto font-medium">
+            <Check className="mr-1 inline size-3.5 text-green-500" />
+            Done! Schedule a follow-up?
+          </span>
+          <input
+            value={nextTitle}
+            onChange={(e) => setNextTitle(e.target.value)}
+            placeholder="Next task title…"
+            className="w-44 rounded-lg border border-input bg-background px-2 py-1 text-sm focus-visible:border-ring focus-visible:outline-none"
+          />
+          <input
+            type="date"
+            value={nextDate}
+            onChange={(e) => setNextDate(e.target.value)}
+            className="h-[30px] rounded-lg border border-input bg-background px-2 text-xs focus-visible:border-ring focus-visible:outline-none"
+          />
+          <Button size="sm" onClick={handleCreateFollowUp} disabled={!nextTitle.trim()}>
+            Create
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setPlanNext(null)}
+          >
+            Skip
+          </Button>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {tasks.length === 0 && (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No tasks yet. Add one above.
+        </p>
+      )}
+
+      {/* Active tasks */}
+      {activeTasks.length > 0 && (
+        <ul className="flex flex-col gap-1.5">
+          {activeTasks.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              reschedulingId={reschedulingId}
+              isPending={isPending}
+              onToggle={() => handleToggleDone(task)}
+              onStartReschedule={() => setReschedulingId(task.id)}
+              onReschedule={(d) => handleReschedule(task.id, d)}
+              onCancelReschedule={() => setReschedulingId(null)}
+              onDelete={() => handleDelete(task.id)}
+            />
+          ))}
+        </ul>
+      )}
+
+      {/* Done tasks */}
+      {doneTasks.length > 0 && (
+        <>
+          {activeTasks.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">Completed</span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+          )}
+          <ul className="flex flex-col gap-1.5">
+            {doneTasks.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                reschedulingId={reschedulingId}
+                isPending={isPending}
+                onToggle={() => handleToggleDone(task)}
+                onStartReschedule={() => setReschedulingId(task.id)}
+                onReschedule={(d) => handleReschedule(task.id, d)}
+                onCancelReschedule={() => setReschedulingId(null)}
+                onDelete={() => handleDelete(task.id)}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Task row ───────────────────────────────────────────────────────────────
+
+function TaskRow({
+  task,
+  reschedulingId,
+  isPending,
+  onToggle,
+  onStartReschedule,
+  onReschedule,
+  onCancelReschedule,
+  onDelete,
+}: {
+  task: SerializedTask
+  reschedulingId: string | null
+  isPending: boolean
+  onToggle: () => void
+  onStartReschedule: () => void
+  onReschedule: (date: string) => void
+  onCancelReschedule: () => void
+  onDelete: () => void
+}) {
+  const dueStatus = taskDueStatus(task.dueDate, task.isDone)
+  const isRescheduling = reschedulingId === task.id
+
+  return (
+    <li
+      className={cn(
+        'group flex items-center gap-3 rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-border hover:bg-muted/30',
+        task.isDone && 'opacity-60',
+      )}
+    >
+      {/* Checkbox */}
+      <button
+        onClick={onToggle}
+        disabled={isPending}
+        aria-label={task.isDone ? 'Mark incomplete' : 'Mark complete'}
+        className={cn(
+          'flex size-5 shrink-0 items-center justify-center rounded border transition-colors',
+          task.isDone
+            ? 'border-green-500 bg-green-500 text-white'
+            : 'border-input hover:border-primary',
+        )}
+      >
+        {task.isDone && <Check className="size-3" />}
+      </button>
+
+      {/* Title */}
+      <span
+        className={cn(
+          'flex-1 text-sm',
+          task.isDone && 'line-through text-muted-foreground',
+        )}
+      >
+        {task.title}
+      </span>
+
+      {/* Due date / reschedule */}
+      {isRescheduling ? (
+        <input
+          type="date"
+          defaultValue={task.dueDate ? task.dueDate.slice(0, 10) : ''}
+          autoFocus
+          onBlur={(e) => {
+            if (e.target.value) onReschedule(e.target.value)
+            else onCancelReschedule()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onReschedule((e.target as HTMLInputElement).value)
+            if (e.key === 'Escape') onCancelReschedule()
+          }}
+          className="h-7 rounded border border-input bg-background px-1.5 text-xs outline-none focus:border-ring"
+        />
+      ) : task.dueDate ? (
+        <button
+          onClick={onStartReschedule}
+          className={cn(
+            'text-xs tabular-nums transition-colors hover:text-foreground',
+            DUE_STATUS_CLASSES[dueStatus],
+          )}
+        >
+          {formatDueBadge(task.dueDate)}
+        </button>
+      ) : (
+        <button
+          onClick={onStartReschedule}
+          className="text-xs text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100"
+          aria-label="Set due date"
+        >
+          <Calendar className="size-3.5" />
+        </button>
+      )}
+
+      {/* Delete */}
+      <button
+        onClick={onDelete}
+        disabled={isPending}
+        aria-label="Delete task"
+        className="shrink-0 rounded p-0.5 text-muted-foreground/40 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 disabled:pointer-events-none"
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </li>
   )
 }
 
