@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useTransition } from 'react'
+import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ReactNode, FormEvent, ElementType } from 'react'
 import {
@@ -8,15 +8,18 @@ import {
   DollarSign, Briefcase, Calendar, CalendarCheck,
   Lightbulb, Tag, X, Pencil, Archive, RotateCcw, Loader2,
   FileText, PhoneCall, MessagesSquare, Send, Trash2,
-  GitBranch, Activity,
+  Plus, Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/clients/status-badge'
 import { cn } from '@/lib/utils'
 import { CLIENT_STATUSES } from '@/lib/clients/types'
 import { NOTE_TYPES, type NoteType } from '@/lib/notes/types'
-import { changeClientStatusAction, setClientArchivedAction } from '@/lib/actions/clients'
+import { TAG_COLOR_CLASSES, TAG_DOT_CLASSES } from '@/lib/tags/colors'
+import { TAG_COLORS, type TagColor } from '@/lib/tags/validators'
+import { changeClientStatusAction, setClientArchivedAction, updateClientAction } from '@/lib/actions/clients'
 import { createNoteAction, deleteNoteAction } from '@/lib/actions/notes'
+import { listTagsAction, attachTagAction, detachTagAction } from '@/lib/actions/tags'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -57,6 +60,7 @@ export type SerializedClientDetail = {
     detail: Record<string, unknown>
     createdAt: string
   }>
+  customFields: Record<string, string>
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -419,15 +423,129 @@ function NotesTab({ client }: { client: SerializedClientDetail }) {
 
 // ── Overview tab ───────────────────────────────────────────────────────────
 
-function OverviewTab({ client }: { client: SerializedClientDetail }) {
-  const followupOverdue = isOverdue(client.nextFollowupDate)
+type PickerTag = { id: string; label: string; color: string | null }
 
+function OverviewTab({ client }: { client: SerializedClientDetail }) {
+  const router = useRouter()
+
+  // ── Tag picker ─────────────────────────────────────────────────────────
+  const [attachedTagIds, setAttachedTagIds] = useState(
+    () => new Set(client.clientTags.map((ct) => ct.tag.id)),
+  )
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [allTags, setAllTags] = useState<PickerTag[] | null>(null)
+  const [loadingTags, setLoadingTags] = useState(false)
+  const [, startTagTransition] = useTransition()
+  const pickerRef = useRef<HTMLDivElement>(null)
+
+  // ── Custom fields ──────────────────────────────────────────────────────
+  const [customFields, setCustomFields] = useState<Record<string, string>>(
+    () => (client.customFields ?? {}) as Record<string, string>,
+  )
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [editingVal, setEditingVal] = useState('')
+  const [addingField, setAddingField] = useState(false)
+  const [newKey, setNewKey] = useState('')
+  const [newVal, setNewVal] = useState('')
+  const [, startCfTransition] = useTransition()
+
+  // Sync from server props
+  useEffect(() => {
+    setAttachedTagIds(new Set(client.clientTags.map((ct) => ct.tag.id)))
+  }, [client.clientTags])
+
+  useEffect(() => {
+    setCustomFields((client.customFields ?? {}) as Record<string, string>)
+  }, [client.customFields])
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!pickerOpen) return
+    function handler(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [pickerOpen])
+
+  async function handleOpenPicker() {
+    setPickerOpen(true)
+    if (!allTags) {
+      setLoadingTags(true)
+      const result = await listTagsAction()
+      setAllTags(result.tags)
+      setLoadingTags(false)
+    }
+  }
+
+  function handleTagToggle(tagId: string) {
+    const isAttached = attachedTagIds.has(tagId)
+    const snapshot = new Set(attachedTagIds)
+    setAttachedTagIds((prev) => {
+      const next = new Set(prev)
+      if (isAttached) next.delete(tagId)
+      else next.add(tagId)
+      return next
+    })
+    startTagTransition(async () => {
+      const result = isAttached
+        ? await detachTagAction(client.id, tagId)
+        : await attachTagAction(client.id, tagId)
+      if ('error' in result) setAttachedTagIds(snapshot)
+      else router.refresh()
+    })
+  }
+
+  function saveCustomFields(updated: Record<string, string>) {
+    const snapshot = { ...customFields }
+    setCustomFields(updated)
+    startCfTransition(async () => {
+      const result = await updateClientAction(client.id, { customFields: updated })
+      if ('error' in result) setCustomFields(snapshot)
+      else router.refresh()
+    })
+  }
+
+  function commitFieldEdit() {
+    if (!editingKey) return
+    saveCustomFields({ ...customFields, [editingKey]: editingVal })
+    setEditingKey(null)
+  }
+
+  function deleteField(key: string) {
+    const updated = Object.fromEntries(
+      Object.entries(customFields).filter(([k]) => k !== key),
+    )
+    saveCustomFields(updated)
+  }
+
+  function addField() {
+    const k = newKey.trim()
+    const v = newVal.trim()
+    if (!k || !v) return
+    saveCustomFields({ ...customFields, [k]: v })
+    setAddingField(false)
+    setNewKey('')
+    setNewVal('')
+  }
+
+  const followupOverdue = isOverdue(client.nextFollowupDate)
   const hasContact = !!(client.email || client.phone || client.website)
   const hasPipeline = !!(
     client.estimatedValue != null ||
     client.industry || client.companySize ||
     client.leadSource || client.projectType
   )
+  const customFieldEntries = Object.entries(customFields)
+
+  // Derive displayed tag chips: use allTags when loaded for optimistic accuracy
+  const displayedTags: PickerTag[] = allTags
+    ? allTags.filter((t) => attachedTagIds.has(t.id))
+    : client.clientTags
+        .filter((ct) => attachedTagIds.has(ct.tag.id))
+        .map((ct) => ct.tag)
 
   return (
     <div className="flex flex-col gap-6 p-5">
@@ -514,23 +632,213 @@ function OverviewTab({ client }: { client: SerializedClientDetail }) {
         </dl>
       </section>
 
-      {/* Tags */}
-      {client.clientTags.length > 0 && (
-        <section>
-          <SectionHeading>Tags</SectionHeading>
-          <div className="flex flex-wrap gap-1.5">
-            {client.clientTags.map(({ tag }) => (
+      {/* ── Tags ──────────────────────────────────────────────────────── */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Tags
+          </h3>
+          <div className="relative" ref={pickerRef}>
+            <button
+              onClick={handleOpenPicker}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Tag className="size-3" />
+              Edit tags
+            </button>
+
+            {/* Tag picker dropdown */}
+            {pickerOpen && (
+              <div className="absolute right-0 top-7 z-20 w-56 rounded-xl border border-border bg-popover shadow-lg">
+                <div className="border-b border-border px-3 py-2">
+                  <p className="text-xs font-medium">Attach tags</p>
+                </div>
+                <div className="max-h-52 overflow-y-auto p-1">
+                  {loadingTags ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : !allTags || allTags.length === 0 ? (
+                    <p className="px-3 py-3 text-xs text-muted-foreground">
+                      No tags yet. Create some in Settings.
+                    </p>
+                  ) : (
+                    allTags.map((tag) => {
+                      const checked = attachedTagIds.has(tag.id)
+                      return (
+                        <button
+                          key={tag.id}
+                          onClick={() => handleTagToggle(tag.id)}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm hover:bg-muted transition-colors"
+                        >
+                          <span
+                            className={cn(
+                              'flex size-4 shrink-0 items-center justify-center rounded border transition-colors',
+                              checked
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-input',
+                            )}
+                          >
+                            {checked && <Check className="size-2.5" />}
+                          </span>
+                          <span
+                            className={cn(
+                              'rounded-full px-2 py-0.5 text-xs font-medium',
+                              TAG_COLOR_CLASSES[(tag.color ?? 'gray') as TagColor],
+                            )}
+                          >
+                            {tag.label}
+                          </span>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+                <div className="border-t border-border px-3 py-2">
+                  <button
+                    onClick={() => setPickerOpen(false)}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {displayedTags.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No tags attached.</p>
+          ) : (
+            displayedTags.map((tag) => (
               <span
                 key={tag.id}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium"
+                className={cn(
+                  'rounded-full px-2.5 py-0.5 text-xs font-medium',
+                  TAG_COLOR_CLASSES[(tag.color ?? 'gray') as TagColor],
+                )}
               >
-                <Tag className="size-2.5 text-muted-foreground" />
                 {tag.label}
               </span>
-            ))}
-          </div>
-        </section>
-      )}
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* ── Custom fields ──────────────────────────────────────────── */}
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Custom fields
+          </h3>
+          {!addingField && (
+            <button
+              onClick={() => setAddingField(true)}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus className="size-3" />
+              Add field
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {customFieldEntries.map(([key, value]) => (
+            <div key={key} className="group flex items-start gap-3">
+              <dt className="w-28 shrink-0 pt-0.5 text-sm text-muted-foreground leading-snug">
+                {key}
+              </dt>
+              {editingKey === key ? (
+                <dd className="flex flex-1 items-center gap-1.5">
+                  <input
+                    value={editingVal}
+                    onChange={(e) => setEditingVal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitFieldEdit()
+                      if (e.key === 'Escape') setEditingKey(null)
+                    }}
+                    autoFocus
+                    className="flex-1 rounded border border-input bg-background px-2 py-0.5 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/50"
+                  />
+                  <button
+                    onClick={commitFieldEdit}
+                    aria-label="Save"
+                    className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <Check className="size-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setEditingKey(null)}
+                    aria-label="Cancel"
+                    className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </dd>
+              ) : (
+                <dd className="flex flex-1 items-center justify-between gap-2">
+                  <span className="text-sm">{value}</span>
+                  <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <button
+                      onClick={() => { setEditingKey(key); setEditingVal(value) }}
+                      aria-label={`Edit ${key}`}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil className="size-3" />
+                    </button>
+                    <button
+                      onClick={() => deleteField(key)}
+                      aria-label={`Delete ${key}`}
+                      className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                </dd>
+              )}
+            </div>
+          ))}
+
+          {customFieldEntries.length === 0 && !addingField && (
+            <p className="text-sm text-muted-foreground">No custom fields yet.</p>
+          )}
+
+          {/* Add field inline form */}
+          {addingField && (
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+              <input
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+                placeholder="Field name"
+                autoFocus
+                className="w-28 shrink-0 rounded border border-input bg-background px-2 py-0.5 text-sm outline-none focus:border-ring"
+              />
+              <input
+                value={newVal}
+                onChange={(e) => setNewVal(e.target.value)}
+                placeholder="Value"
+                onKeyDown={(e) => { if (e.key === 'Enter') addField() }}
+                className="flex-1 rounded border border-input bg-background px-2 py-0.5 text-sm outline-none focus:border-ring"
+              />
+              <button
+                onClick={addField}
+                aria-label="Save field"
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <Check className="size-3.5" />
+              </button>
+              <button
+                onClick={() => { setAddingField(false); setNewKey(''); setNewVal('') }}
+                aria-label="Cancel"
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Activity timeline */}
       {client.activities.length > 0 && (

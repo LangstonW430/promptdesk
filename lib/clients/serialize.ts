@@ -37,6 +37,7 @@ type ClientWithRelations = {
     detail: unknown
     createdAt: Date
   }>
+  customFields: unknown
 }
 
 export function serializeClientDetail(client: ClientWithRelations): SerializedClientDetail {
@@ -89,5 +90,6 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
       detail: a.detail as Record<string, unknown>,
       createdAt: a.createdAt.toISOString(),
     })),
+    customFields: (client.customFields ?? {}) as Record<string, string>,
   }
 }
