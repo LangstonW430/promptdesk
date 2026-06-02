@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============ IDENTITY ============
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique
+  fullName     String?  @map("full_name")
+  businessName String?  @map("business_name")
+  businessType String?  @map("business_type")
+  defaultAi    String?  @map("default_ai")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  settings     Json     @default("{}") @db.JsonB
+
+  clients          Client[]
+  notes            Note[]
+  activities       Activity[]
+  tasks            Task[]
+  tags             Tag[]
+  attachments      Attachment[]
+  promptTemplates  PromptTemplate[]
+  generatedPrompts GeneratedPrompt[]
+
+  @@map("users")
+}
+
+// ============ CLIENTS ============
+
+model Client {
+  id               String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId          String                   @map("owner_id") @db.Uuid
+  companyName      String?                  @map("company_name")
+  contactName      String?                  @map("contact_name")
+  email            String?
+  phone            String?
+  website          String?
+  industry         String?
+  companySize      String?                  @map("company_size")
+  leadSource       String?                  @map("lead_source")
+  status           String                   @default("lead")
+  estimatedValue   Decimal?                 @map("estimated_value") @db.Decimal(12, 2)
+  projectType      String?                  @map("project_type")
+  painPoints       String?                  @map("pain_points")
+  requirements     String?
+  opportunityNotes String?                  @map("opportunity_notes")
+  lastContactDate  DateTime?                @map("last_contact_date") @db.Date
+  nextFollowupDate DateTime?                @map("next_followup_date") @db.Date
+  customFields     Json                     @default("{}") @map("custom_fields") @db.JsonB
+  isArchived       Boolean                  @default(false) @map("is_archived")
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  searchVector     Unsupported("tsvector")? @map("search_vector")
+
+  owner            User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  notes            Note[]
+  activities       Activity[]
+  tasks            Task[]
+  attachments      Attachment[]
+  clientTags       ClientTag[]
+  generatedPrompts GeneratedPrompt[]
+
+  @@index([ownerId, status], map: "clients_owner_status_idx")
+  @@index([ownerId, nextFollowupDate], map: "clients_owner_next_followup_idx")
+  @@index([customFields(ops: JsonbOps)], type: Gin, map: "clients_custom_fields_gin_idx")
+  // GIN index on searchVector (tsvector) is added as raw SQL in the migration — see migrations/
+  @@map("clients")
+}
+
+// ============ NOTES / ACTIVITY ============
+
+model Note {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId    String   @map("owner_id") @db.Uuid
+  clientId   String   @map("client_id") @db.Uuid
+  body       String
+  noteType   String   @default("note") @map("note_type")
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, occurredAt(sort: Desc)], map: "notes_client_occurred_idx")
+  @@map("notes")
+}
+
+model Activity {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId   String   @map("owner_id") @db.Uuid
+  clientId  String?  @map("client_id") @db.Uuid
+  type      String
+  detail    Json     @default("{}") @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("activities")
+}
+
+// ============ FOLLOW-UPS / TASKS ============
+
+model Task {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId   String    @map("owner_id") @db.Uuid
+  clientId  String?   @map("client_id") @db.Uuid
+  title     String
+  dueDate   DateTime? @map("due_date") @db.Date
+  isDone    Boolean   @default(false) @map("is_done")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("tasks")
+}
+
+// ============ TAGS (many-to-many) ============
+
+model Tag {
+  id      String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String  @map("owner_id") @db.Uuid
+  label   String
+  color   String?
+
+  owner      User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  clientTags ClientTag[]
+
+  @@unique([ownerId, label], map: "tags_owner_label_unique")
+  @@map("tags")
+}
+
+model ClientTag {
+  clientId String @map("client_id") @db.Uuid
+  tagId    String @map("tag_id") @db.Uuid
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, tagId])
+  @@map("client_tags")
+}
+
+// ============ ATTACHMENTS ============
+
+model Attachment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId    String   @map("owner_id") @db.Uuid
+  clientId   String   @map("client_id") @db.Uuid
+  fileName   String   @map("file_name")
+  storageKey String   @map("storage_key")
+  mimeType   String?  @map("mime_type")
+  sizeBytes  BigInt?  @map("size_bytes")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+// ============ PROMPT SYSTEM ============
+
+model PromptTemplate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId     String?  @map("owner_id") @db.Uuid
+  key         String
+  name        String
+  description String?
+  version     Int      @default(1)
+  body        String
+  scope       String
+  tokenBudget Int      @default(4000) @map("token_budget")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner            User?             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  generatedPrompts GeneratedPrompt[]
+
+  @@map("prompt_templates")
+}
+
+model GeneratedPrompt {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId      String   @map("owner_id") @db.Uuid
+  templateId   String?  @map("template_id") @db.Uuid
+  templateKey  String   @map("template_key")
+  scope        String
+  clientId     String?  @map("client_id") @db.Uuid
+  renderedText String   @map("rendered_text")
+  tokenCount   Int?     @map("token_count")
+  contextMeta  Json     @default("{}") @map("context_meta") @db.JsonB
+  isSaved      Boolean  @default(false) @map("is_saved")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner    User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  template PromptTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  client   Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, createdAt(sort: Desc)], map: "generated_prompts_owner_created_idx")
+  @@map("generated_prompts")
+}
