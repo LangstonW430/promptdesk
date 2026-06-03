@@ -55,7 +55,6 @@ export function ConfirmDialog({
               variant={variant === 'destructive' ? 'destructive' : 'default'}
               onClick={onConfirm}
               disabled={isPending}
-              className={cn(variant === 'destructive' && 'bg-destructive text-destructive-foreground hover:bg-destructive/90')}
             >
               {isPending && <Loader2 className="animate-spin" />}
               {confirmLabel}

@@ -182,6 +182,7 @@ export function CsvImporter() {
 
   function handleImport() {
     const mappedRows = applyMapping(csvDataRows, fieldMap)
+    setStep('importing')
     startTransition(async () => {
       const res = await importClientsAction(mappedRows)
       setResult(res)

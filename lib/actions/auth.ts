@@ -29,7 +29,8 @@ export async function signIn(_: unknown, formData: FormData) {
 
   if (error) return { error: error.message }
 
-  redirect('/dashboard')
+  const next = formData.get('next')
+  redirect(typeof next === 'string' && next.startsWith('/') ? next : '/dashboard')
 }
 
 export async function signUp(_: unknown, formData: FormData) {
