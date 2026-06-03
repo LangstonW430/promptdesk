@@ -1,5 +1,6 @@
 import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
+import { refreshClientSummary } from '@/lib/relationship-summary/refresh'
 import { buildClientWhere } from './filters'
 import type { ClientFilters, ClientStatus } from './types'
 import type { CreateClientInput, UpdateClientInput } from './validators'
@@ -99,8 +100,8 @@ export async function changeClientStatus(
   if (!current) return null
   if (current.status === newStatus) return null
 
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.client.update({
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.client.update({
       where: { id },
       data: { status: newStatus },
     })
@@ -112,6 +113,9 @@ export async function changeClientStatus(
         detail: { from: current.status, to: newStatus } as unknown as Prisma.InputJsonValue,
       },
     })
-    return updated
+    return result
   })
+
+  await refreshClientSummary(ownerId, id)
+  return updated
 }

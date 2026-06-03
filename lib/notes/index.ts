@@ -1,5 +1,6 @@
 import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
+import { refreshClientSummary } from '@/lib/relationship-summary/refresh'
 import type { CreateNoteInput } from './validators'
 
 export async function createNote(
@@ -19,8 +20,8 @@ export async function createNote(
     input.occurredAt ?? new Date().toISOString().split('T')[0]
   const occurredAt = new Date(occurredDateStr)
 
-  return prisma.$transaction(async (tx) => {
-    const note = await tx.note.create({
+  const note = await prisma.$transaction(async (tx) => {
+    const created = await tx.note.create({
       data: {
         ownerId,
         clientId,
@@ -36,8 +37,8 @@ export async function createNote(
         clientId,
         type: 'note_added',
         detail: {
-          noteId: note.id,
-          noteType: note.noteType,
+          noteId: created.id,
+          noteType: created.noteType,
         } as unknown as Prisma.InputJsonValue,
       },
     })
@@ -54,13 +55,23 @@ export async function createNote(
       })
     }
 
-    return note
+    return created
   })
+
+  await refreshClientSummary(ownerId, clientId)
+  return note
 }
 
 export async function deleteNote(ownerId: string, noteId: string): Promise<boolean> {
-  const result = await prisma.note.deleteMany({ where: { id: noteId, ownerId } })
-  return result.count > 0
+  // Fetch clientId before deleting so we can refresh the summary afterward
+  const note = await prisma.note.findFirst({
+    where: { id: noteId, ownerId },
+    select: { clientId: true },
+  })
+  if (!note) return false
+  await prisma.note.delete({ where: { id: noteId } })
+  await refreshClientSummary(ownerId, note.clientId)
+  return true
 }
 
 export async function listNotes(ownerId: string, clientId: string) {

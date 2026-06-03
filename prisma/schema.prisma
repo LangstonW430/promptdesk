@@ -53,10 +53,12 @@ model Client {
   lastContactDate  DateTime?                @map("last_contact_date") @db.Date
   nextFollowupDate DateTime?                @map("next_followup_date") @db.Date
   customFields     Json                     @default("{}") @map("custom_fields") @db.JsonB
-  isArchived       Boolean                  @default(false) @map("is_archived")
-  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  searchVector     Unsupported("tsvector")? @map("search_vector")
+  isArchived           Boolean                  @default(false) @map("is_archived")
+  relationshipSummary  String?                  @map("relationship_summary")
+  summaryUpdatedAt     DateTime?                @map("summary_updated_at") @db.Timestamptz(6)
+  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  searchVector         Unsupported("tsvector")? @map("search_vector")
 
   owner            User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   notes            Note[]

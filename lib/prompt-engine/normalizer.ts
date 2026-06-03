@@ -131,6 +131,7 @@ export function normalizeClient(raw: RawClient, opts: NormalizerOptions = {}): E
     customFields,
     createdAt: toIso(raw.createdAt) ?? new Date(0).toISOString(),
     updatedAt: toIso(raw.updatedAt) ?? new Date(0).toISOString(),
+    relationshipSummary: raw.relationshipSummary ?? null,
   }
 }
 

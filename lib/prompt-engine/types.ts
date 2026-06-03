@@ -34,6 +34,8 @@ export interface EngineClient {
   customFields: Record<string, string>
   createdAt: string                      // ISO 8601
   updatedAt: string
+  /** Pre-computed rolling summary of notes + status history (~250–350 tokens). */
+  relationshipSummary: string | null
 }
 
 /** Normalised note with a content hash for deduplication. */
@@ -231,6 +233,7 @@ export interface RawClient {
   customFields?: Record<string, unknown>
   createdAt: Date | string
   updatedAt: Date | string
+  relationshipSummary?: string | null
 }
 
 export interface RawNote {

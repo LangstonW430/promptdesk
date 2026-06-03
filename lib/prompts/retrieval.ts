@@ -144,6 +144,7 @@ export async function fetchContext(
         customFields: c.customFields as Record<string, unknown>,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
+        relationshipSummary: c.relationshipSummary ?? null,
       })
     }
 
@@ -207,6 +208,7 @@ export async function fetchContext(
         customFields: c.customFields as Record<string, unknown>,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
+        relationshipSummary: c.relationshipSummary ?? null,
       })
     }
 
@@ -215,10 +217,15 @@ export async function fetchContext(
         ? { clientId, ownerId, noteType: { in: spec.noteTypeFilter } }
         : { clientId, ownerId }
 
+      // When a relationship summary exists, months of history are already compressed
+      // into the client block. Only fetch the most recent notes for freshness context.
+      const hasSummary = !!c?.relationshipSummary
+      const notesLimit = hasSummary ? Math.min(spec.maxNotes ?? 20, 5) : (spec.maxNotes ?? 20)
+
       const rawNotes = await prisma.note.findMany({
         where: noteWhere,
         orderBy: { occurredAt: 'desc' },
-        take: spec.maxNotes ?? 20,
+        take: notesLimit,
       })
       notes.push(...rawNotes.map((n) => ({
         id: n.id,

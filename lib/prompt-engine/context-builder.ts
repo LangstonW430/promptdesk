@@ -192,6 +192,9 @@ function clientFullContent(c: EngineClient): string {
     line('Requirements', c.requirements),
     line('Opportunity', c.opportunityNotes),
     c.tags.length > 0 ? `Tags: ${c.tags.join(', ')}` : null,
+    // Relationship summary compresses months of notes+status history into ~300 tokens.
+    // When present it replaces bulk note retrieval for Client Insight prompts.
+    c.relationshipSummary ? `\n${c.relationshipSummary}` : null,
   ])
 }
 
