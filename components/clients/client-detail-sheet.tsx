@@ -6,9 +6,10 @@ import { ClientDetail, type SerializedClientDetail } from '@/components/clients/
 
 interface ClientDetailSheetProps {
   client: SerializedClientDetail
+  defaultAi?: string | null
 }
 
-export function ClientDetailSheet({ client }: ClientDetailSheetProps) {
+export function ClientDetailSheet({ client, defaultAi }: ClientDetailSheetProps) {
   const router = useRouter()
 
   return (
@@ -23,7 +24,7 @@ export function ClientDetailSheet({ client }: ClientDetailSheetProps) {
         showCloseButton={false}
         style={{ maxWidth: '540px', padding: 0, gap: 0, overflowY: 'auto' }}
       >
-        <ClientDetail client={client} onClose={() => router.back()} />
+        <ClientDetail client={client} defaultAi={defaultAi} onClose={() => router.back()} />
       </SheetContent>
     </Sheet>
   )

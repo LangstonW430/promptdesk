@@ -5,6 +5,7 @@ import { getOwnerId } from '@/lib/auth'
 import { getClientById } from '@/lib/clients'
 import { serializeClientDetail } from '@/lib/clients/serialize'
 import { ClientDetail } from '@/components/clients/client-detail'
+import { prisma } from '@/lib/db/client'
 
 type Params = Promise<{ id: string }>
 
@@ -17,7 +18,10 @@ export default async function ClientDetailPage({ params }: { params: Params }) {
   }
 
   const { id } = await params
-  const client = await getClientById(ownerId, id)
+  const [client, user] = await Promise.all([
+    getClientById(ownerId, id),
+    prisma.user.findUnique({ where: { id: ownerId }, select: { defaultAi: true } }),
+  ])
   if (!client) notFound()
 
   return (
@@ -31,7 +35,10 @@ export default async function ClientDetailPage({ params }: { params: Params }) {
       </Link>
 
       <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
-        <ClientDetail client={serializeClientDetail(client)} />
+        <ClientDetail
+          client={serializeClientDetail(client)}
+          defaultAi={user?.defaultAi ?? null}
+        />
       </div>
     </div>
   )

@@ -27,6 +27,8 @@ import { createTaskAction, updateTaskAction, deleteTaskAction } from '@/lib/acti
 import { requestSignedUrlAction, saveAttachmentAction, deleteAttachmentAction } from '@/lib/actions/attachments'
 import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES, BUCKET_NAME } from '@/lib/attachments/validators'
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
+import { ClientInsightPanel } from '@/components/prompts/client-insight-panel'
+import { NoteAnalysisPanel } from '@/components/prompts/note-analysis-panel'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -126,10 +128,11 @@ type TabId = 'overview' | 'notes' | 'intelligence' | 'tasks' | 'attachments'
 
 interface ClientDetailProps {
   client: SerializedClientDetail
+  defaultAi?: string | null
   onClose?: () => void
 }
 
-export function ClientDetail({ client, onClose }: ClientDetailProps) {
+export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [localStatus, setLocalStatus] = useState(client.status)
@@ -288,8 +291,8 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
 
       {/* ── Tab content ────────────────────────────────────────────── */}
       <div>
-        {activeTab === 'overview' && <OverviewTab client={client} />}
-        {activeTab === 'notes' && <NotesTab client={client} />}
+        {activeTab === 'overview' && <OverviewTab client={client} defaultAi={defaultAi} />}
+        {activeTab === 'notes' && <NotesTab client={client} defaultAi={defaultAi} />}
         {activeTab === 'intelligence' && (
           <IntelligenceTab
             client={client}
@@ -316,7 +319,7 @@ export function ClientDetail({ client, onClose }: ClientDetailProps) {
 
 // ── Notes tab ──────────────────────────────────────────────────────────────
 
-function NotesTab({ client }: { client: SerializedClientDetail }) {
+function NotesTab({ client, defaultAi }: { client: SerializedClientDetail; defaultAi?: string | null }) {
   const router = useRouter()
   const [body, setBody] = useState('')
   const [noteType, setNoteType] = useState<NoteType>('note')
@@ -354,6 +357,13 @@ function NotesTab({ client }: { client: SerializedClientDetail }) {
 
   return (
     <div className="flex flex-col gap-4 p-5">
+      {/* Note Analysis prompt generator */}
+      <NoteAnalysisPanel
+        clientId={client.id}
+        noteCount={client.notes.length}
+        defaultAi={defaultAi}
+      />
+
       {/* Add note form */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-3 rounded-xl border border-border bg-muted/30 p-4">
         <textarea
@@ -453,7 +463,7 @@ function NotesTab({ client }: { client: SerializedClientDetail }) {
 
 type PickerTag = { id: string; label: string; color: string | null }
 
-function OverviewTab({ client }: { client: SerializedClientDetail }) {
+function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; defaultAi?: string | null }) {
   const router = useRouter()
 
   // ── Tag picker ─────────────────────────────────────────────────────────
@@ -866,6 +876,12 @@ function OverviewTab({ client }: { client: SerializedClientDetail }) {
             </div>
           )}
         </div>
+      </section>
+
+      {/* AI Insight */}
+      <section>
+        <SectionHeading>AI Insight</SectionHeading>
+        <ClientInsightPanel clientId={client.id} defaultAi={defaultAi} />
       </section>
 
       {/* Activity timeline */}
