@@ -1,2 +1,5 @@
 export * from './types'
+export * from './template-types'
 export { scoreItem, scoreAll } from './scorer'
+export { renderTemplate, estimateTokens } from './renderer'
+export { BUILT_IN_TEMPLATES } from './templates'
