@@ -69,13 +69,14 @@ export async function findTemplate(
 export interface UserProfile {
   businessName: string | null
   businessType: string | null
+  defaultAi: string | null
   currency: string
 }
 
 export async function getUserProfile(ownerId: string): Promise<UserProfile> {
   const user = await prisma.user.findUnique({
     where: { id: ownerId },
-    select: { businessName: true, businessType: true, settings: true },
+    select: { businessName: true, businessType: true, defaultAi: true, settings: true },
   })
   const settings = (user?.settings ?? {}) as Record<string, unknown>
   const currency =
@@ -83,6 +84,7 @@ export async function getUserProfile(ownerId: string): Promise<UserProfile> {
   return {
     businessName: user?.businessName ?? null,
     businessType: user?.businessType ?? null,
+    defaultAi: user?.defaultAi ?? null,
     currency,
   }
 }

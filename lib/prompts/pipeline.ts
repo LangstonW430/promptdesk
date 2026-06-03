@@ -114,13 +114,31 @@ export function buildPrompt(input: PipelineInput): GenerateResult {
     templateKey: template.key,
     templateVersion: template.version,
     objective,
-    includedItems: budgetResult.included.map((i) => ({
-      id: i.id,
-      type: i.type,
-      tier: i.tier,
-      score: i.score,
-      reason: i.reason,
-    })),
+    includedItems: budgetResult.included.map((i) => {
+      let label = i.id.slice(0, 8)
+      if (i.type === 'client') {
+        const c = clientMap.get(i.id)
+        label = c?.companyName ?? c?.contactName ?? label
+      } else if (i.type === 'note') {
+        const n = noteMap.get(i.id)
+        if (n) {
+          const body = n.body.trim()
+          label = body.length > 60 ? `${body.slice(0, 57)}…` : body
+        }
+      } else if (i.type === 'task') {
+        const t = taskMap.get(i.id)
+        label = t?.title ?? label
+      } else if (i.type === 'activity') {
+        const a = activityMap.get(i.id)
+        if (a) {
+          const date = new Date(a.occurredAt).toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric',
+          })
+          label = `${a.type} · ${date}`
+        }
+      }
+      return { id: i.id, type: i.type, tier: i.tier, score: i.score, reason: i.reason, label }
+    }),
     omittedGroups: budgetResult.omittedSummary,
     deduplicatedNoteCount,
     totalCandidateCount,

@@ -348,14 +348,8 @@ describe('buildPrompt — token budget enforcement', () => {
       userProfile: USER_PROFILE,
       now: NOW,
     })
-    // The context block tokens (from budgeter) should be ≤ budget
-    expect(result.contextMeta.totalCandidateCount).toBeGreaterThan(0) // sanity
-    // The included items' tokens should not exceed the budget
-    const includedTokens = result.contextMeta.includedItems.reduce(
-      (sum, i) => sum + (i as { tokens?: number }).tokens ?? 0,
-      0,
-    )
-    // Full prompt will be larger (template overhead), but context block ≤ budget
+    // Sanity: there were candidates and the full prompt has positive token count
+    expect(result.contextMeta.totalCandidateCount).toBeGreaterThan(0)
     expect(result.tokenCount).toBeGreaterThan(0)
   })
 

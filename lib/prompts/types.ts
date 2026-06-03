@@ -1,5 +1,5 @@
-import type { TemplateScope, InclusionTier } from '@/lib/prompt-engine/template-types'
-import type { ContextItemType, OmittedGroup } from '@/lib/prompt-engine/types'
+import type { TemplateScope } from '@/lib/prompt-engine/template-types'
+import type { ContextItemType, InclusionTier, OmittedGroup } from '@/lib/prompt-engine/types'
 
 export interface GenerateRequest {
   templateKey: string
@@ -14,6 +14,8 @@ export interface ContextMetaItem {
   tier: InclusionTier
   score: number
   reason: string
+  /** Human-readable label: company name, note snippet, task title, or activity summary. */
+  label: string
 }
 
 export interface ContextMeta {
