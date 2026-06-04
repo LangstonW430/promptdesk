@@ -88,7 +88,8 @@ const NOTE_TYPE_CONFIG: Record<NoteType, { label: string; icon: ElementType; cla
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-US', {
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   })
 }
@@ -1067,7 +1068,8 @@ function formatDueBadge(dueDate: string | null): string {
   const due = dueDate.slice(0, 10)
   const today = new Date().toISOString().split('T')[0]
   if (due === today) return 'Today'
-  return new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const [y, mo, dy] = due.split('-').map(Number)
+  return new Date(y, mo - 1, dy).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 const DUE_STATUS_CLASSES: Record<string, string> = {
