@@ -299,7 +299,7 @@ export function CsvImporter() {
               {[...new Set(duplicateFields)]
                 .map((f) => CLIENT_FIELDS.find((cf) => cf.value === f)?.label ?? f)
                 .join(', ')}
-              ). Only the last column's value will be used.
+              ). Only the last column&apos;s value will be used.
             </div>
           )}
 

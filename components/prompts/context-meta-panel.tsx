@@ -159,7 +159,7 @@ export function ContextMetaPanel({ meta, className }: ContextMetaPanelProps) {
         className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div>
-          <p className="text-sm font-medium">What's included</p>
+          <p className="text-sm font-medium">What&apos;s included</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{summary}</p>
         </div>
         <ChevronDown

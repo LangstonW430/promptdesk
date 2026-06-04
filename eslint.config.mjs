@@ -5,14 +5,21 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  // Override default ignores of eslint-config-next.
   globalIgnores([
-    // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      // The codebase intentionally uses useEffect(() => { setState(prop) }, [prop])
+      // for prop-sync patterns (SSR hydration guards, optimistic-UI reconciliation
+      // after server revalidation). Turning this off avoids scatter-gun disable
+      // comments across the component layer.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
