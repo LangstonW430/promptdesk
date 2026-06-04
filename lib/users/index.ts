@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db/client'
 export interface UserSettings {
   onboardingDismissed?: boolean
   sampleDataLoaded?: boolean
-  stageProbabilities?: Record<string, number>
+  tokenBudget?: number
 }
 
 export async function getUserSettings(ownerId: string): Promise<UserSettings> {
@@ -13,6 +13,18 @@ export async function getUserSettings(ownerId: string): Promise<UserSettings> {
   })
   if (!user) return {}
   return (user.settings as UserSettings) ?? {}
+}
+
+export async function updateUserProfile(
+  ownerId: string,
+  data: {
+    fullName?: string
+    businessName?: string
+    businessType?: string
+    defaultAi?: string
+  },
+): Promise<void> {
+  await prisma.user.update({ where: { id: ownerId }, data })
 }
 
 export async function updateUserSettings(

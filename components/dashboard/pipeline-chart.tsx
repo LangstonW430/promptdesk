@@ -1,6 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import type { StageBreakdown, StageProbabilities, OpenStage } from '@/lib/dashboard'
+import type { StageBreakdown, OpenStage } from '@/lib/dashboard'
 import { formatCurrency } from '@/lib/dashboard/format'
 
 const STAGE_LABELS: Record<OpenStage, string> = {
@@ -10,7 +10,6 @@ const STAGE_LABELS: Record<OpenStage, string> = {
   negotiating: 'Negotiating',
 }
 
-// Bar segment colours — warm/cool spread, light & dark modes
 const BAR_COLORS: Record<OpenStage, string> = {
   lead: 'bg-slate-300 dark:bg-slate-600',
   contacted: 'bg-sky-300 dark:bg-sky-600',
@@ -18,7 +17,6 @@ const BAR_COLORS: Record<OpenStage, string> = {
   negotiating: 'bg-amber-400 dark:bg-amber-500',
 }
 
-// Dot colours used in the legend and table
 const DOT_COLORS: Record<OpenStage, string> = {
   lead: 'bg-slate-400 dark:bg-slate-500',
   contacted: 'bg-sky-500',
@@ -28,12 +26,10 @@ const DOT_COLORS: Record<OpenStage, string> = {
 
 interface PipelineChartProps {
   stages: StageBreakdown[]
-  stageProbabilities: StageProbabilities
   totalPipelineValue: number
 }
 
-export function PipelineChart({ stages, stageProbabilities, totalPipelineValue }: PipelineChartProps) {
-  const totalForecast = stages.reduce((s, r) => s + r.forecastContribution, 0)
+export function PipelineChart({ stages, totalPipelineValue }: PipelineChartProps) {
   const totalClients = stages.reduce((s, r) => s + r.count, 0)
   const hasData = totalPipelineValue > 0
 
@@ -41,10 +37,6 @@ export function PipelineChart({ stages, stageProbabilities, totalPipelineValue }
     <Card>
       <CardHeader>
         <CardTitle>Pipeline Breakdown</CardTitle>
-        <CardDescription>
-          Forecast&nbsp;=&nbsp;Σ&nbsp;(value&nbsp;×&nbsp;stage probability).
-          Adjust probabilities in Settings.
-        </CardDescription>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-5">
@@ -86,11 +78,7 @@ export function PipelineChart({ stages, stageProbabilities, totalPipelineValue }
               <tr className="border-b border-border text-muted-foreground">
                 <th scope="col" className="pb-2 text-left font-medium">Stage</th>
                 <th scope="col" className="pb-2 pr-0 text-right font-medium">Clients</th>
-                <th scope="col" className="pb-2 pr-0 text-right font-medium">Value</th>
-                <th scope="col" className="pb-2 pr-0 text-right font-medium">
-                  <abbr title="Probability">Prob.</abbr>
-                </th>
-                <th scope="col" className="pb-2 text-right font-medium">Forecast</th>
+                <th scope="col" className="pb-2 text-right font-medium">Value</th>
               </tr>
             </thead>
             <tbody>
@@ -105,18 +93,8 @@ export function PipelineChart({ stages, stageProbabilities, totalPipelineValue }
                   <td className="py-2 pr-0 text-right tabular-nums text-muted-foreground">
                     {s.count > 0 ? s.count : <span className="text-muted-foreground/50">0</span>}
                   </td>
-                  <td className="py-2 pr-0 text-right tabular-nums">
+                  <td className="py-2 text-right tabular-nums">
                     {s.totalValue > 0 ? formatCurrency(s.totalValue) : <span className="text-muted-foreground/50">—</span>}
-                  </td>
-                  <td className="py-2 pr-0 text-right tabular-nums text-muted-foreground">
-                    {stageProbabilities[s.stage]}%
-                  </td>
-                  <td className="py-2 text-right tabular-nums font-medium">
-                    {s.forecastContribution > 0 ? (
-                      formatCurrency(s.forecastContribution)
-                    ) : (
-                      <span className="font-normal text-muted-foreground/50">—</span>
-                    )}
                   </td>
                 </tr>
               ))}
@@ -125,12 +103,8 @@ export function PipelineChart({ stages, stageProbabilities, totalPipelineValue }
               <tr className="border-t border-border text-xs font-semibold">
                 <th scope="row" className="pt-2 text-left font-semibold">Total</th>
                 <td className="pt-2 pr-0 text-right tabular-nums">{totalClients}</td>
-                <td className="pt-2 pr-0 text-right tabular-nums">
+                <td className="pt-2 text-right tabular-nums">
                   {hasData ? formatCurrency(totalPipelineValue) : '—'}
-                </td>
-                <td />
-                <td className="pt-2 text-right tabular-nums text-primary">
-                  {totalForecast > 0 ? formatCurrency(totalForecast) : '—'}
                 </td>
               </tr>
             </tfoot>

@@ -1,39 +1,25 @@
+import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/client'
 import {
-  DEFAULT_STAGE_PROBABILITIES,
   OPEN_STAGES,
   type DashboardAggregates,
   type OpenStage,
-  type StageProbabilities,
   type StageBreakdown,
 } from './types'
-import { computeConversionRate, computeRevenueForecast } from './forecast'
 
-export { DEFAULT_STAGE_PROBABILITIES, OPEN_STAGES } from './types'
-export type { DashboardAggregates, StageProbabilities, StageBreakdown, OpenStage } from './types'
+export { OPEN_STAGES } from './types'
+export type { DashboardAggregates, StageBreakdown, OpenStage } from './types'
 
 // ─── Aggregates ───────────────────────────────────────────────────────────────
 
-export async function getDashboardAggregates(ownerId: string): Promise<DashboardAggregates> {
-  const [rawGroups, user] = await Promise.all([
-    prisma.client.groupBy({
-      by: ['status'],
-      where: { ownerId, isArchived: false },
-      _count: { id: true },
-      _sum: { estimatedValue: true },
-    }),
-    prisma.user.findUnique({
-      where: { id: ownerId },
-      select: { settings: true },
-    }),
-  ])
-
-  const stageProbabilities = mergeOverrides(
-    DEFAULT_STAGE_PROBABILITIES,
-    parseStageProbabilities(
-      (user?.settings as Record<string, unknown> | null)?.stageProbabilities,
-    ),
-  )
+export const getDashboardAggregates = unstable_cache(
+  async (ownerId: string): Promise<DashboardAggregates> => {
+  const rawGroups = await prisma.client.groupBy({
+    by: ['status'],
+    where: { ownerId, isArchived: false },
+    _count: { id: true },
+    _sum: { estimatedValue: true },
+  })
 
   const groups = rawGroups.map((g) => ({
     status: g.status,
@@ -54,27 +40,29 @@ export async function getDashboardAggregates(ownerId: string): Promise<Dashboard
 
   const pipelineByStage: StageBreakdown[] = OPEN_STAGES.map((stage) => {
     const g = byStatus[stage]
-    const totalValue = g?.sumValue ?? 0
     return {
       stage,
       count: g?.count ?? 0,
-      totalValue,
-      forecastContribution: totalValue * (stageProbabilities[stage] / 100),
+      totalValue: g?.sumValue ?? 0,
     }
   })
+
+  const closed = wonCount + lostCount
+  const conversionRate = closed === 0 ? null : wonCount / closed
 
   return {
     totalLeads,
     activeClients,
     totalPipelineValue,
-    revenueForecast: computeRevenueForecast(openGroups, stageProbabilities),
-    conversionRate: computeConversionRate(wonCount, lostCount),
-    stageProbabilities,
+    conversionRate,
     pipelineByStage,
     wonCount,
     lostCount,
   }
-}
+},
+['dashboard-aggregates'],
+{ revalidate: 60 },
+)
 
 // ─── Recent activity ──────────────────────────────────────────────────────────
 
@@ -155,32 +143,4 @@ export async function getSavedTemplates(ownerId: string): Promise<SavedTemplate[
     orderBy: { name: 'asc' },
     select: { id: true, key: true, name: true, description: true, scope: true },
   })
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function parseStageProbabilities(raw: unknown): Partial<StageProbabilities> | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const obj = raw as Record<string, unknown>
-  const result: Partial<StageProbabilities> = {}
-  for (const stage of OPEN_STAGES) {
-    const val = obj[stage]
-    if (val === undefined) continue
-    if (typeof val !== 'number' || val < 0 || val > 100) return null
-    result[stage] = val
-  }
-  return result
-}
-
-function mergeOverrides(
-  defaults: StageProbabilities,
-  overrides: Partial<StageProbabilities> | null,
-): StageProbabilities {
-  if (!overrides) return defaults
-  const result = { ...defaults }
-  for (const stage of OPEN_STAGES) {
-    const ov = overrides[stage as OpenStage]
-    if (ov !== undefined) result[stage as OpenStage] = ov
-  }
-  return result
 }

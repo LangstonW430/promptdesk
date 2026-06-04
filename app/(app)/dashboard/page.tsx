@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { Users, Briefcase, TrendingUp, Zap } from 'lucide-react'
+import { Users, Briefcase, TrendingUp } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import {
   getDashboardAggregates,
@@ -60,7 +60,7 @@ export default async function DashboardPage() {
       />
 
       {/* ── Stat cards ─────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <StatCard
           icon={Users}
           label="Total Leads"
@@ -79,19 +79,11 @@ export default async function DashboardPage() {
           value={formatCurrencyCompact(aggregates.totalPipelineValue)}
           subtext="open stages combined"
         />
-        <StatCard
-          icon={Zap}
-          label="Revenue Forecast"
-          value={formatCurrencyCompact(aggregates.revenueForecast)}
-          subtext="probability-weighted"
-          highlight
-        />
       </div>
 
       {/* ── Pipeline visualization ──────────────────────────────── */}
       <PipelineChart
         stages={aggregates.pipelineByStage}
-        stageProbabilities={aggregates.stageProbabilities}
         totalPipelineValue={aggregates.totalPipelineValue}
       />
 

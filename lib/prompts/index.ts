@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db/client'
 import { findTemplate, getUserProfile, fetchContext } from './retrieval'
 import { buildPrompt } from './pipeline'
 import { BUILT_IN_TEMPLATES } from '@/lib/prompt-engine/templates'
+import { getUserSettings } from '@/lib/users'
 import type { GenerateRequest, GenerateResult } from './types'
 
 export type { GenerateRequest, GenerateResult }
@@ -34,9 +35,10 @@ export async function generatePrompt(
     }
 
   // ── Fetch raw data ──────────────────────────────────────────────────────────
-  const [profile, rawData] = await Promise.all([
+  const [profile, rawData, userSettings] = await Promise.all([
     getUserProfile(ownerId),
     fetchContext(ownerId, retrievalSpec, req.clientId),
+    getUserSettings(ownerId),
   ])
 
   // ── Run pure pipeline ───────────────────────────────────────────────────────
@@ -50,7 +52,7 @@ export async function generatePrompt(
       version: templateRecord.version,
       body: templateRecord.body,
       scope: req.scope,
-      tokenBudget: templateRecord.tokenBudget,
+      tokenBudget: userSettings.tokenBudget ?? templateRecord.tokenBudget,
     },
     userProfile: profile,
     objective: req.objective,

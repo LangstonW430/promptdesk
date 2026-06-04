@@ -148,35 +148,38 @@ export async function fetchContext(
       })
     }
 
-    if (spec.includeOpenTasks) {
-      const rawTasks = await prisma.task.findMany({
-        where: { ownerId, isDone: false },
-        orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }],
-        take: spec.maxOpenTasks ?? 100,
-      })
-      tasks.push(...rawTasks.map((t) => ({
-        id: t.id,
-        clientId: t.clientId,
-        title: t.title,
-        dueDate: t.dueDate,
-        isDone: t.isDone,
-      })))
-    }
+    const [rawTasks, rawActivities] = await Promise.all([
+      spec.includeOpenTasks
+        ? prisma.task.findMany({
+            where: { ownerId, isDone: false },
+            orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }],
+            take: spec.maxOpenTasks ?? 100,
+          })
+        : Promise.resolve([] as Awaited<ReturnType<typeof prisma.task.findMany>>),
+      spec.includeRecentActivities
+        ? prisma.activity.findMany({
+            where: { ownerId },
+            orderBy: { createdAt: 'desc' },
+            take: spec.maxActivities ?? 20,
+          })
+        : Promise.resolve([] as Awaited<ReturnType<typeof prisma.activity.findMany>>),
+    ])
 
-    if (spec.includeRecentActivities) {
-      const rawActivities = await prisma.activity.findMany({
-        where: { ownerId },
-        orderBy: { createdAt: 'desc' },
-        take: spec.maxActivities ?? 20,
-      })
-      activities.push(...rawActivities.map((a) => ({
-        id: a.id,
-        clientId: a.clientId,
-        type: a.type,
-        detail: a.detail as Record<string, unknown>,
-        createdAt: a.createdAt,
-      })))
-    }
+    tasks.push(...rawTasks.map((t) => ({
+      id: t.id,
+      clientId: t.clientId,
+      title: t.title,
+      dueDate: t.dueDate,
+      isDone: t.isDone,
+    })))
+
+    activities.push(...rawActivities.map((a) => ({
+      id: a.id,
+      clientId: a.clientId,
+      type: a.type,
+      detail: a.detail as Record<string, unknown>,
+      createdAt: a.createdAt,
+    })))
   }
 
   if (spec.scope === 'client' || spec.scope === 'notes') {
