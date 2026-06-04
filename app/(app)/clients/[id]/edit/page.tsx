@@ -1,6 +1,4 @@
-import Link from 'next/link'
 import { redirect, notFound } from 'next/navigation'
-import { ChevronLeft } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { getClientById } from '@/lib/clients'
 import { ClientForm } from '@/components/clients/client-form'
@@ -42,14 +40,7 @@ export default async function EditClientPage({ params }: { params: Params }) {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">
-        <Link
-          href={`/clients/${id}`}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" />
-          Back to client
-        </Link>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight">
           Edit {client.companyName ?? client.contactName ?? 'client'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">

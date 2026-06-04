@@ -227,7 +227,7 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => router.push(`/clients/${client.id}/edit`)}
+              onClick={() => { window.location.href = `/clients/${client.id}/edit` }}
               disabled={isPending}
             >
               <Pencil />
@@ -301,7 +301,7 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
           <NotesTab client={client} defaultAi={defaultAi} />
         </div>
         <div role="tabpanel" id="client-panel-intelligence" aria-labelledby="client-tab-intelligence" tabIndex={0} hidden={activeTab !== 'intelligence'} className="focus-visible:outline-none">
-          <IntelligenceTab client={client} onEdit={() => router.push(`/clients/${client.id}/edit`)} />
+          <IntelligenceTab client={client} onEdit={() => { window.location.href = `/clients/${client.id}/edit` }} />
         </div>
         <div role="tabpanel" id="client-panel-tasks" aria-labelledby="client-tab-tasks" tabIndex={0} hidden={activeTab !== 'tasks'} className="focus-visible:outline-none">
           <TasksTab client={client} />
@@ -484,6 +484,15 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
   const [, startTagTransition] = useTransition()
   const pickerRef = useRef<HTMLDivElement>(null)
 
+  // ── Follow-up dates ────────────────────────────────────────────────────────
+  const [localLastContact, setLocalLastContact] = useState(
+    () => client.lastContactDate?.slice(0, 10) ?? '',
+  )
+  const [localNextFollowup, setLocalNextFollowup] = useState(
+    () => client.nextFollowupDate?.slice(0, 10) ?? '',
+  )
+  const [, startDateTransition] = useTransition()
+
   // ── Custom fields ──────────────────────────────────────────────────────
   const [customFields, setCustomFields] = useState<Record<string, string>>(
     () => (client.customFields ?? {}) as Record<string, string>,
@@ -499,6 +508,11 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
   useEffect(() => {
     setAttachedTagIds(new Set(client.clientTags.map((ct) => ct.tag.id)))
   }, [client.clientTags])
+
+  useEffect(() => {
+    setLocalLastContact(client.lastContactDate?.slice(0, 10) ?? '')
+    setLocalNextFollowup(client.nextFollowupDate?.slice(0, 10) ?? '')
+  }, [client.lastContactDate, client.nextFollowupDate])
 
   useEffect(() => {
     setCustomFields((client.customFields ?? {}) as Record<string, string>)
@@ -544,6 +558,16 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
     })
   }
 
+  function handleFollowupDateChange(field: 'lastContactDate' | 'nextFollowupDate', value: string) {
+    if (field === 'lastContactDate') setLocalLastContact(value)
+    else setLocalNextFollowup(value)
+    if (!value) return
+    startDateTransition(async () => {
+      await updateClientAction(client.id, { [field]: value })
+      router.refresh()
+    })
+  }
+
   function saveCustomFields(updated: Record<string, string>) {
     const snapshot = { ...customFields }
     setCustomFields(updated)
@@ -577,7 +601,7 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
     setNewVal('')
   }
 
-  const followupOverdue = isOverdue(client.nextFollowupDate)
+  const followupOverdue = isOverdue(localNextFollowup || null)
   const hasContact = !!(client.email || client.phone || client.website)
   const hasPipeline = !!(
     client.estimatedValue != null ||
@@ -664,16 +688,25 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
         <SectionHeading>Follow-up</SectionHeading>
         <dl className="flex flex-col gap-2.5">
           <FieldRow icon={<Calendar />} label="Last contact">
-            {formatDate(client.lastContactDate)}
+            <input
+              type="date"
+              value={localLastContact}
+              onChange={(e) => handleFollowupDateChange('lastContactDate', e.target.value)}
+              className="h-7 rounded-lg border border-input bg-background px-2 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+            />
           </FieldRow>
           <FieldRow icon={<CalendarCheck />} label="Next follow-up">
-            <span className={cn(
-              followupOverdue && client.nextFollowupDate
-                ? 'font-medium text-amber-600 dark:text-amber-400'
-                : '',
-            )}>
-              {formatDate(client.nextFollowupDate)}
-            </span>
+            <input
+              type="date"
+              value={localNextFollowup}
+              onChange={(e) => handleFollowupDateChange('nextFollowupDate', e.target.value)}
+              className={cn(
+                'h-7 rounded-lg border border-input bg-background px-2 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50',
+                followupOverdue && localNextFollowup
+                  ? 'font-medium text-amber-600 dark:text-amber-400'
+                  : 'text-foreground',
+              )}
+            />
           </FieldRow>
         </dl>
       </section>
