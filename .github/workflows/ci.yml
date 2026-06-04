@@ -22,10 +22,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      # prisma generate runs via the postinstall script above, so the
-      # Prisma client is available before lint and test.
+      # postinstall runs `prisma generate`, so the Prisma client is available
+      # before lint and test without a separate step.
 
       - name: Lint
         run: npm run lint
