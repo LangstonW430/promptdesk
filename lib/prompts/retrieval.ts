@@ -152,6 +152,7 @@ export async function fetchContext(
       const rawTasks = await prisma.task.findMany({
         where: { ownerId, isDone: false },
         orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }],
+        take: spec.maxOpenTasks ?? 100,
       })
       tasks.push(...rawTasks.map((t) => ({
         id: t.id,

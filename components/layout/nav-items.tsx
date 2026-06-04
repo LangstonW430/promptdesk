@@ -48,14 +48,16 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>
 }
 
-function NavLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
+function NavLink({ item, onClick, id }: { item: NavItem; onClick?: () => void; id?: string }) {
   const pathname = usePathname()
   const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
 
   return (
     <Link
       href={item.href}
+      id={id}
       onClick={onClick}
+      aria-current={isActive ? 'page' : undefined}
       className={cn(
         'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
         isActive
@@ -71,10 +73,15 @@ function NavLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
 
 export function NavItemList({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <nav className="flex flex-1 flex-col gap-1">
+    <nav aria-label="Main navigation" className="flex flex-1 flex-col gap-1">
       <div className="flex flex-col gap-1">
         {navItems.map((item) => (
-          <NavLink key={item.href} item={item} onClick={onNavigate} />
+          <NavLink
+            key={item.href}
+            item={item}
+            onClick={onNavigate}
+            id={item.href === '/daily-actions' ? 'tour-daily-actions' : undefined}
+          />
         ))}
       </div>
       <div className="mt-auto flex flex-col gap-1 pt-4">

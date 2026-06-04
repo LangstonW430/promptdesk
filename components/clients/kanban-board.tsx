@@ -294,7 +294,7 @@ function KanbanCard({ client }: { client: SerializedClient }) {
       {/* Card body — clicking navigates to client detail */}
       <button
         onClick={handleCardClick}
-        className="w-full text-left focus-visible:outline-none"
+        className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:rounded-lg"
         aria-label={`Open ${client.companyName ?? client.contactName ?? 'client'}`}
       >
         <p className="pr-5 text-sm font-medium leading-tight">

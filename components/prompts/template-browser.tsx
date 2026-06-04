@@ -112,7 +112,7 @@ export function TemplateBrowser({ templates: initial }: TemplateBrowserProps) {
 
                   {/* Action */}
                   <Button
-                    size="xs"
+                    size="sm"
                     variant={t.isCustom ? 'secondary' : 'outline'}
                     onClick={() => setEditing(t)}
                     className="shrink-0"

@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useTransition, useState, useEffect } from 'react'
 import {
@@ -12,7 +13,7 @@ import {
   List,
   LayoutGrid,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/clients/status-badge'
 import { KanbanBoard } from '@/components/clients/kanban-board'
@@ -402,13 +403,18 @@ function EmptyState({
       <div>
         <p className="font-medium">No clients yet</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add your first client to start building your pipeline
+          Add your first client or import from CSV to start building your pipeline
         </p>
       </div>
-      <Button onClick={() => router.push('/clients/new')}>
-        <Plus />
-        Add your first client
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button onClick={() => router.push('/clients/new')}>
+          <Plus />
+          Add your first client
+        </Button>
+        <Link href="/settings" className={cn(buttonVariants({ variant: 'outline' }))}>
+          Import from CSV
+        </Link>
+      </div>
     </div>
   )
 }

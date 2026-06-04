@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation'
-import { Clock, Flame, Snowflake } from 'lucide-react'
+import Link from 'next/link'
+import { Clock, Flame, Snowflake, CheckSquare } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { prisma } from '@/lib/db/client'
+import { buttonVariants } from '@/components/ui/button'
 import {
   getOverdueFollowUps,
   getHotLeads,
@@ -90,7 +92,7 @@ export default async function DailyActionsPage() {
     redirect('/login')
   }
 
-  const [overdueFollowUps, hotLeads, goingCold, user] = await Promise.all([
+  const [overdueFollowUps, hotLeads, goingCold, user, totalClients] = await Promise.all([
     getOverdueFollowUps(ownerId),
     getHotLeads(ownerId),
     getGoingCold(ownerId),
@@ -98,6 +100,7 @@ export default async function DailyActionsPage() {
       where: { id: ownerId },
       select: { defaultAi: true },
     }),
+    prisma.client.count({ where: { ownerId, isArchived: false } }),
   ])
 
   const defaultAi = user?.defaultAi ?? null
@@ -114,6 +117,24 @@ export default async function DailyActionsPage() {
             : "Nothing urgent — you're on top of it!"}
         </p>
       </div>
+
+      {/* ── Full-page empty state when no clients exist ─────────── */}
+      {totalClients === 0 && (
+        <div className="flex flex-col items-center gap-4 py-24 text-center">
+          <div className="flex size-14 items-center justify-center rounded-full bg-muted">
+            <CheckSquare className="size-6 text-muted-foreground" />
+          </div>
+          <div>
+            <p className="text-lg font-medium">No clients in your pipeline yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Add clients to start seeing your daily follow-up actions here.
+            </p>
+          </div>
+          <Link href="/clients/new" className={buttonVariants()}>
+            Add your first client
+          </Link>
+        </div>
+      )}
 
       {/* ── Overdue follow-ups ──────────────────────────────────── */}
       <QueueSection

@@ -54,6 +54,7 @@ model Client {
   nextFollowupDate DateTime?                @map("next_followup_date") @db.Date
   customFields     Json                     @default("{}") @map("custom_fields") @db.JsonB
   isArchived           Boolean                  @default(false) @map("is_archived")
+  isSampleData         Boolean                  @default(false) @map("is_sample_data")
   relationshipSummary  String?                  @map("relationship_summary")
   summaryUpdatedAt     DateTime?                @map("summary_updated_at") @db.Timestamptz(6)
   createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -104,6 +105,8 @@ model Activity {
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  @@index([ownerId, createdAt(sort: Desc)], map: "activities_owner_created_idx")
+  @@index([clientId, createdAt(sort: Desc)], map: "activities_client_created_idx")
   @@map("activities")
 }
 
@@ -121,6 +124,8 @@ model Task {
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  @@index([ownerId, isDone, dueDate], map: "tasks_owner_done_due_idx")
+  @@index([clientId, isDone, dueDate], map: "tasks_client_done_due_idx")
   @@map("tasks")
 }
 

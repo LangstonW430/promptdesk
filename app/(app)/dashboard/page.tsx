@@ -9,6 +9,8 @@ import {
 } from '@/lib/dashboard'
 import { getRecommendedActions } from '@/lib/daily-actions'
 import { formatCurrencyCompact } from '@/lib/dashboard/format'
+import { getUserSettings } from '@/lib/users'
+import { hasSampleData } from '@/lib/sample-data'
 import { StatCard } from '@/components/dashboard/stat-card'
 import { ConversionMetric } from '@/components/dashboard/conversion-metric'
 import { PipelineChart } from '@/components/dashboard/pipeline-chart'
@@ -16,6 +18,7 @@ import { ActivityFeed } from '@/components/dashboard/activity-feed'
 import { PromptHistory } from '@/components/dashboard/prompt-history'
 import { SavedTemplates } from '@/components/dashboard/saved-templates'
 import { RecommendedActions } from '@/components/dashboard/recommended-actions'
+import { WelcomeBanner } from '@/components/onboarding/welcome-banner'
 
 export default async function DashboardPage() {
   let ownerId: string
@@ -25,14 +28,19 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
-  const [aggregates, activities, recentPrompts, templates, recommendedActions] =
+  const [aggregates, activities, recentPrompts, templates, recommendedActions, userSettings, sampleDataFlag] =
     await Promise.all([
       getDashboardAggregates(ownerId),
       getRecentActivities(ownerId),
       getRecentGeneratedPrompts(ownerId),
       getSavedTemplates(ownerId),
       getRecommendedActions(ownerId),
+      getUserSettings(ownerId),
+      hasSampleData(ownerId),
     ])
+
+  const totalClients =
+    aggregates.totalLeads + aggregates.activeClients + aggregates.wonCount + aggregates.lostCount
 
   return (
     <div className="flex flex-col gap-6">
@@ -43,6 +51,13 @@ export default async function DashboardPage() {
           Your pipeline at a glance
         </p>
       </div>
+
+      {/* ── Onboarding banner ──────────────────────────────────── */}
+      <WelcomeBanner
+        hasSampleData={sampleDataFlag}
+        onboardingDismissed={userSettings.onboardingDismissed ?? false}
+        totalClients={totalClients}
+      />
 
       {/* ── Stat cards ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

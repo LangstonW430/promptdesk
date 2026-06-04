@@ -1,4 +1,8 @@
 import { type NextRequest, NextResponse } from 'next/server'
+
+// Retrieval + scoring + budgeting can take >10 s on a cold start with a large
+// pipeline. Raise the Vercel serverless function timeout to 30 s.
+export const maxDuration = 30
 import { z } from 'zod'
 import { getOwnerId } from '@/lib/auth'
 import { generatePrompt } from '@/lib/prompts'

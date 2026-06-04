@@ -266,16 +266,17 @@ export function CsvImporter() {
             </div>
             <div className="divide-y divide-border">
               {csvHeaders.map((header, colIdx) => (
-                <div key={colIdx} className="flex items-center gap-4 px-4 py-2.5">
-                  <span className="w-40 truncate text-sm font-medium" title={header}>
+                <div key={colIdx} className="flex flex-col gap-1.5 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-4">
+                  <span className="w-full truncate text-sm font-medium sm:w-40" title={header}>
                     {header}
                   </span>
-                  <span className="text-muted-foreground">→</span>
+                  <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">→</span>
                   <select
                     value={fieldMap[colIdx] ?? ''}
                     onChange={(e) =>
                       setFieldMap((prev) => ({ ...prev, [colIdx]: e.target.value }))
                     }
+                    aria-label={`Map "${header}" to field`}
                     className="flex-1 h-7 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     <option value="">(ignore)</option>
@@ -292,7 +293,7 @@ export function CsvImporter() {
 
           {/* Duplicate field warning */}
           {duplicateFields.length > 0 && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               Multiple columns map to the same field (
               {[...new Set(duplicateFields)]
@@ -340,7 +341,7 @@ export function CsvImporter() {
           )}
 
           {!hasIdentifyingColumn && (
-            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               <AlertCircle className="mt-0.5 size-4 shrink-0" />
               Map at least one of Company name, Contact name, or Email to proceed.
             </div>

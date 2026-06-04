@@ -264,12 +264,15 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
         </div>
 
         {/* Tab nav */}
-        <div role="tablist" className="flex px-4">
+        <div role="tablist" aria-label="Client sections" className="flex px-4">
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              id={`client-tab-${tab.id}`}
               role="tab"
               aria-selected={activeTab === tab.id}
+              aria-controls={`client-panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
                 'relative -mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1',
@@ -291,16 +294,21 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
 
       {/* ── Tab content ────────────────────────────────────────────── */}
       <div>
-        {activeTab === 'overview' && <OverviewTab client={client} defaultAi={defaultAi} />}
-        {activeTab === 'notes' && <NotesTab client={client} defaultAi={defaultAi} />}
-        {activeTab === 'intelligence' && (
-          <IntelligenceTab
-            client={client}
-            onEdit={() => router.push(`/clients/${client.id}/edit`)}
-          />
-        )}
-        {activeTab === 'tasks' && <TasksTab client={client} />}
-        {activeTab === 'attachments' && <AttachmentsTab client={client} />}
+        <div role="tabpanel" id="client-panel-overview" aria-labelledby="client-tab-overview" tabIndex={0} hidden={activeTab !== 'overview'} className="focus-visible:outline-none">
+          <OverviewTab client={client} defaultAi={defaultAi} />
+        </div>
+        <div role="tabpanel" id="client-panel-notes" aria-labelledby="client-tab-notes" tabIndex={0} hidden={activeTab !== 'notes'} className="focus-visible:outline-none">
+          <NotesTab client={client} defaultAi={defaultAi} />
+        </div>
+        <div role="tabpanel" id="client-panel-intelligence" aria-labelledby="client-tab-intelligence" tabIndex={0} hidden={activeTab !== 'intelligence'} className="focus-visible:outline-none">
+          <IntelligenceTab client={client} onEdit={() => router.push(`/clients/${client.id}/edit`)} />
+        </div>
+        <div role="tabpanel" id="client-panel-tasks" aria-labelledby="client-tab-tasks" tabIndex={0} hidden={activeTab !== 'tasks'} className="focus-visible:outline-none">
+          <TasksTab client={client} />
+        </div>
+        <div role="tabpanel" id="client-panel-attachments" aria-labelledby="client-tab-attachments" tabIndex={0} hidden={activeTab !== 'attachments'} className="focus-visible:outline-none">
+          <AttachmentsTab client={client} />
+        </div>
       </div>
 
       <ConfirmDialog

@@ -37,6 +37,7 @@ function BusinessActionPlanHero({ defaultAi }: { defaultAi?: string | null }) {
           </p>
         </div>
         <Button
+          id="tour-action-plan"
           size="default"
           onClick={() => generate({ templateKey: 'business_action_plan', scope: 'global' })}
           disabled={loading}

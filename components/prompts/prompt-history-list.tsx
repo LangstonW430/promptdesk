@@ -11,6 +11,7 @@ import {
   Loader2,
   AlertCircle,
   ChevronUp,
+  ArrowUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScopeBadge } from '@/components/dashboard/scope-badge'
@@ -148,9 +149,23 @@ export function PromptHistoryList({ history: initial, defaultAi }: PromptHistory
 
       {/* List */}
       {displayed.length === 0 ? (
-        <p className="rounded-xl border border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-          {savedOnly ? 'No saved prompts yet. Click 📌 on any prompt to pin it.' : 'No prompts generated yet — head to the Generate tab to create your first one.'}
-        </p>
+        savedOnly ? (
+          <p className="rounded-xl border border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+            No saved prompts yet. Click the pin icon on any prompt to save it.
+          </p>
+        ) : (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-muted/20 px-4 py-12 text-center">
+            <div className="flex size-10 items-center justify-center rounded-full bg-muted">
+              <ArrowUp className="size-4 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">No prompts generated yet</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Generate your first prompt using the form above
+              </p>
+            </div>
+          </div>
+        )
       ) : (
         <div className="overflow-hidden rounded-xl border border-border">
           {displayed.map((item, idx) => {
@@ -194,43 +209,43 @@ export function PromptHistoryList({ history: initial, defaultAi }: PromptHistory
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                     {/* Re-open */}
                     <Button
-                      size="xs"
+                      size="sm"
                       variant={isExpanded && expanded?.mode === 'open' ? 'secondary' : 'outline'}
                       onClick={() => handleReopen(item.id)}
-                      title="View stored prompt"
+                      aria-label={isExpanded && expanded?.mode === 'open' ? 'Close prompt view' : 'View stored prompt'}
                     >
                       {isExpanded && expanded.mode === 'open' ? (
-                        <ChevronUp className="size-3" />
+                        <ChevronUp className="size-3.5" />
                       ) : (
-                        <BookOpen className="size-3" />
+                        <BookOpen className="size-3.5" />
                       )}
                       Open
                     </Button>
 
                     {/* Re-run */}
                     <Button
-                      size="xs"
+                      size="sm"
                       variant={isExpanded && expanded?.mode === 'rerun' ? 'secondary' : 'outline'}
                       onClick={() => handleRerun(item)}
                       disabled={loading && expanded?.id === item.id}
-                      title="Re-generate fresh prompt"
+                      aria-label={isExpanded && expanded?.mode === 'rerun' ? 'Close re-run panel' : 'Re-generate fresh prompt'}
                     >
                       {loading && expanded?.id === item.id ? (
-                        <Loader2 className="size-3 animate-spin" />
+                        <Loader2 className="size-3.5 animate-spin" />
                       ) : isExpanded && expanded.mode === 'rerun' ? (
-                        <ChevronUp className="size-3" />
+                        <ChevronUp className="size-3.5" />
                       ) : (
-                        <RotateCcw className="size-3" />
+                        <RotateCcw className="size-3.5" />
                       )}
                       Re-run
                     </Button>
 
                     {/* Save / pin */}
                     <Button
-                      size="icon-xs"
+                      size="icon-sm"
                       variant="outline"
                       onClick={() => handleSave(item.id)}
-                      title={item.isSaved ? 'Unpin' : 'Pin / save'}
+                      aria-label={item.isSaved ? 'Unpin prompt' : 'Pin / save prompt'}
                       className={item.isSaved ? 'text-primary' : ''}
                     >
                       {item.isSaved ? (
@@ -242,10 +257,10 @@ export function PromptHistoryList({ history: initial, defaultAi }: PromptHistory
 
                     {/* Thumbs up */}
                     <Button
-                      size="icon-xs"
+                      size="icon-sm"
                       variant="outline"
                       onClick={() => toggleRating(item, 1)}
-                      title="Thumbs up"
+                      aria-label="Rate prompt helpful"
                       className={item.rating === 1 ? 'border-green-500 text-green-600 dark:text-green-400' : ''}
                     >
                       <ThumbsUp className="size-3.5" />
@@ -253,10 +268,10 @@ export function PromptHistoryList({ history: initial, defaultAi }: PromptHistory
 
                     {/* Thumbs down */}
                     <Button
-                      size="icon-xs"
+                      size="icon-sm"
                       variant="outline"
                       onClick={() => toggleRating(item, -1)}
-                      title="Thumbs down"
+                      aria-label="Rate prompt unhelpful"
                       className={item.rating === -1 ? 'border-destructive text-destructive' : ''}
                     >
                       <ThumbsDown className="size-3.5" />

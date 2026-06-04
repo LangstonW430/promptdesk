@@ -18,6 +18,7 @@ export interface RetrievalSpec {
   includePipelineAggregate?: boolean
   maxClients?: number
   maxActivities?: number
+  maxOpenTasks?: number
   // ── Client scope ──────────────────────────────────────────────────────────
   includeNotes?: boolean
   includeTasks?: boolean

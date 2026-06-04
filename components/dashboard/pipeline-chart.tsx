@@ -79,57 +79,62 @@ export function PipelineChart({ stages, stageProbabilities, totalPipelineValue }
         </div>
 
         {/* ── Breakdown table ──────────────────────────────────────── */}
-        <div className="w-full">
-          {/* Header */}
-          <div className="grid grid-cols-[1fr_3.5rem_5.5rem_3.5rem_5.5rem] gap-x-3 border-b border-border pb-2 text-xs font-medium text-muted-foreground">
-            <span>Stage</span>
-            <span className="text-right">Clients</span>
-            <span className="text-right">Value</span>
-            <span className="text-right">Prob.</span>
-            <span className="text-right">Forecast</span>
-          </div>
-
-          {/* Stage rows */}
-          {stages.map((s) => (
-            <div
-              key={s.stage}
-              className="grid grid-cols-[1fr_3.5rem_5.5rem_3.5rem_5.5rem] gap-x-3 border-b border-border py-2 text-xs last:border-0"
-            >
-              <div className="flex items-center gap-2">
-                <span className={cn('size-2 shrink-0 rounded-full', DOT_COLORS[s.stage])} />
-                <span>{STAGE_LABELS[s.stage]}</span>
-              </div>
-              <span className="text-right tabular-nums text-muted-foreground">
-                {s.count > 0 ? s.count : <span className="text-muted-foreground/50">0</span>}
-              </span>
-              <span className="text-right tabular-nums">
-                {s.totalValue > 0 ? formatCurrency(s.totalValue) : <span className="text-muted-foreground/50">—</span>}
-              </span>
-              <span className="text-right tabular-nums text-muted-foreground">
-                {stageProbabilities[s.stage]}%
-              </span>
-              <span className="text-right tabular-nums font-medium">
-                {s.forecastContribution > 0 ? (
-                  formatCurrency(s.forecastContribution)
-                ) : (
-                  <span className="font-normal text-muted-foreground/50">—</span>
-                )}
-              </span>
-            </div>
-          ))}
-
-          {/* Total row */}
-          <div className="grid grid-cols-[1fr_3.5rem_5.5rem_3.5rem_5.5rem] gap-x-3 pt-2 text-xs font-semibold">
-            <span>Total</span>
-            <span className="text-right tabular-nums">{totalClients}</span>
-            <span className="text-right tabular-nums">
-              {hasData ? formatCurrency(totalPipelineValue) : '—'}
-            </span>
-            <span />
-            <span className="text-right tabular-nums text-primary">
-              {totalForecast > 0 ? formatCurrency(totalForecast) : '—'}
-            </span>
-          </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <caption className="sr-only">Pipeline breakdown by stage</caption>
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th scope="col" className="pb-2 text-left font-medium">Stage</th>
+                <th scope="col" className="pb-2 pr-0 text-right font-medium">Clients</th>
+                <th scope="col" className="pb-2 pr-0 text-right font-medium">Value</th>
+                <th scope="col" className="pb-2 pr-0 text-right font-medium">
+                  <abbr title="Probability">Prob.</abbr>
+                </th>
+                <th scope="col" className="pb-2 text-right font-medium">Forecast</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stages.map((s) => (
+                <tr key={s.stage} className="border-b border-border last:border-0">
+                  <th scope="row" className="py-2 pr-3 text-left font-normal">
+                    <div className="flex items-center gap-2">
+                      <span className={cn('size-2 shrink-0 rounded-full', DOT_COLORS[s.stage])} aria-hidden="true" />
+                      {STAGE_LABELS[s.stage]}
+                    </div>
+                  </th>
+                  <td className="py-2 pr-0 text-right tabular-nums text-muted-foreground">
+                    {s.count > 0 ? s.count : <span className="text-muted-foreground/50">0</span>}
+                  </td>
+                  <td className="py-2 pr-0 text-right tabular-nums">
+                    {s.totalValue > 0 ? formatCurrency(s.totalValue) : <span className="text-muted-foreground/50">—</span>}
+                  </td>
+                  <td className="py-2 pr-0 text-right tabular-nums text-muted-foreground">
+                    {stageProbabilities[s.stage]}%
+                  </td>
+                  <td className="py-2 text-right tabular-nums font-medium">
+                    {s.forecastContribution > 0 ? (
+                      formatCurrency(s.forecastContribution)
+                    ) : (
+                      <span className="font-normal text-muted-foreground/50">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-border text-xs font-semibold">
+                <th scope="row" className="pt-2 text-left font-semibold">Total</th>
+                <td className="pt-2 pr-0 text-right tabular-nums">{totalClients}</td>
+                <td className="pt-2 pr-0 text-right tabular-nums">
+                  {hasData ? formatCurrency(totalPipelineValue) : '—'}
+                </td>
+                <td />
+                <td className="pt-2 text-right tabular-nums text-primary">
+                  {totalForecast > 0 ? formatCurrency(totalForecast) : '—'}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
 
         {!hasData && (

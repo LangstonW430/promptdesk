@@ -112,18 +112,19 @@ export function ActionRow({ client, queueType, defaultAi, isLast }: ActionRowPro
         {/* Action buttons */}
         <div className="flex shrink-0 items-center gap-1.5">
           <Button
-            size="xs"
+            size="sm"
             variant="outline"
             onClick={() => setSheetOpen(true)}
           >
-            <CheckCircle2 className="size-3 text-green-600" />
+            <CheckCircle2 className="size-3.5 text-green-600" />
             Complete
           </Button>
           <Button
-            size="xs"
+            size="sm"
             variant={showOutreach ? 'secondary' : 'outline'}
             onClick={handleOutreach}
             disabled={loading}
+            aria-expanded={showOutreach}
           >
             {loading ? (
               <Loader2 className="size-3 animate-spin" />

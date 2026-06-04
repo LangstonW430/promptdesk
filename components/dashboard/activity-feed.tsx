@@ -1,4 +1,6 @@
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { RecentActivity } from '@/lib/dashboard'
 import { relativeTime, formatStatus } from '@/lib/dashboard/format'
@@ -41,9 +43,14 @@ export function ActivityFeed({ activities }: ActivityFeedProps) {
       </CardHeader>
       <CardContent>
         {activities.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            No activity yet. Add clients and start working your pipeline.
-          </p>
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              No activity yet. Add clients and start working your pipeline.
+            </p>
+            <Link href="/clients/new" className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}>
+              Add first client →
+            </Link>
+          </div>
         ) : (
           <div className="flex flex-col">
             {activities.map((a, i) => (

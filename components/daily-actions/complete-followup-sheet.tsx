@@ -89,12 +89,13 @@ export function CompleteFollowUpSheet({
             <input
               id="next-date"
               type="date"
+              aria-describedby="next-date-hint"
               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               value={nextDate}
               min={todayStr}
               onChange={(e) => setNextDate(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
+            <p id="next-date-hint" className="text-xs text-muted-foreground">
               Leave blank to just mark as done without scheduling.
             </p>
           </div>
@@ -107,19 +108,20 @@ export function CompleteFollowUpSheet({
             </label>
             <Textarea
               id="note-text"
+              aria-describedby="note-text-hint"
               placeholder="Quick call — discussed timeline, sending proposal by Friday…"
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               rows={4}
               className="resize-none text-sm"
             />
-            <p className="text-xs text-muted-foreground">
+            <p id="note-text-hint" className="text-xs text-muted-foreground">
               Saved as a call note on the client record.
             </p>
           </div>
 
           {serverError && (
-            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {serverError}
             </p>
           )}
