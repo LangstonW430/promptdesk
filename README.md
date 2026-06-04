@@ -657,7 +657,52 @@ NEXT_PUBLIC_APP_URL=   # e.g. https://yourapp.vercel.app
 SENTRY_ORG=
 SENTRY_PROJECT=
 NEXT_PUBLIC_SENTRY_DSN=
+
+# Stripe (optional — required for revenue import)
+STRIPE_RESTRICTED_KEY=    # Restricted read-only key (rk_live_... / rk_test_...)
+STRIPE_WEBHOOK_SECRET=    # Webhook signing secret (whsec_...)
+STRIPE_API_VERSION=       # Pin: 2026-05-27.dahlia
 ```
+
+### Stripe Setup
+
+PromptDesk uses a **read-only** Stripe integration to import charges as income transactions. It never writes to Stripe.
+
+**Key type:** Use a [Restricted key](https://dashboard.stripe.com/apikeys) (`rk_live_...`), **not** the full secret key. Required read permissions: Charges, Customers, Balance transactions.
+
+**Connecting without touching code:** Users paste their restricted key in **Settings → Stripe**. The key is encrypted with AES-256-GCM using `STRIPE_ENCRYPTION_KEY` before being stored in the database.
+
+To enable this, generate a deployment-level encryption key once and add it to your environment:
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# → set the output as STRIPE_ENCRYPTION_KEY in .env.local / Vercel env vars
+```
+
+`STRIPE_RESTRICTED_KEY` (env var) is now optional — it is only used as a fallback when no per-user key is saved in the database. Self-hosted single-user deployments can still use it directly.
+
+**Security model:** The encryption key (`STRIPE_ENCRYPTION_KEY`) never touches the database. The Stripe key is encrypted with a fresh random IV per write. The last-4 chars of the key are stored unencrypted for display only.
+
+**Revenue recognition:** Income is recorded at the charge event. Payouts are the same money moving to your bank account and are intentionally excluded to prevent double-counting.
+
+**PCI:** Only `last4` and `brand` are stored for display. Full card numbers and raw bank details are never persisted.
+
+### Testing Stripe webhooks locally
+
+Install the [Stripe CLI](https://stripe.com/docs/stripe-cli), then forward events to your local dev server:
+
+```bash
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
+```
+
+The CLI prints a signing secret (`whsec_...`) — set it as `STRIPE_WEBHOOK_SECRET` in `.env.local`. Trigger a test event in another terminal:
+
+```bash
+stripe trigger charge.succeeded
+```
+
+Handled events: `charge.succeeded`, `charge.updated`, `charge.refunded`, `invoice.paid`, `customer.created`, `customer.updated`.
+
+**Security note:** The webhook handler verifies every inbound request using HMAC-SHA256 (`Stripe.webhooks.constructEvent`). Requests with a missing or invalid `stripe-signature` header are rejected with `400` before any data is read or written. Signature verification tests live in `lib/finance/__tests__/webhook-signature.test.ts`.
 
 ### `next.config.ts`
 - React Compiler enabled for automatic memoization

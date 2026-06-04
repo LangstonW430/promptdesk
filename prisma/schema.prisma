@@ -15,7 +15,9 @@ model User {
   fullName     String?  @map("full_name")
   businessName String?  @map("business_name")
   businessType String?  @map("business_type")
-  defaultAi    String?  @map("default_ai")
+  defaultAi      String?  @map("default_ai")
+  stripeKey      String?  @map("stripe_key")       // AES-256-GCM encrypted; never store plaintext
+  stripeKeyHint  String?  @map("stripe_key_hint")  // last-4 chars for display only (not sensitive)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   settings     Json     @default("{}") @db.JsonB
 
@@ -27,6 +29,8 @@ model User {
   attachments      Attachment[]
   promptTemplates  PromptTemplate[]
   generatedPrompts GeneratedPrompt[]
+  transactions     Transaction[]
+  stripeSyncState  StripeSyncState?
 
   @@map("users")
 }
@@ -69,8 +73,13 @@ model Client {
   clientTags       ClientTag[]
   generatedPrompts GeneratedPrompt[]
 
+  stripeCustomerId String? @map("stripe_customer_id")
+
+  transactions Transaction[]
+
   @@index([ownerId, status], map: "clients_owner_status_idx")
   @@index([ownerId, nextFollowupDate], map: "clients_owner_next_followup_idx")
+  @@index([ownerId, stripeCustomerId], map: "clients_owner_stripe_customer_idx")
   @@index([customFields(ops: JsonbOps)], type: Gin, map: "clients_custom_fields_gin_idx")
   // GIN index on searchVector (tsvector) is added as raw SQL in the migration — see migrations/
   @@map("clients")
@@ -214,4 +223,45 @@ model GeneratedPrompt {
 
   @@index([ownerId, createdAt(sort: Desc)], map: "generated_prompts_owner_created_idx")
   @@map("generated_prompts")
+}
+
+// ============ FINANCE ============
+
+model Transaction {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId      String   @map("owner_id") @db.Uuid
+  type         String                             // "income" | "expense"
+  source       String                             // "manual" | "stripe"
+  amount       Decimal  @db.Decimal(12, 2)        // always positive; type carries sign
+  currency     String   @default("usd")
+  description  String?
+  category     String
+  occurredAt   DateTime @map("occurred_at") @db.Timestamptz(6)
+  clientId     String?  @map("client_id") @db.Uuid
+  externalId   String?  @map("external_id")      // Stripe object id (ch_..., in_..., etc.)
+  externalType String?  @map("external_type")    // "charge" | "refund" | "invoice" | "fee"
+  metadata     Json     @default("{}") @db.JsonB  // counterparty, Stripe ids, fee details
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@unique([ownerId, source, externalId], map: "transactions_owner_source_external_unique")
+  @@index([ownerId, occurredAt(sort: Desc)], map: "transactions_owner_occurred_idx")
+  @@index([ownerId, type], map: "transactions_owner_type_idx")
+  @@index([clientId], map: "transactions_client_idx")
+  @@map("transactions")
+}
+
+model StripeSyncState {
+  ownerId       String    @id @map("owner_id") @db.Uuid
+  lastBackfillAt DateTime? @map("last_backfill_at") @db.Timestamptz(6)
+  lastEventAt   DateTime? @map("last_event_at") @db.Timestamptz(6)
+  status        String    @default("idle")  // "idle" | "syncing" | "error"
+  lastError     String?   @map("last_error")
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("stripe_sync_state")
 }

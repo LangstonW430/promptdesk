@@ -6,6 +6,8 @@ import { TagManager } from '@/components/settings/tag-manager'
 import { CsvImporter } from '@/components/settings/csv-importer'
 import { AccountSettingsForm } from '@/components/settings/account-settings-form'
 import { PromptSettingsForm } from '@/components/settings/forecast-settings-form'
+import { StripeSettings } from '@/components/settings/stripe-settings'
+import { getStripeKeyStatus } from '@/lib/finance/stripe-key'
 import type { UserSettings } from '@/lib/users'
 
 export default async function SettingsPage() {
@@ -16,7 +18,7 @@ export default async function SettingsPage() {
     redirect('/login')
   }
 
-  const [rawTags, user] = await Promise.all([
+  const [rawTags, user, stripeStatus] = await Promise.all([
     listTags(ownerId),
     prisma.user.findUnique({
       where: { id: ownerId },
@@ -29,6 +31,7 @@ export default async function SettingsPage() {
         settings: true,
       },
     }),
+    getStripeKeyStatus(ownerId),
   ])
 
   const tags = rawTags.map((t) => ({
@@ -68,6 +71,13 @@ export default async function SettingsPage() {
 
       <div className="border-t border-border pt-8">
         <CsvImporter />
+      </div>
+
+      <div className="border-t border-border pt-8">
+        <StripeSettings
+          connected={stripeStatus.connected}
+          hint={stripeStatus.hint}
+        />
       </div>
     </div>
   )

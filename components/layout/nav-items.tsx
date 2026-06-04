@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Sparkles,
   Settings,
+  Wallet,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +27,11 @@ export const navItems = [
     label: 'Daily Actions',
     href: '/daily-actions',
     icon: CheckSquare,
+  },
+  {
+    label: 'Finance',
+    href: '/finance',
+    icon: Wallet,
   },
   {
     label: 'Prompts',

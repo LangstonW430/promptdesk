@@ -1,0 +1,63 @@
+export type SerializedTransaction = {
+  id: string
+  ownerId: string
+  type: string
+  source: string
+  amount: number
+  currency: string
+  description: string | null
+  category: string
+  occurredAt: string
+  clientId: string | null
+  clientName: string | null  // derived from join; null when not included
+  externalId: string | null
+  externalType: string | null
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+type TransactionRow = {
+  id: string
+  ownerId: string
+  type: string
+  source: string
+  amount: { toNumber?: () => number } | number
+  currency: string
+  description: string | null
+  category: string
+  occurredAt: Date
+  clientId: string | null
+  externalId: string | null
+  externalType: string | null
+  metadata: unknown
+  createdAt: Date
+  updatedAt: Date
+  client?: { companyName: string | null; contactName: string | null } | null
+}
+
+export function serializeTransaction(t: TransactionRow): SerializedTransaction {
+  return {
+    id: t.id,
+    ownerId: t.ownerId,
+    type: t.type,
+    source: t.source,
+    amount:
+      typeof t.amount === 'number'
+        ? t.amount
+        : (t.amount as { toNumber: () => number }).toNumber(),
+    currency: t.currency,
+    description: t.description,
+    category: t.category,
+    occurredAt: t.occurredAt.toISOString(),
+    clientId: t.clientId,
+    clientName: t.client
+      ? (t.client.companyName ?? t.client.contactName ?? 'Unknown')
+      : null,
+    externalId: t.externalId,
+    externalType: t.externalType,
+    metadata: (t.metadata ?? {}) as Record<string, unknown>,
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
+  }
+}
