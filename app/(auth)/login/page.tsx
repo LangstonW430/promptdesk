@@ -9,23 +9,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { signIn } from '@/lib/actions/auth'
-import { createClient } from '@/lib/supabase/client'
 
 function LoginForm() {
   const [state, action, pending] = useActionState(signIn, null)
   const searchParams = useSearchParams()
   const message = searchParams.get('message')
   const nextPath = searchParams.get('next')
-
-  async function handleGoogleSignIn() {
-    const supabase = createClient()
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`,
-      },
-    })
-  }
 
   if (message === 'check-email') {
     return (
@@ -75,18 +64,6 @@ function LoginForm() {
           </Button>
         </form>
 
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">or</span>
-          </div>
-        </div>
-
-        <Button variant="outline" className="w-full" onClick={handleGoogleSignIn}>
-          Continue with Google
-        </Button>
       </CardContent>
 
       <CardFooter className="justify-center">
