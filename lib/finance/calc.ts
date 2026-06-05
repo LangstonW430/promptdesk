@@ -1,5 +1,6 @@
 import type {
   Period,
+  RecurringFrequency,
   FinancialSummary,
   MonthlyStat,
   CategoryStat,
@@ -128,33 +129,44 @@ export function groupByCategory(
 // ─── MRR ─────────────────────────────────────────────────────────────────────
 
 export interface MRRSummary {
-  mrr: number           // sum of recurring income this month
+  mrr: number           // sum of recurring income this month (normalized)
   expenses: number      // sum of all expenses this month
   passiveIncome: number // mrr - expenses
 }
 
+/** Converts a recurring transaction amount to its monthly equivalent. */
+function toMonthly(amount: number, frequency: RecurringFrequency | null | undefined): number {
+  if (!frequency || frequency === 'monthly') return amount
+  if (frequency === 'quarterly') return amount / 3
+  if (frequency === 'annual') return amount / 12
+  return amount
+}
+
 /**
- * Calculates MRR from a set of income rows.
+ * Calculates MRR from a set of income rows, normalizing quarterly/annual amounts.
  * Only rows where type === 'income' and isRecurring === true are counted.
- * All amounts are assumed to already be in monthly units.
  */
 export function calculateMRR(
-  rows: ReadonlyArray<{ type: string; amount: number; isRecurring: boolean }>,
+  rows: ReadonlyArray<{ type: string; amount: number; isRecurring: boolean; frequency?: string | null }>,
 ): number {
   let mrr = 0
   for (const r of rows) {
-    if (r.type === 'income' && r.isRecurring) mrr += r.amount
+    if (r.type === 'income' && r.isRecurring) {
+      mrr += toMonthly(r.amount, r.frequency as RecurringFrequency | null)
+    }
   }
   return mrr
 }
 
 export function calculateMRRSummary(
-  rows: ReadonlyArray<{ type: string; amount: number; isRecurring: boolean }>,
+  rows: ReadonlyArray<{ type: string; amount: number; isRecurring: boolean; frequency?: string | null }>,
 ): MRRSummary {
   let mrr = 0
   let expenses = 0
   for (const r of rows) {
-    if (r.type === 'income' && r.isRecurring) mrr += r.amount
+    if (r.type === 'income' && r.isRecurring) {
+      mrr += toMonthly(r.amount, r.frequency as RecurringFrequency | null)
+    }
     if (r.type === 'expense') expenses += r.amount
   }
   return { mrr, expenses, passiveIncome: mrr - expenses }

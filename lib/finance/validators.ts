@@ -4,6 +4,8 @@ import { ALL_CATEGORIES } from './categories'
 const validCategory = (v: string) =>
   ALL_CATEGORIES.includes(v as (typeof ALL_CATEGORIES)[number])
 
+const FREQUENCIES = ['monthly', 'quarterly', 'annual'] as const
+
 export const createTransactionSchema = z.object({
   type: z.enum(['income', 'expense']),
   amount: z.number().positive('Amount must be greater than 0'),
@@ -13,6 +15,7 @@ export const createTransactionSchema = z.object({
   occurredAt: z.string().date(),
   clientId: z.string().uuid().optional(),
   isRecurring: z.boolean().default(false),
+  frequency: z.enum(FREQUENCIES).optional(),
 })
 
 // For updates, financial fields (type/amount/currency) are only editable on manual rows.
@@ -29,6 +32,7 @@ export const updateTransactionSchema = z.object({
   occurredAt: z.string().date().optional(),
   clientId: z.string().uuid().nullable().optional(),
   isRecurring: z.boolean().optional(),
+  frequency: z.enum(FREQUENCIES).nullable().optional(),
 })
 
 // Form schema — all HTML inputs are strings; numeric/UUID fields are refined strings.
@@ -44,6 +48,7 @@ export const transactionFormSchema = z.object({
   occurredAt: z.string().min(1, 'Date is required'),
   clientId: z.string(),  // '' means no client
   isRecurring: z.boolean(),
+  frequency: z.string(),  // '' | 'monthly' | 'quarterly' | 'annual'
 })
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>
@@ -58,4 +63,5 @@ export const transactionFormDefaultValues: TransactionFormValues = {
   occurredAt: '',
   clientId: '',
   isRecurring: false,
+  frequency: 'monthly',
 }

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Clock, Flame, Snowflake, CheckSquare } from 'lucide-react'
+import { Clock, Flame, Snowflake, CheckSquare, Bell } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { prisma } from '@/lib/db/client'
 import { buttonVariants } from '@/components/ui/button'
@@ -8,10 +8,13 @@ import {
   getOverdueFollowUps,
   getHotLeads,
   getGoingCold,
+  getRetainerReminders,
   type ActionClient,
+  type RetainerReminder,
 } from '@/lib/daily-actions'
 import { Card, CardContent } from '@/components/ui/card'
 import { ActionRow } from '@/components/daily-actions/action-row'
+import { formatCurrency } from '@/lib/dashboard/format'
 import { cn } from '@/lib/utils'
 
 // ─── Queue section wrapper (server component, inline) ─────────────────────────
@@ -82,6 +85,80 @@ function QueueSection({
   )
 }
 
+// ─── Retainer reminder section (server component, inline) ────────────────────
+
+function RetainerSection({ reminders }: { reminders: RetainerReminder[] }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Bell className="size-4 shrink-0 text-violet-500" />
+        <h2 className="text-base font-semibold">Retainer reminders</h2>
+        {reminders.length > 0 && (
+          <span className="inline-flex items-center rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+            {reminders.length}
+          </span>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Recurring retainers with an invoice due in the next 7 days.
+      </p>
+      <Card>
+        <CardContent className="p-0">
+          {reminders.length === 0 ? (
+            <p className="px-4 py-5 text-center text-sm text-muted-foreground">
+              No retainer invoices due in the next 7 days.
+            </p>
+          ) : (
+            <div>
+              {reminders.map((r, i) => {
+                const when =
+                  r.daysUntilDue === 0
+                    ? 'Today'
+                    : r.daysUntilDue === 1
+                    ? 'Tomorrow'
+                    : `In ${r.daysUntilDue} days`
+                const FREQ_LABEL: Record<string, string> = {
+                  monthly: 'monthly',
+                  quarterly: 'quarterly',
+                  annual: 'annual',
+                }
+                return (
+                  <div
+                    key={r.transactionId}
+                    className={cn(
+                      'flex items-center justify-between px-4 py-3 text-sm',
+                      i < reminders.length - 1 && 'border-b border-border',
+                    )}
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium">{r.clientName}</span>
+                      <span className="text-xs text-muted-foreground capitalize">
+                        {FREQ_LABEL[r.frequency]} retainer · {formatCurrency(r.amount)}
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        'text-xs font-semibold',
+                        r.daysUntilDue === 0
+                          ? 'text-destructive'
+                          : r.daysUntilDue <= 2
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-muted-foreground',
+                      )}
+                    >
+                      {when}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DailyActionsPage() {
@@ -92,10 +169,11 @@ export default async function DailyActionsPage() {
     redirect('/login')
   }
 
-  const [overdueFollowUps, hotLeads, goingCold, user, totalClients] = await Promise.all([
+  const [overdueFollowUps, hotLeads, goingCold, retainerReminders, user, totalClients] = await Promise.all([
     getOverdueFollowUps(ownerId),
     getHotLeads(ownerId),
     getGoingCold(ownerId),
+    getRetainerReminders(ownerId),
     prisma.user.findUnique({
       where: { id: ownerId },
       select: { defaultAi: true },
@@ -104,7 +182,7 @@ export default async function DailyActionsPage() {
   ])
 
   const defaultAi = user?.defaultAi ?? null
-  const total = overdueFollowUps.length + hotLeads.length + goingCold.length
+  const total = overdueFollowUps.length + hotLeads.length + goingCold.length + retainerReminders.length
 
   return (
     <div className="flex flex-col gap-8">
@@ -174,6 +252,9 @@ export default async function DailyActionsPage() {
         defaultAi={defaultAi}
         emptyMessage="All your active clients have been contacted in the last 30 days."
       />
+
+      {/* ── Retainer reminders ──────────────────────────────────── */}
+      <RetainerSection reminders={retainerReminders} />
     </div>
   )
 }

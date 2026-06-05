@@ -18,10 +18,20 @@ export interface ActionClient {
 }
 
 export interface RecommendedAction {
-  type: 'overdue_followup' | 'going_cold' | 'hot_lead'
+  type: 'overdue_followup' | 'going_cold' | 'hot_lead' | 'retainer_due'
   clientId: string
   clientName: string
   context: string
+}
+
+export interface RetainerReminder {
+  transactionId: string
+  clientId: string | null
+  clientName: string
+  amount: number
+  frequency: 'monthly' | 'quarterly' | 'annual'
+  nextDueDate: string  // ISO YYYY-MM-DD
+  daysUntilDue: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -148,6 +158,90 @@ export async function getGoingCold(ownerId: string): Promise<ActionClient[]> {
   })
 }
 
+// ─── Retainer reminders ────────────────────────────────────────────────────────
+
+/** Adds the billing period in months to a date, returning a new Date. */
+function addBillingPeriod(
+  date: Date,
+  frequency: 'monthly' | 'quarterly' | 'annual',
+): Date {
+  const d = new Date(date)
+  if (frequency === 'monthly') d.setUTCMonth(d.getUTCMonth() + 1)
+  else if (frequency === 'quarterly') d.setUTCMonth(d.getUTCMonth() + 3)
+  else d.setUTCFullYear(d.getUTCFullYear() + 1)
+  return d
+}
+
+/**
+ * Finds recurring income transactions whose next expected payment falls within
+ * the next 7 days (inclusive of today). Deduplicates per client — only the
+ * most-recent transaction per client is considered.
+ */
+export async function getRetainerReminders(ownerId: string): Promise<RetainerReminder[]> {
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+  const horizon = new Date(today)
+  horizon.setUTCDate(horizon.getUTCDate() + 7)
+
+  // Latest recurring income row per client (we look back 13 months to cover annual cadences)
+  const since = new Date(today)
+  since.setUTCMonth(since.getUTCMonth() - 13)
+
+  const rows = await prisma.transaction.findMany({
+    where: {
+      ownerId,
+      type: 'income',
+      isRecurring: true,
+      frequency: { not: null },
+      occurredAt: { gte: since },
+    },
+    select: {
+      id: true,
+      amount: true,
+      frequency: true,
+      occurredAt: true,
+      clientId: true,
+      client: { select: { companyName: true, contactName: true } },
+    },
+    orderBy: { occurredAt: 'desc' },
+  })
+
+  // Keep only the most-recent row per (clientId | transactionId)
+  const seen = new Set<string>()
+  const reminders: RetainerReminder[] = []
+
+  for (const r of rows) {
+    const dedupeKey = r.clientId ?? r.id
+    if (seen.has(dedupeKey)) continue
+    seen.add(dedupeKey)
+
+    const freq = r.frequency as 'monthly' | 'quarterly' | 'annual'
+    const nextDue = addBillingPeriod(r.occurredAt, freq)
+    nextDue.setUTCHours(0, 0, 0, 0)
+
+    if (nextDue < today || nextDue > horizon) continue
+
+    const daysUntilDue = Math.round(
+      (nextDue.getTime() - today.getTime()) / 86_400_000,
+    )
+    const clientName = r.client
+      ? (r.client.companyName ?? r.client.contactName ?? 'Unknown')
+      : 'Unknown'
+
+    reminders.push({
+      transactionId: r.id,
+      clientId: r.clientId,
+      clientName,
+      amount: Number(r.amount),
+      frequency: freq,
+      nextDueDate: toDateStr(nextDue),
+      daysUntilDue,
+    })
+  }
+
+  return reminders.sort((a, b) => a.daysUntilDue - b.daysUntilDue)
+}
+
 // ─── Recommended actions (for dashboard) ──────────────────────────────────────
 
 /**
@@ -156,10 +250,11 @@ export async function getGoingCold(ownerId: string): Promise<ActionClient[]> {
  * Deduplicates by clientId across queues.
  */
 export async function getRecommendedActions(ownerId: string): Promise<RecommendedAction[]> {
-  const [overdue, cold, hot] = await Promise.all([
+  const [overdue, cold, hot, retainers] = await Promise.all([
     getOverdueFollowUps(ownerId),
     getGoingCold(ownerId),
     getHotLeads(ownerId),
+    getRetainerReminders(ownerId),
   ])
 
   const seen = new Set<string>()
@@ -198,6 +293,19 @@ export async function getRecommendedActions(ownerId: string): Promise<Recommende
       context: c.estimatedValue
         ? `$${c.estimatedValue.toLocaleString('en-US')} opportunity`
         : 'Hot lead',
+    })
+  }
+
+  for (const r of retainers.slice(0, 2)) {
+    const clientId = r.clientId ?? `retainer-${r.transactionId}`
+    if (seen.has(clientId)) continue
+    seen.add(clientId)
+    const when = r.daysUntilDue === 0 ? 'today' : r.daysUntilDue === 1 ? 'tomorrow' : `in ${r.daysUntilDue}d`
+    actions.push({
+      type: 'retainer_due',
+      clientId,
+      clientName: r.clientName,
+      context: `Invoice due ${when} · ${r.frequency}`,
     })
   }
 

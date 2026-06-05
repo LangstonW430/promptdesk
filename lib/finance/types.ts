@@ -1,6 +1,7 @@
 export type TransactionType = 'income' | 'expense'
 export type TransactionSource = 'manual' | 'stripe'
 export type Period = 'thisMonth' | 'thisQuarter' | 'ytd' | 'allTime'
+export type RecurringFrequency = 'monthly' | 'quarterly' | 'annual'
 
 export interface TransactionFilters {
   type?: TransactionType
@@ -42,3 +43,4 @@ export interface MRRSummary {
   expenses: number      // total expenses this month
   passiveIncome: number // mrr - expenses
 }
+

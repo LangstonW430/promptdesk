@@ -42,6 +42,9 @@ function toActionPayload(values: TransactionFormValues) {
     occurredAt: values.occurredAt,
     clientId: values.clientId || undefined,
     isRecurring: values.isRecurring,
+    frequency: values.isRecurring && values.frequency
+      ? (values.frequency as 'monthly' | 'quarterly' | 'annual')
+      : undefined,
   }
 }
 
@@ -61,6 +64,7 @@ export function TransactionForm({
   })
 
   const watchedType = useWatch({ control: form.control, name: 'type' })
+  const watchedRecurring = useWatch({ control: form.control, name: 'isRecurring' })
   const categoryOptions =
     watchedType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
 
@@ -228,6 +232,30 @@ export function TransactionForm({
             </FormItem>
           )}
         />
+
+        {/* Frequency — only shown when recurring is checked */}
+        {watchedRecurring && (
+          <FormField
+            control={form.control}
+            name="frequency"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Billing frequency</FormLabel>
+                <FormControl>
+                  <Select {...field}>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annual">Annual</option>
+                  </Select>
+                </FormControl>
+                <p className="text-xs text-muted-foreground pl-0">
+                  Used to normalize this payment to a monthly MRR figure.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         {/* Client */}
         {clients.length > 0 && (

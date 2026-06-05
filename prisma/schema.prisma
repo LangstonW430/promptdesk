@@ -291,21 +291,28 @@ model GeneratedPrompt {
 
 // ============ FINANCE ============
 
+enum RecurringFrequency {
+  monthly
+  quarterly
+  annual
+}
+
 model Transaction {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ownerId      String   @map("owner_id") @db.Uuid
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId      String              @map("owner_id") @db.Uuid
   type         String                             // "income" | "expense"
   source       String                             // "manual" | "stripe"
-  amount       Decimal  @db.Decimal(12, 2)        // always positive; type carries sign
-  currency     String   @default("usd")
+  amount       Decimal             @db.Decimal(12, 2)        // always positive; type carries sign
+  currency     String              @default("usd")
   description  String?
   category     String
-  occurredAt   DateTime @map("occurred_at") @db.Timestamptz(6)
-  clientId     String?  @map("client_id") @db.Uuid
-  externalId   String?  @map("external_id")      // Stripe object id (ch_..., in_..., etc.)
-  externalType String?  @map("external_type")    // "charge" | "refund" | "invoice" | "fee"
-  isRecurring  Boolean  @default(false) @map("is_recurring") // true = part of MRR (Stripe Subscription)
-  metadata     Json     @default("{}") @db.JsonB  // counterparty, Stripe ids, fee details
+  occurredAt   DateTime            @map("occurred_at") @db.Timestamptz(6)
+  clientId     String?             @map("client_id") @db.Uuid
+  externalId   String?             @map("external_id")      // Stripe object id (ch_..., in_..., etc.)
+  externalType String?             @map("external_type")    // "charge" | "refund" | "invoice" | "fee"
+  isRecurring  Boolean             @default(false) @map("is_recurring") // true = part of MRR
+  frequency    RecurringFrequency? // billing cadence for recurring transactions
+  metadata     Json                @default("{}") @db.JsonB  // counterparty, Stripe ids, fee details
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

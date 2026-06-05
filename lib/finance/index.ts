@@ -65,6 +65,7 @@ export async function createTransaction(
       occurredAt: new Date(input.occurredAt),
       clientId: input.clientId ?? null,
       isRecurring: input.isRecurring ?? false,
+      frequency: input.isRecurring ? (input.frequency ?? 'monthly') : null,
     },
   })
   return serializeTransaction(row)
@@ -90,7 +91,14 @@ export async function updateTransaction(
   if (input.occurredAt !== undefined) data.occurredAt = new Date(input.occurredAt)
   if (input.clientId !== undefined) data.clientId = input.clientId ?? null
 
-  if (input.isRecurring !== undefined) data.isRecurring = input.isRecurring
+  if (input.isRecurring !== undefined) {
+    data.isRecurring = input.isRecurring
+    // Clear frequency when un-marking recurring; set/update when marking recurring
+    if (!input.isRecurring) {
+      data.frequency = null
+    }
+  }
+  if (input.frequency !== undefined) data.frequency = input.frequency ?? null
 
   if (!isStripe) {
     if (input.type !== undefined) data.type = input.type

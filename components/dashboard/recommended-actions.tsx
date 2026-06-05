@@ -8,12 +8,14 @@ const DOT: Record<RecommendedAction['type'], string> = {
   overdue_followup: 'bg-red-500',
   going_cold: 'bg-sky-400',
   hot_lead: 'bg-amber-500',
+  retainer_due: 'bg-violet-500',
 }
 
 const LABEL: Record<RecommendedAction['type'], string> = {
   overdue_followup: 'Overdue',
   going_cold: 'Going cold',
   hot_lead: 'Hot lead',
+  retainer_due: 'Retainer due',
 }
 
 interface RecommendedActionsProps {

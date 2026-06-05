@@ -84,14 +84,18 @@ export const getExpensesByCategory = unstable_cache(
 
 export const getMRRSummary = unstable_cache(
   async (ownerId: string): Promise<MRRSummary> => {
-    // MRR is always measured against the current calendar month.
     const { from, to } = getPeriodBoundaries('thisMonth')
     const rows = await prisma.transaction.findMany({
       where: { ownerId, ...dateFilter(from, to) },
-      select: { type: true, amount: true, isRecurring: true },
+      select: { type: true, amount: true, isRecurring: true, frequency: true },
     })
     return calculateMRRSummary(
-      rows.map((r) => ({ type: r.type, amount: Number(r.amount), isRecurring: r.isRecurring })),
+      rows.map((r) => ({
+        type: r.type,
+        amount: Number(r.amount),
+        isRecurring: r.isRecurring,
+        frequency: r.frequency,
+      })),
     )
   },
   ['finance-mrr'],

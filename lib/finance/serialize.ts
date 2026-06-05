@@ -13,6 +13,7 @@ export type SerializedTransaction = {
   externalId: string | null
   externalType: string | null
   isRecurring: boolean
+  frequency: string | null
   metadata: Record<string, unknown>
   createdAt: string
   updatedAt: string
@@ -32,6 +33,7 @@ type TransactionRow = {
   externalId: string | null
   externalType: string | null
   isRecurring: boolean
+  frequency: string | null
   metadata: unknown
   createdAt: Date
   updatedAt: Date
@@ -59,6 +61,7 @@ export function serializeTransaction(t: TransactionRow): SerializedTransaction {
     externalId: t.externalId,
     externalType: t.externalType,
     isRecurring: t.isRecurring,
+    frequency: t.frequency,
     metadata: (t.metadata ?? {}) as Record<string, unknown>,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
