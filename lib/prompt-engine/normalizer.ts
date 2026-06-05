@@ -3,13 +3,16 @@ import type {
   EngineNote,
   EngineTask,
   EngineActivity,
+  EngineProject,
   ClientStatus,
   NoteType,
+  ProjectStatus,
   NormalizerOptions,
   RawClient,
   RawNote,
   RawTask,
   RawActivity,
+  RawProject,
 } from './types'
 
 // ─── Hashing ──────────────────────────────────────────────────────────────────
@@ -92,6 +95,14 @@ function toNoteType(raw: string): NoteType {
   return VALID_NOTE_TYPES.has(raw as NoteType) ? (raw as NoteType) : 'note'
 }
 
+const VALID_PROJECT_STATUSES = new Set<ProjectStatus>([
+  'active', 'completed', 'on_hold', 'cancelled',
+])
+
+function toProjectStatus(raw: string): ProjectStatus {
+  return VALID_PROJECT_STATUSES.has(raw as ProjectStatus) ? (raw as ProjectStatus) : 'active'
+}
+
 // ─── Public normalizers ───────────────────────────────────────────────────────
 
 export function normalizeClient(raw: RawClient, opts: NormalizerOptions = {}): EngineClient {
@@ -151,9 +162,34 @@ export function normalizeTask(raw: RawTask): EngineTask {
   return {
     id: raw.id,
     clientId: raw.clientId ?? null,
+    projectId: raw.projectId ?? null,
     title: raw.title,
     dueDate: formatDate(raw.dueDate, locale),
     isDone: raw.isDone,
+  }
+}
+
+export function normalizeProject(raw: RawProject, opts: NormalizerOptions = {}): EngineProject {
+  const currency = opts.currency ?? 'USD'
+  const locale = opts.locale ?? 'en-US'
+  const budgetNum = toNumber(raw.budget)
+
+  const deliverables = Array.isArray(raw.deliverables)
+    ? raw.deliverables.filter((d): d is string => typeof d === 'string')
+    : []
+
+  return {
+    id: raw.id,
+    clientId: raw.clientId,
+    title: raw.title,
+    status: toProjectStatus(raw.status),
+    startDate: formatDate(raw.startDate, locale),
+    endDate: formatDate(raw.endDate, locale),
+    budget: budgetNum,
+    budgetFormatted: formatCurrency(budgetNum, currency, locale),
+    deliverables,
+    createdAt: toIso(raw.createdAt) ?? new Date(0).toISOString(),
+    updatedAt: toIso(raw.updatedAt) ?? new Date(0).toISOString(),
   }
 }
 

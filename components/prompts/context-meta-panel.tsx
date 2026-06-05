@@ -13,12 +13,13 @@ const TYPE_CONFIG: Record<
   { label: string; Icon: React.ElementType }
 > = {
   client: { label: 'Clients', Icon: Building2 },
+  project: { label: 'Projects', Icon: Building2 },
   note: { label: 'Notes', Icon: FileText },
   task: { label: 'Tasks', Icon: CheckSquare2 },
   activity: { label: 'Activities', Icon: Activity },
 }
 
-const TYPE_ORDER: ContextItemType[] = ['client', 'note', 'task', 'activity']
+const TYPE_ORDER: ContextItemType[] = ['client', 'project', 'note', 'task', 'activity']
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 

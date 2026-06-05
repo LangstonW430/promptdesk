@@ -362,7 +362,7 @@ export function buildContextBlock(
     byType.set(item.type, group)
   }
 
-  const order = ['client', 'note', 'task', 'activity'] as const
+  const order = ['client', 'project', 'note', 'task', 'activity'] as const
   for (const type of order) {
     const items = byType.get(type)
     if (!items || items.length === 0) continue

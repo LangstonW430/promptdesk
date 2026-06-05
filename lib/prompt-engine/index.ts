@@ -8,6 +8,7 @@ export {
   normalizeNote,
   normalizeTask,
   normalizeActivity,
+  normalizeProject,
   contentHash,
 } from './normalizer'
 export { deduplicateNotes } from './deduplicator'

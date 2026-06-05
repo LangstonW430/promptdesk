@@ -10,6 +10,8 @@ export type ClientStatus =
 
 export type NoteType = 'note' | 'call' | 'meeting' | 'email'
 
+export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled'
+
 /** Canonical client shape used throughout the engine. Dates are human-readable strings. */
 export interface EngineClient {
   id: string
@@ -51,9 +53,24 @@ export interface EngineNote {
 export interface EngineTask {
   id: string
   clientId: string | null
+  projectId: string | null
   title: string
   dueDate: string | null // "Jun 3, 2026"
   isDone: boolean
+}
+
+export interface EngineProject {
+  id: string
+  clientId: string
+  title: string
+  status: ProjectStatus
+  startDate: string | null        // "Jun 3, 2026"
+  endDate: string | null
+  budget: number | null
+  budgetFormatted: string | null  // "$5,000.00"
+  deliverables: string[]
+  createdAt: string               // ISO 8601
+  updatedAt: string
 }
 
 export interface EngineActivity {
@@ -77,7 +94,7 @@ export interface PipelineAggregate {
 
 // ─── Scoring & budgeting ──────────────────────────────────────────────────────
 
-export type ContextItemType = 'client' | 'note' | 'task' | 'activity'
+export type ContextItemType = 'client' | 'note' | 'task' | 'activity' | 'project'
 export type InclusionTier = 'full' | 'summary'
 
 /**
@@ -247,9 +264,23 @@ export interface RawNote {
 export interface RawTask {
   id: string
   clientId: string | null
+  projectId: string | null
   title: string
   dueDate: Date | string | null
   isDone: boolean
+}
+
+export interface RawProject {
+  id: string
+  clientId: string
+  title: string
+  status: string
+  startDate: Date | string | null
+  endDate: Date | string | null
+  budget: number | { toNumber(): number } | null
+  deliverables: unknown[]         // JSONB array from Prisma
+  createdAt: Date | string
+  updatedAt: Date | string
 }
 
 export interface RawActivity {

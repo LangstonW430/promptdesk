@@ -1,6 +1,6 @@
 import type { ClientStatus, NoteType } from './types'
 
-export type TemplateScope = 'global' | 'client' | 'notes'
+export type TemplateScope = 'global' | 'client' | 'notes' | 'project'
 
 /**
  * Pure data spec describing what the data layer should fetch before building
@@ -26,6 +26,11 @@ export interface RetrievalSpec {
   maxNotes?: number
   // ── Notes scope ───────────────────────────────────────────────────────────
   noteTypeFilter?: NoteType[]
+  // ── Project scope ─────────────────────────────────────────────────────────
+  /** Required when scope === 'project'. */
+  projectId?: string
+  includeProjectTasks?: boolean
+  includeProjectNotes?: boolean
 }
 
 /** A built-in template definition — the single source of truth for both the

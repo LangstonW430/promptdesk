@@ -168,6 +168,7 @@ export async function fetchContext(
     tasks.push(...rawTasks.map((t) => ({
       id: t.id,
       clientId: t.clientId,
+      projectId: t.projectId ?? null,
       title: t.title,
       dueDate: t.dueDate,
       isDone: t.isDone,
@@ -249,6 +250,7 @@ export async function fetchContext(
         tasks.push(...rawTasks.map((t) => ({
           id: t.id,
           clientId: t.clientId,
+          projectId: t.projectId ?? null,
           title: t.title,
           dueDate: t.dueDate,
           isDone: t.isDone,

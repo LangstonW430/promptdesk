@@ -127,6 +127,7 @@ const noteBeta1: RawNote = {
 const taskAcme: RawTask = {
   id: 't-acme-1',
   clientId: 'c-acme',
+  projectId: null,
   title: 'Send revised proposal with updated timeline',
   dueDate: daysFromNow(4),
   isDone: false,
@@ -135,6 +136,7 @@ const taskAcme: RawTask = {
 const taskOverdue: RawTask = {
   id: 't-beta-overdue',
   clientId: 'c-beta',
+  projectId: null,
   title: 'Follow up with Tom after no response',
   dueDate: daysAgo(5),
   isDone: false,
