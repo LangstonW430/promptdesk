@@ -12,6 +12,7 @@ import {
   ChevronRight,
   List,
   LayoutGrid,
+  Archive,
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -82,13 +83,14 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
   const currentStatus = searchParams.get('status') ?? ''
   const currentTag = searchParams.get('tag') ?? ''
   const isGoingCold = searchParams.get('stale') === '30'
+  const isArchived = searchParams.get('archived') === 'true'
   const currentView = searchParams.get('view') === 'kanban' ? 'kanban' : 'table'
 
   const [searchInput, setSearchInput] = useState(currentQ)
   const [tagInput, setTagInput] = useState(currentTag)
 
   const hasActiveFilters =
-    currentQ !== '' || currentStatus !== '' || currentTag !== '' || isGoingCold
+    currentQ !== '' || currentStatus !== '' || currentTag !== '' || isGoingCold || isArchived
 
   function pushFilters(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString())
@@ -180,6 +182,16 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
         >
           <Thermometer />
           Going cold
+        </Button>
+
+        {/* Archived toggle */}
+        <Button
+          variant={isArchived ? 'secondary' : 'outline'}
+          onClick={() => pushFilters({ archived: isArchived ? null : 'true', stale: null })}
+          aria-pressed={isArchived}
+        >
+          <Archive />
+          Archived
         </Button>
 
         {/* Clear filters */}
