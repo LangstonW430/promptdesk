@@ -68,7 +68,7 @@ function isExpandedBalanceTx(
   return typeof bt === 'object' && bt !== null && 'fee' in bt
 }
 
-function isExpandedCustomer(
+export function isExpandedCustomer(
   c: Stripe.Charge['customer'],
 ): c is Stripe.Customer {
   return (

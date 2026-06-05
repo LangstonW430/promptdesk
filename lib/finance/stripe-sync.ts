@@ -20,6 +20,7 @@ import {
   chargeFeeToTransaction,
   refundToTransaction,
   invoiceToTransaction,
+  isExpandedCustomer,
   type StripeTransactionData,
 } from './stripe-mapper'
 
@@ -142,13 +143,23 @@ async function linkTransactionsByEmail(
  */
 // ─── Active MRR from live subscriptions ──────────────────────────────────────
 
+export interface SubscriptionLine {
+  subscriptionId: string
+  customerName: string | null
+  priceName: string | null
+  interval: string       // e.g. "month", "every 3 months"
+  monthlyAmount: number
+}
+
 export interface ActiveMRRResult {
   configured: boolean       // false when no Stripe key is saved
   permissionError: boolean  // true when key lacks Subscriptions: Read
   gross: number             // sum of active subscription amounts (monthly, in dollars)
-  monthlyExpenses: number   // actual expenses this calendar month from transaction records
+  estimatedFees: number     // 2.9% + $0.30 per sub (exposed for breakdown display)
+  monthlyExpenses: number   // non-fee DB expenses this month + estimatedFees
   net: number               // gross - monthlyExpenses
   subscriptionCount: number
+  subscriptions: SubscriptionLine[]
 }
 
 function normalizeToMonthly(
@@ -174,19 +185,29 @@ function normalizeToMonthly(
  */
 export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
   const { from: expFrom, to: expTo } = getPeriodBoundaries('thisMonth')
+  // Exclude Stripe fee rows (externalType = 'fee') — those are per-charge and dated
+  // when the charge occurred, which may be outside the current month. Estimated
+  // subscription fees are added separately below so they stay in sync with gross MRR.
   const expenseAgg = await prisma.transaction.aggregate({
-    where: { ownerId, type: 'expense', occurredAt: { gte: expFrom!, lt: expTo! } },
+    where: {
+      ownerId,
+      type: 'expense',
+      occurredAt: { gte: expFrom!, lt: expTo! },
+      OR: [{ externalType: null }, { externalType: { not: 'fee' } }],
+    },
     _sum: { amount: true },
   })
-  const monthlyExpenses = Math.round(Number(expenseAgg._sum.amount ?? 0) * 100) / 100
+  const otherExpenses = Math.round(Number(expenseAgg._sum.amount ?? 0) * 100) / 100
 
   const empty: ActiveMRRResult = {
     configured: false,
     permissionError: false,
     gross: 0,
-    monthlyExpenses,
-    net: -monthlyExpenses,
+    estimatedFees: 0,
+    monthlyExpenses: otherExpenses,
+    net: -otherExpenses,
     subscriptionCount: 0,
+    subscriptions: [],
   }
 
   let stripeClient: Awaited<ReturnType<typeof getStripeForOwner>>
@@ -198,17 +219,29 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
 
   let gross = 0
   let count = 0
+  const lines: SubscriptionLine[] = []
   try {
     await stripeClient.subscriptions
-      .list({ status: 'active', limit: 100, expand: ['data.items.data.price'] })
+      .list({ status: 'active', limit: 100, expand: ['data.items.data.price', 'data.customer'] })
       .autoPagingEach((sub) => {
+        const customerName = isExpandedCustomer(sub.customer as Stripe.Charge['customer'])
+          ? ((sub.customer as Stripe.Customer).name ?? (sub.customer as Stripe.Customer).email ?? null)
+          : null
         for (const item of sub.items.data) {
           const price = item.price
           const unitAmount = price.unit_amount ?? 0
           const interval = price.recurring?.interval ?? 'month'
           const intervalCount = price.recurring?.interval_count ?? 1
           const qty = item.quantity ?? 1
-          gross += normalizeToMonthly(unitAmount * qty, interval, intervalCount) / 100
+          const monthly = normalizeToMonthly(unitAmount * qty, interval, intervalCount) / 100
+          gross += monthly
+          lines.push({
+            subscriptionId: sub.id,
+            customerName,
+            priceName: price.nickname ?? null,
+            interval: intervalCount > 1 ? `every ${intervalCount} ${interval}s` : interval,
+            monthlyAmount: Math.round(monthly * 100) / 100,
+          })
         }
         count += 1
       })
@@ -221,13 +254,19 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
     return { ...empty, configured: true, permissionError: isPermErr }
   }
 
+  // Stripe standard rate: 2.9% + $0.30 per subscription per month
+  const estimatedFees = Math.round((gross * 0.029 + count * 0.3) * 100) / 100
+  const monthlyExpenses = Math.round((otherExpenses + estimatedFees) * 100) / 100
+
   return {
     configured: true,
     permissionError: false,
     gross: Math.round(gross * 100) / 100,
+    estimatedFees,
     monthlyExpenses,
     net: Math.round((gross - monthlyExpenses) * 100) / 100,
     subscriptionCount: count,
+    subscriptions: lines,
   }
 }
 
