@@ -49,15 +49,34 @@ export type StripeTransactionData = {
  * When invoice is not expanded (still a string), we conservatively return false.
  * The next backfill (which expands invoices) will correct the flag.
  */
+function invoiceIsSubscription(inv: string | Stripe.Invoice | null | undefined): boolean {
+  if (!inv) return false
+  // String ID (unexpanded): presence of any invoice on a charge means Stripe generated
+  // it — effectively always a subscription in practice.
+  if (typeof inv === 'string') return true
+  const invoice = inv as Stripe.Invoice & { subscription?: string | null }
+  if (typeof invoice.billing_reason === 'string' && invoice.billing_reason.startsWith('subscription')) return true
+  // billing_reason can be null on older invoices; fall back to subscription field.
+  return !!invoice.subscription
+}
+
 export function isSubscriptionCharge(charge: Stripe.Charge): boolean {
-  // charge.invoice was removed from the Stripe.Charge TypeScript type in SDK v22,
-  // but Stripe still includes it in API responses and webhook payloads.
-  // Access it defensively; when it's an unexpanded string the billing_reason is
-  // unavailable so we conservatively return false (corrected by next backfill).
-  const inv = (charge as unknown as { invoice?: string | Stripe.Invoice | null }).invoice
-  if (!inv || typeof inv === 'string') return false
-  const reason = (inv as Stripe.Invoice).billing_reason
-  return typeof reason === 'string' && reason.startsWith('subscription')
+  // Path A: charge.invoice — present in webhook payloads and older API versions.
+  // Removed from the TS type in SDK v22 but still in the actual API response for
+  // accounts on older API versions.
+  const directInv = (charge as unknown as { invoice?: string | Stripe.Invoice | null }).invoice
+  if (invoiceIsSubscription(directInv)) return true
+
+  // Path B: charge.payment_intent.invoice — the canonical path in Stripe API
+  // versions 2022-11-15+ (codename versions like 2026-05-27.dahlia).
+  // Requires expand: ['data.payment_intent.invoice'] in the charges.list call.
+  const pi = charge.payment_intent
+  if (pi && typeof pi === 'object') {
+    const piInv = (pi as unknown as { invoice?: string | Stripe.Invoice | null }).invoice
+    if (invoiceIsSubscription(piInv)) return true
+  }
+
+  return false
 }
 
 // ─── Type guards for expanded objects ─────────────────────────────────────────
@@ -175,7 +194,7 @@ export function chargeFeeToTransaction(
     clientId: null,
     externalId: `${charge.id}:fee`,
     externalType: 'fee',
-    isRecurring: false,  // fees are never counted as MRR
+    isRecurring: isSubscriptionCharge(charge),  // mirrors the income row for the same charge
     metadata: {
       chargeId: charge.id,
       feeDetails: bt.fee_details ?? [],

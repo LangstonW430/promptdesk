@@ -24,7 +24,7 @@ function periodLabel(period: Period): string {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 function inRange(iso: string, from: Date | null, to: Date | null): boolean {

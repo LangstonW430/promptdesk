@@ -383,8 +383,10 @@ export async function backfillStripe(ownerId: string): Promise<void> {
     await stripeClient.charges
       .list({
         limit: 100,
-        // Expanding data.invoice gives us billing_reason for subscription detection.
-        expand: ['data.balance_transaction', 'data.customer', 'data.invoice'],
+        // data.payment_intent.invoice: canonical path in API versions 2022-11-15+
+        //   (codename versions), where invoice moved off Charge to PaymentIntent.
+        // data.invoice: kept for backward compat with older API versions / webhook payloads.
+        expand: ['data.balance_transaction', 'data.customer', 'data.invoice', 'data.payment_intent.invoice'],
       })
       .autoPagingEach(async (charge: Stripe.Charge) => {
         // Only process succeeded charges
