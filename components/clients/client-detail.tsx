@@ -29,8 +29,20 @@ import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES, BUCKET_NAME } from '@/lib/attachment
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { ClientInsightPanel } from '@/components/prompts/client-insight-panel'
 import { NoteAnalysisPanel } from '@/components/prompts/note-analysis-panel'
+import { TimerWidget } from '@/components/time-tracking/timer-widget'
 
 // ── Types ──────────────────────────────────────────────────────────────────
+
+export type SerializedTimeEntryInline = {
+  id:           string
+  projectId:    string | null
+  projectTitle: string | null
+  date:         string
+  hours:        number
+  rate:         number | null
+  description:  string | null
+  isBillable:   boolean
+}
 
 export type SerializedClientDetail = {
   id: string
@@ -44,6 +56,7 @@ export type SerializedClientDetail = {
   leadSource: string | null
   status: string
   estimatedValue: number | null
+  defaultRate: number | null
   projectType: string | null
   painPoints: string | null
   requirements: string | null
@@ -69,6 +82,8 @@ export type SerializedClientDetail = {
     detail: Record<string, unknown>
     createdAt: string
   }>
+  projects: Array<{ id: string; title: string; status: string }>
+  timeEntries: SerializedTimeEntryInline[]
   customFields: Record<string, string>
 }
 
@@ -123,7 +138,7 @@ function todayISO(): string {
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'notes' | 'intelligence' | 'tasks' | 'attachments'
+type TabId = 'overview' | 'notes' | 'intelligence' | 'tasks' | 'time' | 'attachments'
 
 // ── Main component ─────────────────────────────────────────────────────────
 
@@ -149,6 +164,7 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
     { id: 'notes', label: 'Notes', count: client.notes.length || undefined },
     { id: 'intelligence', label: 'Intelligence' },
     { id: 'tasks', label: 'Tasks', count: client.tasks.filter((t) => !t.isDone).length || undefined },
+    { id: 'time', label: 'Time', count: client.timeEntries.length || undefined },
     { id: 'attachments', label: 'Attachments', count: client.attachments.length || undefined },
   ]
 
@@ -306,6 +322,9 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
         </div>
         <div role="tabpanel" id="client-panel-tasks" aria-labelledby="client-tab-tasks" tabIndex={0} hidden={activeTab !== 'tasks'} className="focus-visible:outline-none">
           <TasksTab client={client} />
+        </div>
+        <div role="tabpanel" id="client-panel-time" aria-labelledby="client-tab-time" tabIndex={0} hidden={activeTab !== 'time'} className="focus-visible:outline-none">
+          <TimeTab client={client} />
         </div>
         <div role="tabpanel" id="client-panel-attachments" aria-labelledby="client-tab-attachments" tabIndex={0} hidden={activeTab !== 'attachments'} className="focus-visible:outline-none">
           <AttachmentsTab client={client} />
@@ -1391,6 +1410,109 @@ function TaskRow({
         <Trash2 className="size-3.5" />
       </button>
     </li>
+  )
+}
+
+// ── Time tab ───────────────────────────────────────────────────────────────
+
+function formatHours(h: number): string {
+  return h % 1 === 0 ? `${h}h` : `${h.toFixed(2)}h`
+}
+
+function formatEntryDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function TimeTab({ client }: { client: SerializedClientDetail }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const displayName = client.companyName ?? client.contactName ?? 'Client'
+
+  function handleDelete(id: string) {
+    setDeleteError(null)
+    startTransition(async () => {
+      const { deleteTimeEntryAction } = await import('@/lib/actions/time-entries')
+      const result = await deleteTimeEntryAction(id)
+      if ('error' in result) { setDeleteError(result.error ?? 'Delete failed'); return }
+      router.refresh()
+    })
+  }
+
+  const totalHours   = client.timeEntries.reduce((s, e) => s + e.hours, 0)
+  const billableHours = client.timeEntries.filter((e) => e.isBillable).reduce((s, e) => s + e.hours, 0)
+
+  return (
+    <div className="flex flex-col gap-4 p-5">
+      <TimerWidget
+        clientId={client.id}
+        clientName={displayName}
+        defaultRate={client.defaultRate}
+        projects={client.projects}
+      />
+
+      {deleteError && (
+        <p className="text-xs text-destructive">{deleteError}</p>
+      )}
+
+      {client.timeEntries.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No time logged yet. Start the timer above or{' '}
+          <a href="/time" className="text-foreground underline underline-offset-2">view the weekly timesheet</a>.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {/* Summary row */}
+          <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+            <span>Recent entries</span>
+            <span>{formatHours(totalHours)} total · {formatHours(billableHours)} billable</span>
+          </div>
+
+          {/* Entry list */}
+          <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+            {client.timeEntries.map((entry) => (
+              <li key={entry.id} className="group flex items-center gap-3 px-4 py-2.5 text-sm">
+                <span className="w-20 shrink-0 text-xs text-muted-foreground">
+                  {formatEntryDate(entry.date)}
+                </span>
+                <span className="flex-1 truncate text-muted-foreground">
+                  {entry.projectTitle && (
+                    <span className="mr-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                      {entry.projectTitle} ·
+                    </span>
+                  )}
+                  {entry.description ?? <span className="italic">No description</span>}
+                </span>
+                {!entry.isBillable && (
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-px text-[10px] font-medium text-muted-foreground">
+                    non-billable
+                  </span>
+                )}
+                <span className="w-10 shrink-0 text-right tabular-nums font-medium">
+                  {formatHours(entry.hours)}
+                </span>
+                <button
+                  onClick={() => handleDelete(entry.id)}
+                  disabled={isPending}
+                  aria-label="Delete time entry"
+                  className="invisible shrink-0 text-muted-foreground/40 hover:text-destructive transition-colors group-hover:visible disabled:pointer-events-none"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <a
+            href="/time"
+            className="mt-1 text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            View weekly timesheet →
+          </a>
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -1,5 +1,13 @@
 import type { SerializedClientDetail } from '@/components/clients/client-detail'
 
+type DecimalLike = { toNumber(): number } | number | null | undefined
+
+function toNum(d: DecimalLike): number | null {
+  if (d == null) return null
+  if (typeof d === 'number') return d
+  return d.toNumber()
+}
+
 type ClientWithRelations = {
   id: string
   companyName: string | null
@@ -11,7 +19,8 @@ type ClientWithRelations = {
   companySize: string | null
   leadSource: string | null
   status: string
-  estimatedValue: { toNumber?: () => number; toString?: () => string } | number | null
+  estimatedValue: DecimalLike
+  defaultRate: DecimalLike
   projectType: string | null
   painPoints: string | null
   requirements: string | null
@@ -37,6 +46,17 @@ type ClientWithRelations = {
     detail: unknown
     createdAt: Date
   }>
+  projects: Array<{ id: string; title: string; status: string }>
+  timeEntries: Array<{
+    id: string
+    projectId: string | null
+    date: Date
+    hours: DecimalLike
+    rate: DecimalLike
+    description: string | null
+    isBillable: boolean
+    project: { title: string } | null
+  }>
   customFields: unknown
 }
 
@@ -52,7 +72,8 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
     companySize: client.companySize,
     leadSource: client.leadSource,
     status: client.status,
-    estimatedValue: client.estimatedValue != null ? Number(client.estimatedValue) : null,
+    estimatedValue: toNum(client.estimatedValue),
+    defaultRate: toNum(client.defaultRate),
     projectType: client.projectType,
     painPoints: client.painPoints,
     requirements: client.requirements,
@@ -89,6 +110,21 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
       type: a.type,
       detail: a.detail as Record<string, unknown>,
       createdAt: a.createdAt.toISOString(),
+    })),
+    projects: client.projects.map((p) => ({
+      id: p.id,
+      title: p.title,
+      status: p.status,
+    })),
+    timeEntries: client.timeEntries.map((e) => ({
+      id: e.id,
+      projectId:    e.projectId,
+      projectTitle: e.project?.title ?? null,
+      date:         e.date.toISOString().slice(0, 10),
+      hours:        toNum(e.hours) ?? 0,
+      rate:         toNum(e.rate),
+      description:  e.description,
+      isBillable:   e.isBillable,
     })),
     customFields: (client.customFields ?? {}) as Record<string, string>,
   }

@@ -9,6 +9,7 @@ import {
   Sparkles,
   Settings,
   Wallet,
+  Clock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -32,6 +33,11 @@ export const navItems = [
     label: 'Finance',
     href: '/finance',
     icon: Wallet,
+  },
+  {
+    label: 'Time',
+    href: '/time',
+    icon: Clock,
   },
   {
     label: 'Prompts',

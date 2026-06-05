@@ -32,6 +32,7 @@ model User {
   transactions     Transaction[]
   stripeSyncState  StripeSyncState?
   projects         Project[]
+  timeEntries      TimeEntry[]
 
   @@map("users")
 }
@@ -75,9 +76,11 @@ model Client {
   generatedPrompts GeneratedPrompt[]
   projects         Project[]
 
-  stripeCustomerId String? @map("stripe_customer_id")
+  stripeCustomerId String?  @map("stripe_customer_id")
+  defaultRate      Decimal? @map("default_rate") @db.Decimal(10, 2)
 
   transactions Transaction[]
+  timeEntries  TimeEntry[]
 
   @@index([ownerId, status], map: "clients_owner_status_idx")
   @@index([ownerId, nextFollowupDate], map: "clients_owner_next_followup_idx")
@@ -161,10 +164,36 @@ model Project {
   owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
   tasks  Task[]
+  timeEntries TimeEntry[]
 
   @@index([ownerId, status], map: "projects_owner_status_idx")
   @@index([clientId],        map: "projects_client_idx")
   @@map("projects")
+}
+
+// ============ TIME TRACKING ============
+
+model TimeEntry {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId     String    @map("owner_id") @db.Uuid
+  clientId    String    @map("client_id") @db.Uuid
+  projectId   String?   @map("project_id") @db.Uuid
+  date        DateTime  @db.Date
+  hours       Decimal   @db.Decimal(5, 2)
+  rate        Decimal?  @db.Decimal(10, 2)
+  description String?
+  isBillable  Boolean   @default(true) @map("is_billable")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, date(sort: Desc)],   map: "time_entries_owner_date_idx")
+  @@index([clientId, date(sort: Desc)],  map: "time_entries_client_date_idx")
+  @@index([projectId, date(sort: Desc)], map: "time_entries_project_date_idx")
+  @@map("time_entries")
 }
 
 // ============ TAGS (many-to-many) ============
