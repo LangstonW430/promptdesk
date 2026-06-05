@@ -10,6 +10,7 @@ import {
   Settings,
   Wallet,
   Clock,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +39,11 @@ export const navItems = [
     label: 'Time',
     href: '/time',
     icon: Clock,
+  },
+  {
+    label: 'Invoices',
+    href: '/invoices',
+    icon: FileText,
   },
   {
     label: 'Prompts',

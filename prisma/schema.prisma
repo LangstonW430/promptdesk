@@ -33,6 +33,7 @@ model User {
   stripeSyncState  StripeSyncState?
   projects         Project[]
   timeEntries      TimeEntry[]
+  invoices         Invoice[]
 
   @@map("users")
 }
@@ -81,6 +82,7 @@ model Client {
 
   transactions Transaction[]
   timeEntries  TimeEntry[]
+  invoices     Invoice[]
 
   @@index([ownerId, status], map: "clients_owner_status_idx")
   @@index([ownerId, nextFollowupDate], map: "clients_owner_next_followup_idx")
@@ -163,8 +165,9 @@ model Project {
 
   owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tasks  Task[]
+  tasks       Task[]
   timeEntries TimeEntry[]
+  invoices    Invoice[]
 
   @@index([ownerId, status], map: "projects_owner_status_idx")
   @@index([clientId],        map: "projects_client_idx")
@@ -186,9 +189,12 @@ model TimeEntry {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  invoiceId   String?   @map("invoice_id") @db.Uuid
+
   owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   @@index([ownerId, date(sort: Desc)],   map: "time_entries_owner_date_idx")
   @@index([clientId, date(sort: Desc)],  map: "time_entries_client_date_idx")
@@ -303,14 +309,55 @@ model Transaction {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  owner   User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  invoice Invoice?
 
   @@unique([ownerId, source, externalId], map: "transactions_owner_source_external_unique")
   @@index([ownerId, occurredAt(sort: Desc)], map: "transactions_owner_occurred_idx")
   @@index([ownerId, type], map: "transactions_owner_type_idx")
   @@index([clientId], map: "transactions_client_idx")
   @@map("transactions")
+}
+
+// ============ INVOICES ============
+
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+  overdue
+}
+
+model Invoice {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId       String        @map("owner_id") @db.Uuid
+  invoiceNumber Int           @map("invoice_number")
+  publicToken   String        @unique @map("public_token")
+  clientId      String        @map("client_id") @db.Uuid
+  projectId     String?       @map("project_id") @db.Uuid
+  lineItems     Json          @map("line_items") @db.JsonB
+  status        InvoiceStatus @default(draft)
+  issueDate     DateTime      @map("issue_date") @db.Date
+  dueDate       DateTime      @map("due_date") @db.Date
+  subtotal      Decimal       @db.Decimal(12, 2)
+  tax           Decimal?      @db.Decimal(12, 2)
+  total         Decimal       @db.Decimal(12, 2)
+  notes         String?
+  transactionId String?       @unique @map("transaction_id") @db.Uuid
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client      Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  timeEntries TimeEntry[]
+
+  @@unique([ownerId, invoiceNumber], map: "invoices_owner_number_unique")
+  @@index([ownerId, status], map: "invoices_owner_status_idx")
+  @@index([clientId],        map: "invoices_client_idx")
+  @@map("invoices")
 }
 
 model StripeSyncState {

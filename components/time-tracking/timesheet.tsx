@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Receipt, Loader2, Trash2, AlertCircle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Receipt, Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { deleteTimeEntryAction, convertToInvoiceAction } from '@/lib/actions/time-entries'
+import { deleteTimeEntryAction } from '@/lib/actions/time-entries'
 import type { SerializedTimeEntry } from '@/lib/time-entries/serialize'
 import { currentMondayISO, shiftWeek, formatWeekRange as formatRange } from '@/lib/time-entries/week'
 
@@ -79,10 +79,8 @@ interface WeeklyTimesheetProps {
 
 export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
   const router = useRouter()
-  const [selected,      setSelected]      = useState<Set<string>>(new Set())
-  const [convertError,  setConvertError]  = useState<string | null>(null)
-  const [convertSuccess, setConvertSuccess] = useState(false)
-  const [isPending,     startTransition]  = useTransition()
+  const [selected,     setSelected]    = useState<Set<string>>(new Set())
+  const [isPending,    startTransition] = useTransition()
 
   const groups = groupEntries(entries)
   const totalHours    = entries.reduce((s, e) => s + e.hours, 0)
@@ -117,18 +115,8 @@ export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
 
   function handleConvert() {
     if (selected.size === 0) return
-    setConvertError(null)
-    setConvertSuccess(false)
-    startTransition(async () => {
-      const result = await convertToInvoiceAction({ entryIds: Array.from(selected) })
-      if ('error' in result) {
-        setConvertError(result.error ?? 'Conversion failed')
-        return
-      }
-      setSelected(new Set())
-      setConvertSuccess(true)
-      router.refresh()
-    })
+    const ids = Array.from(selected).join(',')
+    router.push(`/invoices/new?entries=${ids}`)
   }
 
   const selectedEntries  = entries.filter((e) => selected.has(e.id))
@@ -170,19 +158,6 @@ export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
           <span>{formatHours(billableHours)} billable</span>
         </div>
       </div>
-
-      {/* ── Convert error / success ──────────────────────────────────────── */}
-      {convertError && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <AlertCircle className="size-4 shrink-0" />
-          {convertError}
-        </div>
-      )}
-      {convertSuccess && (
-        <div className="rounded-lg border border-green-500/30 bg-green-50 dark:bg-green-950/20 px-4 py-3 text-sm text-green-700 dark:text-green-400">
-          Invoice created and added to Finance.
-        </div>
-      )}
 
       {/* ── Convert toolbar ───────────────────────────────────────────────── */}
       {billableSelectableIds.length > 0 && (

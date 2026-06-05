@@ -9,6 +9,7 @@ import { followUpRecommendations } from './follow-up-recommendations'
 import { meetingAnalysis } from './meeting-analysis'
 import { noteAnalysis } from './note-analysis'
 import { leadQualification } from './lead-qualification'
+import { invoiceCoverEmail } from './invoice-cover-email'
 import type { BuiltInTemplate } from '../template-types'
 
 export const BUILT_IN_TEMPLATES: BuiltInTemplate[] = [
@@ -18,6 +19,7 @@ export const BUILT_IN_TEMPLATES: BuiltInTemplate[] = [
   weeklyPlanning,
   revenueAnalysis,
   followUpRecommendations,
+  invoiceCoverEmail,
   // ── Client scope ──────────────────────────────────────────────────────────
   clientReview,
   clientInsight,
@@ -40,4 +42,5 @@ export {
   meetingAnalysis,
   noteAnalysis,
   leadQualification,
+  invoiceCoverEmail,
 }
