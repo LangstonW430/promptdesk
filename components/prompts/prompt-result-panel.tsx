@@ -12,6 +12,8 @@ export interface PromptResultPanelProps {
   tokenCount: number
   contextMeta: ContextMeta
   defaultAi?: string | null
+  /** When provided, a Gmail compose button appears pre-addressed to this email. */
+  gmailTo?: string | null
   className?: string
 }
 
@@ -20,6 +22,7 @@ export function PromptResultPanel({
   tokenCount,
   contextMeta,
   defaultAi,
+  gmailTo,
   className,
 }: PromptResultPanelProps) {
   return (
@@ -45,7 +48,7 @@ export function PromptResultPanel({
 
       {/* ── Open in ────────────────────────────────────────────────────────── */}
       <div className="border-t border-border px-4 py-3">
-        <AiDestinationLinks text={text} defaultAi={defaultAi} />
+        <AiDestinationLinks text={text} defaultAi={defaultAi} gmailTo={gmailTo} />
       </div>
 
       {/* ── What's included ────────────────────────────────────────────────── */}

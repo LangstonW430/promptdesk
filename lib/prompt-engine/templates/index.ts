@@ -10,6 +10,10 @@ import { meetingAnalysis } from './meeting-analysis'
 import { noteAnalysis } from './note-analysis'
 import { leadQualification } from './lead-qualification'
 import { invoiceCoverEmail } from './invoice-cover-email'
+import { followUpEmail } from './follow-up-email'
+import { proposalCoverLetter } from './proposal-cover-letter'
+import { checkInEmail } from './check-in-email'
+import { closingEmail } from './closing-email'
 import type { BuiltInTemplate } from '../template-types'
 
 export const BUILT_IN_TEMPLATES: BuiltInTemplate[] = [
@@ -25,6 +29,11 @@ export const BUILT_IN_TEMPLATES: BuiltInTemplate[] = [
   clientInsight,
   proposalStrategy,
   leadQualification,
+  // ── Client email drafts ───────────────────────────────────────────────────
+  followUpEmail,
+  proposalCoverLetter,
+  checkInEmail,
+  closingEmail,
   // ── Notes scope ───────────────────────────────────────────────────────────
   meetingAnalysis,
   noteAnalysis,
@@ -43,4 +52,8 @@ export {
   noteAnalysis,
   leadQualification,
   invoiceCoverEmail,
+  followUpEmail,
+  proposalCoverLetter,
+  checkInEmail,
+  closingEmail,
 }

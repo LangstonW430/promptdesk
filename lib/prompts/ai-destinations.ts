@@ -45,3 +45,12 @@ export const AI_DESTINATION_ORDER: AiDestinationKey[] = [
 export function isValidAiKey(key: string | null | undefined): key is AiDestinationKey {
   return key != null && key in AI_DESTINATIONS
 }
+
+/** Build a Gmail compose deep-link. `to` is optional; body is never included
+ *  (prompts are too long for URL params). */
+export function buildGmailUrl(to?: string): string {
+  const base = 'https://mail.google.com/mail/?view=cm&fs=1'
+  const params: string[] = []
+  if (to) params.push(`to=${encodeURIComponent(to)}`)
+  return params.length > 0 ? `${base}&${params.join('&')}` : base
+}

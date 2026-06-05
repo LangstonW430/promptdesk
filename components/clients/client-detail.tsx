@@ -29,6 +29,7 @@ import { MAX_FILE_SIZE, ALLOWED_MIME_TYPES, BUCKET_NAME } from '@/lib/attachment
 import { createClient as createSupabaseClient } from '@/lib/supabase/client'
 import { ClientInsightPanel } from '@/components/prompts/client-insight-panel'
 import { NoteAnalysisPanel } from '@/components/prompts/note-analysis-panel'
+import { ClientEmailPanel } from '@/components/prompts/client-email-panel'
 import { TimerWidget } from '@/components/time-tracking/timer-widget'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -943,6 +944,16 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
       <section>
         <SectionHeading>AI Insight</SectionHeading>
         <ClientInsightPanel clientId={client.id} defaultAi={defaultAi} />
+      </section>
+
+      {/* Email drafts */}
+      <section>
+        <SectionHeading>Email Drafts</SectionHeading>
+        <ClientEmailPanel
+          clientId={client.id}
+          clientEmail={client.email}
+          defaultAi={defaultAi}
+        />
       </section>
 
       {/* Activity timeline */}
