@@ -37,7 +37,7 @@ export async function generatePrompt(
   // ── Fetch raw data ──────────────────────────────────────────────────────────
   const [profile, rawData, userSettings] = await Promise.all([
     getUserProfile(ownerId),
-    fetchContext(ownerId, retrievalSpec, req.clientId),
+    fetchContext(ownerId, retrievalSpec, req.clientId, req.clientIds),
     getUserSettings(ownerId),
   ])
 

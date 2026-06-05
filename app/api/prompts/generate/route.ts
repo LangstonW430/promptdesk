@@ -11,6 +11,7 @@ const generateSchema = z.object({
   template_key: z.string().min(1),
   scope: z.enum(['global', 'client', 'notes']),
   client_id: z.string().uuid().optional(),
+  client_ids: z.array(z.string().uuid()).max(50).optional(),
   objective: z.string().max(500).optional(),
 })
 
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     return badRequest(parsed.error.issues[0]?.message ?? 'Invalid request')
   }
 
-  const { template_key, scope, client_id, objective } = parsed.data
+  const { template_key, scope, client_id, client_ids, objective } = parsed.data
 
   // Client-scoped and notes-scoped templates require a client_id
   if ((scope === 'client' || scope === 'notes') && !client_id) {
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
       templateKey: template_key,
       scope,
       clientId: client_id,
+      clientIds: client_ids,
       objective,
     })
 

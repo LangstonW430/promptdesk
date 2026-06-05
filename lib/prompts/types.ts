@@ -5,6 +5,8 @@ export interface GenerateRequest {
   templateKey: string
   scope: TemplateScope
   clientId?: string
+  /** When set, global-scope prompts are restricted to only these client IDs. */
+  clientIds?: string[]
   objective?: string
 }
 

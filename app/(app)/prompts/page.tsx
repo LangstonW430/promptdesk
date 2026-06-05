@@ -18,7 +18,7 @@ export default async function PromptsPage() {
     redirect('/login')
   }
 
-  const [user, historyRows, userTemplates] = await Promise.all([
+  const [user, historyRows, userTemplates, clientRows] = await Promise.all([
     prisma.user.findUnique({
       where: { id: ownerId },
       select: { defaultAi: true },
@@ -53,6 +53,11 @@ export default async function PromptsPage() {
         body: true,
       },
       orderBy: { name: 'asc' },
+    }),
+    prisma.client.findMany({
+      where: { ownerId, isArchived: false },
+      select: { id: true, companyName: true, contactName: true, status: true },
+      orderBy: { companyName: { sort: 'asc', nulls: 'last' } },
     }),
   ])
 
@@ -103,6 +108,12 @@ export default async function PromptsPage() {
 
   const templates: TemplateItem[] = [...customItems, ...builtInItems]
 
+  const clients = clientRows.map((c) => ({
+    id: c.id,
+    name: c.companyName ?? c.contactName ?? 'Unnamed client',
+    status: c.status,
+  }))
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <div>
@@ -116,6 +127,7 @@ export default async function PromptsPage() {
         defaultAi={user?.defaultAi ?? null}
         initialHistory={history}
         initialTemplates={templates}
+        clients={clients}
       />
     </div>
   )

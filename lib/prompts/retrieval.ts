@@ -103,6 +103,7 @@ export async function fetchContext(
   ownerId: string,
   spec: RetrievalSpec,
   clientId?: string,
+  clientIds?: string[],
 ): Promise<RawContextData> {
   const clients: RawClient[] = []
   const notes: RawNote[] = []
@@ -114,8 +115,10 @@ export async function fetchContext(
       ? { status: { in: spec.clientStatusFilter } }
       : {}
 
+    const clientIdFilter = clientIds?.length ? { id: { in: clientIds } } : {}
+
     const rawClients = await prisma.client.findMany({
-      where: { ownerId, isArchived: false, ...statusFilter },
+      where: { ownerId, isArchived: false, ...statusFilter, ...clientIdFilter },
       include: { clientTags: { include: { tag: true } } },
       orderBy: { updatedAt: 'desc' },
       take: spec.maxClients ?? 50,
@@ -148,17 +151,38 @@ export async function fetchContext(
       })
     }
 
+    const fetchedClientIds = rawClients.map((c) => c.id)
+
+    // When specific clients are selected, also fetch their notes for richer context
+    if (clientIds?.length && fetchedClientIds.length) {
+      const rawNotes = await prisma.note.findMany({
+        where: { ownerId, clientId: { in: fetchedClientIds } },
+        orderBy: { occurredAt: 'desc' },
+        take: spec.maxNotes ?? 30,
+      })
+      notes.push(...rawNotes.map((n) => ({
+        id: n.id,
+        clientId: n.clientId,
+        body: n.body,
+        noteType: n.noteType,
+        occurredAt: n.occurredAt,
+      })))
+    }
+
+    const taskClientFilter = clientIds?.length ? { clientId: { in: fetchedClientIds } } : {}
+    const activityClientFilter = clientIds?.length ? { clientId: { in: fetchedClientIds } } : {}
+
     const [rawTasks, rawActivities] = await Promise.all([
       spec.includeOpenTasks
         ? prisma.task.findMany({
-            where: { ownerId, isDone: false },
+            where: { ownerId, isDone: false, ...taskClientFilter },
             orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }],
             take: spec.maxOpenTasks ?? 100,
           })
         : Promise.resolve([] as Awaited<ReturnType<typeof prisma.task.findMany>>),
       spec.includeRecentActivities
         ? prisma.activity.findMany({
-            where: { ownerId },
+            where: { ownerId, ...activityClientFilter },
             orderBy: { createdAt: 'desc' },
             take: spec.maxActivities ?? 20,
           })

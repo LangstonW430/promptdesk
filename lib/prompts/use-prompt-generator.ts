@@ -7,6 +7,7 @@ export interface GeneratePayload {
   templateKey: string
   scope: 'global' | 'client' | 'notes'
   clientId?: string
+  clientIds?: string[]
   objective?: string
 }
 
@@ -35,6 +36,7 @@ export function usePromptGenerator(): UsePromptGeneratorReturn {
           template_key: payload.templateKey,
           scope: payload.scope,
           client_id: payload.clientId,
+          client_ids: payload.clientIds,
           objective: payload.objective,
         }),
       })

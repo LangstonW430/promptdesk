@@ -5,6 +5,7 @@ import { PromptGeneratorShell } from './prompt-generator-shell'
 import { PromptHistoryList, type HistoryItem } from './prompt-history-list'
 import { TemplateBrowser, type TemplateItem } from './template-browser'
 import { cn } from '@/lib/utils'
+import type { ClientOption } from './client-filtered-generator'
 
 type Tab = 'generate' | 'history' | 'templates'
 
@@ -12,12 +13,14 @@ interface PromptsPageTabsProps {
   defaultAi: string | null
   initialHistory: HistoryItem[]
   initialTemplates: TemplateItem[]
+  clients?: ClientOption[]
 }
 
 export function PromptsPageTabs({
   defaultAi,
   initialHistory,
   initialTemplates,
+  clients = [],
 }: PromptsPageTabsProps) {
   const [tab, setTab] = useState<Tab>('generate')
 
@@ -81,7 +84,7 @@ export function PromptsPageTabs({
           hidden={tab !== 'generate'}
           className="focus-visible:outline-none"
         >
-          <PromptGeneratorShell defaultAi={defaultAi} />
+          <PromptGeneratorShell defaultAi={defaultAi} clients={clients} />
         </div>
         <div
           role="tabpanel"

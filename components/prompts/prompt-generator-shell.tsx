@@ -5,6 +5,7 @@ import { Sparkles, Loader2, AlertCircle, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PromptResultPanel } from './prompt-result-panel'
 import { BusinessAdvisorGenerator } from './business-advisor-generator'
+import { ClientFilteredGenerator, type ClientOption } from './client-filtered-generator'
 import { usePromptGenerator } from '@/lib/prompts/use-prompt-generator'
 import { cn } from '@/lib/utils'
 import type { GenerateResult } from '@/lib/prompts/types'
@@ -154,11 +155,60 @@ function SecondaryCard({ title, description, templateKey, defaultAi }: Secondary
 
 // ─── Shell ────────────────────────────────────────────────────────────────────
 
-interface PromptGeneratorShellProps {
+// ─── Client-Filtered Generator section ───────────────────────────────────────
+
+function ClientFilteredSection({
+  clients,
+  defaultAi,
+}: {
+  clients: ClientOption[]
   defaultAi?: string | null
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <section className="rounded-xl border border-border overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between bg-card px-5 py-4 text-left transition-colors hover:bg-muted/40"
+      >
+        <div>
+          <p className="text-sm font-semibold">Custom Client Prompt</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Select specific clients and generate a focused prompt about just those accounts.
+          </p>
+        </div>
+        <ChevronDown
+          className={cn(
+            'size-4 shrink-0 text-muted-foreground transition-transform duration-200',
+            open && 'rotate-180',
+          )}
+        />
+      </button>
+      <div
+        className={cn(
+          'grid transition-all duration-200 ease-in-out',
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="border-t border-border bg-card px-5 py-4">
+            <ClientFilteredGenerator clients={clients} defaultAi={defaultAi} />
+          </div>
+        </div>
+      </div>
+    </section>
+  )
 }
 
-export function PromptGeneratorShell({ defaultAi }: PromptGeneratorShellProps) {
+interface PromptGeneratorShellProps {
+  defaultAi?: string | null
+  clients?: ClientOption[]
+}
+
+export function PromptGeneratorShell({ defaultAi, clients = [] }: PromptGeneratorShellProps) {
   return (
     <div className="flex flex-col gap-4">
       {/* 1. Primary: Business Action Plan */}
@@ -167,7 +217,10 @@ export function PromptGeneratorShell({ defaultAi }: PromptGeneratorShellProps) {
       {/* 2. Business Advisor (collapsible) */}
       <BusinessAdvisorSection defaultAi={defaultAi} />
 
-      {/* 3. Secondary generators */}
+      {/* 3. Custom Client Prompt (collapsible) */}
+      <ClientFilteredSection clients={clients} defaultAi={defaultAi} />
+
+      {/* 4. Secondary generators */}
       <div className="grid gap-3 sm:grid-cols-2">
         <SecondaryCard
           title="Weekly Planning"
