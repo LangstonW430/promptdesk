@@ -41,6 +41,7 @@ function toActionPayload(values: TransactionFormValues) {
     category: values.category,
     occurredAt: values.occurredAt,
     clientId: values.clientId || undefined,
+    isRecurring: values.isRecurring,
   }
 }
 
@@ -194,6 +195,35 @@ export function TransactionForm({
               <FormControl>
                 <Input {...field} placeholder="e.g. Monthly hosting fee" />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Recurring */}
+        <FormField
+          control={form.control}
+          name="isRecurring"
+          render={({ field }) => (
+            <FormItem>
+              <div className="flex items-center gap-2.5">
+                <FormControl>
+                  <input
+                    id="isRecurring"
+                    type="checkbox"
+                    checked={field.value}
+                    onChange={field.onChange}
+                    className="size-4 rounded border-border accent-primary"
+                  />
+                </FormControl>
+                <label htmlFor="isRecurring" className="text-sm font-medium cursor-pointer select-none">
+                  Recurring (counts toward MRR)
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground pl-6">
+                For manual retainers or subscriptions not billed through Stripe.
+                Stripe Subscription payments are detected automatically.
+              </p>
               <FormMessage />
             </FormItem>
           )}

@@ -12,6 +12,7 @@ export const createTransactionSchema = z.object({
   category: z.string().refine(validCategory, { message: 'Invalid category' }),
   occurredAt: z.string().date(),
   clientId: z.string().uuid().optional(),
+  isRecurring: z.boolean().default(false),
 })
 
 // For updates, financial fields (type/amount/currency) are only editable on manual rows.
@@ -27,6 +28,7 @@ export const updateTransactionSchema = z.object({
     .optional(),
   occurredAt: z.string().date().optional(),
   clientId: z.string().uuid().nullable().optional(),
+  isRecurring: z.boolean().optional(),
 })
 
 // Form schema — all HTML inputs are strings; numeric/UUID fields are refined strings.
@@ -41,6 +43,7 @@ export const transactionFormSchema = z.object({
   category: z.string().min(1, 'Category is required'),
   occurredAt: z.string().min(1, 'Date is required'),
   clientId: z.string(),  // '' means no client
+  isRecurring: z.boolean(),
 })
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>
@@ -54,4 +57,5 @@ export const transactionFormDefaultValues: TransactionFormValues = {
   category: '',
   occurredAt: '',
   clientId: '',
+  isRecurring: false,
 }

@@ -36,3 +36,9 @@ export interface ClientIncomeStat {
   clientName: string | null
   total: number
 }
+
+export interface MRRSummary {
+  mrr: number           // recurring income this month (Stripe Subscriptions)
+  expenses: number      // total expenses this month
+  passiveIncome: number // mrr - expenses
+}

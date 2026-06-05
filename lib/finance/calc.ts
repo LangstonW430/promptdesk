@@ -125,6 +125,41 @@ export function groupByCategory(
   return Array.from(map.values()).sort((a, b) => b.total - a.total)
 }
 
+// ─── MRR ─────────────────────────────────────────────────────────────────────
+
+export interface MRRSummary {
+  mrr: number           // sum of recurring income this month
+  expenses: number      // sum of all expenses this month
+  passiveIncome: number // mrr - expenses
+}
+
+/**
+ * Calculates MRR from a set of income rows.
+ * Only rows where type === 'income' and isRecurring === true are counted.
+ * All amounts are assumed to already be in monthly units.
+ */
+export function calculateMRR(
+  rows: ReadonlyArray<{ type: string; amount: number; isRecurring: boolean }>,
+): number {
+  let mrr = 0
+  for (const r of rows) {
+    if (r.type === 'income' && r.isRecurring) mrr += r.amount
+  }
+  return mrr
+}
+
+export function calculateMRRSummary(
+  rows: ReadonlyArray<{ type: string; amount: number; isRecurring: boolean }>,
+): MRRSummary {
+  let mrr = 0
+  let expenses = 0
+  for (const r of rows) {
+    if (r.type === 'income' && r.isRecurring) mrr += r.amount
+    if (r.type === 'expense') expenses += r.amount
+  }
+  return { mrr, expenses, passiveIncome: mrr - expenses }
+}
+
 // ─── Group by client (income only) ───────────────────────────────────────────
 
 export function groupByClient(

@@ -6,8 +6,9 @@ import {
   bucketByMonth,
   groupByCategory,
   groupByClient,
+  calculateMRRSummary,
 } from './calc'
-import type { Period, FinancialSummary, MonthlyStat, CategoryStat, ClientIncomeStat } from './types'
+import type { Period, FinancialSummary, MonthlyStat, CategoryStat, ClientIncomeStat, MRRSummary } from './types'
 
 function dateFilter(from: Date | null, to: Date | null) {
   if (!from && !to) return {}
@@ -76,6 +77,24 @@ export const getExpensesByCategory = unstable_cache(
     )
   },
   ['finance-expenses-category'],
+  { revalidate: 60 },
+)
+
+// ─── MRR summary ─────────────────────────────────────────────────────────────
+
+export const getMRRSummary = unstable_cache(
+  async (ownerId: string): Promise<MRRSummary> => {
+    // MRR is always measured against the current calendar month.
+    const { from, to } = getPeriodBoundaries('thisMonth')
+    const rows = await prisma.transaction.findMany({
+      where: { ownerId, ...dateFilter(from, to) },
+      select: { type: true, amount: true, isRecurring: true },
+    })
+    return calculateMRRSummary(
+      rows.map((r) => ({ type: r.type, amount: Number(r.amount), isRecurring: r.isRecurring })),
+    )
+  },
+  ['finance-mrr'],
   { revalidate: 60 },
 )
 

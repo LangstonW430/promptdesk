@@ -64,6 +64,7 @@ export async function createTransaction(
       category: input.category,
       occurredAt: new Date(input.occurredAt),
       clientId: input.clientId ?? null,
+      isRecurring: input.isRecurring ?? false,
     },
   })
   return serializeTransaction(row)
@@ -88,6 +89,8 @@ export async function updateTransaction(
   if (input.category !== undefined) data.category = input.category
   if (input.occurredAt !== undefined) data.occurredAt = new Date(input.occurredAt)
   if (input.clientId !== undefined) data.clientId = input.clientId ?? null
+
+  if (input.isRecurring !== undefined) data.isRecurring = input.isRecurring
 
   if (!isStripe) {
     if (input.type !== undefined) data.type = input.type

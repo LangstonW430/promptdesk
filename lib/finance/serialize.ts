@@ -12,6 +12,7 @@ export type SerializedTransaction = {
   clientName: string | null  // derived from join; null when not included
   externalId: string | null
   externalType: string | null
+  isRecurring: boolean
   metadata: Record<string, unknown>
   createdAt: string
   updatedAt: string
@@ -30,6 +31,7 @@ type TransactionRow = {
   clientId: string | null
   externalId: string | null
   externalType: string | null
+  isRecurring: boolean
   metadata: unknown
   createdAt: Date
   updatedAt: Date
@@ -56,6 +58,7 @@ export function serializeTransaction(t: TransactionRow): SerializedTransaction {
       : null,
     externalId: t.externalId,
     externalType: t.externalType,
+    isRecurring: t.isRecurring,
     metadata: (t.metadata ?? {}) as Record<string, unknown>,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),

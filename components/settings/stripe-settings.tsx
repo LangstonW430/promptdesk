@@ -98,8 +98,8 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
               restricted key
               <ExternalLink className="size-3" />
             </a>{' '}
-            with Charges, Customers, and Balance transactions set to <strong>Read</strong>.
-            Never use your full secret key.
+            with <strong>Charges, Customers, Balance transactions, and Subscriptions</strong> set
+            to <strong>Read</strong>. Never use your full secret key.
           </p>
         </div>
 
@@ -113,14 +113,18 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
         {saved && (
           <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400">
             <CheckCircle2 className="size-4 shrink-0" />
-            Stripe connected successfully.
+            Connected! Your transactions have been imported — check the Finance page.
           </div>
         )}
 
         <div className="flex items-center gap-2">
           <Button type="submit" size="sm" disabled={!key.trim() || isPending}>
             {isSaving && <Loader2 className="mr-2 size-4 animate-spin" />}
-            {connected ? 'Update key' : 'Connect Stripe'}
+            {isSaving
+              ? 'Connecting & importing…'
+              : connected
+                ? 'Update key'
+                : 'Connect Stripe'}
           </Button>
 
           {connected && (

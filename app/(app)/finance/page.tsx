@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { TrendingUp, TrendingDown, DollarSign } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, Repeat2, Minus } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { listTransactions, fetchClientsForPicker } from '@/lib/finance'
 import {
@@ -7,7 +7,7 @@ import {
   getMonthlySeries,
   getExpensesByCategory,
 } from '@/lib/finance/aggregates'
-import { getSyncState } from '@/lib/finance/stripe-sync'
+import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
 import { formatCurrency } from '@/lib/dashboard/format'
 import { StatCard } from '@/components/dashboard/stat-card'
 import { PeriodSelector } from '@/components/finance/period-selector'
@@ -37,12 +37,13 @@ export default async function FinancePage({
       ? (rawPeriod as Period)
       : 'thisMonth'
 
-  const [summary, monthlySeries, expensesByCategory, transactions, clients, syncState] =
+  const [summary, activeMRR, monthlySeries, expensesByCategory, transactions, clients, syncState] =
     await Promise.all([
       getFinancialSummary(ownerId, period),
+      getActiveMRR(ownerId),
       getMonthlySeries(ownerId, 6),
       getExpensesByCategory(ownerId, period),
-      listTransactions(ownerId, { period }),
+      listTransactions(ownerId, {}),   // always show all transactions, period only affects stats
       fetchClientsForPicker(ownerId),
       getSyncState(ownerId),
     ])
@@ -86,6 +87,52 @@ export default async function FinancePage({
         <div className="flex items-center rounded-xl border border-border bg-card p-4">
           <SyncStripeButton syncState={syncState} />
         </div>
+      </div>
+
+      {/* ── MRR section ────────────────────────────────────────── */}
+      <div>
+        <h2 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          Monthly Recurring Revenue
+        </h2>
+        {!activeMRR.configured ? (
+          <p className="rounded-xl border border-border bg-card px-4 py-5 text-sm text-muted-foreground">
+            Connect your Stripe account in{' '}
+            <a href="/settings" className="underline underline-offset-2 hover:text-foreground">Settings</a>{' '}
+            to see your live MRR from active subscriptions.
+          </p>
+        ) : activeMRR.permissionError ? (
+          <p className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-5 text-sm text-destructive">
+            Your Stripe key is missing <strong>Subscriptions: Read</strong> permission.
+            Update it in{' '}
+            <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noreferrer"
+              className="underline underline-offset-2">Stripe Dashboard → API keys</a>{' '}
+            then reconnect in{' '}
+            <a href="/settings" className="underline underline-offset-2">Settings</a>.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <StatCard
+              icon={Repeat2}
+              label="Gross MRR"
+              value={formatCurrency(activeMRR.gross)}
+              subtext={`${activeMRR.subscriptionCount} active subscription${activeMRR.subscriptionCount !== 1 ? 's' : ''}`}
+              highlight
+            />
+            <StatCard
+              icon={Minus}
+              label="Monthly Expenses"
+              value={`-${formatCurrency(activeMRR.monthlyExpenses)}`}
+              subtext="all expenses this month"
+            />
+            <StatCard
+              icon={DollarSign}
+              label="Net MRR"
+              value={`${activeMRR.net >= 0 ? '' : '-'}${formatCurrency(Math.abs(activeMRR.net))}`}
+              subtext="after expenses"
+              highlight={activeMRR.net > 0}
+            />
+          </div>
+        )}
       </div>
 
       {/* ── Charts ─────────────────────────────────────────────── */}

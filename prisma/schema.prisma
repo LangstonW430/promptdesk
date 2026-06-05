@@ -240,6 +240,7 @@ model Transaction {
   clientId     String?  @map("client_id") @db.Uuid
   externalId   String?  @map("external_id")      // Stripe object id (ch_..., in_..., etc.)
   externalType String?  @map("external_type")    // "charge" | "refund" | "invoice" | "fee"
+  isRecurring  Boolean  @default(false) @map("is_recurring") // true = part of MRR (Stripe Subscription)
   metadata     Json     @default("{}") @db.JsonB  // counterparty, Stripe ids, fee details
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

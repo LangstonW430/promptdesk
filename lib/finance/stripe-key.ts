@@ -70,12 +70,19 @@ export async function getDecryptedStripeKey(ownerId: string): Promise<string | n
   return decryptKey(user.stripeKey)
 }
 
-export async function saveStripeKey(ownerId: string, rawKey: string): Promise<void> {
+export async function saveStripeKey(
+  ownerId: string,
+  rawKey: string,
+  email: string,
+): Promise<void> {
   const encrypted = encryptKey(rawKey)
   const hint = rawKey.slice(-4)  // last-4 chars — not sensitive, used for display only
-  await prisma.user.update({
+  // upsert so this works even if the public.users row was never created by the
+  // Supabase Auth trigger (e.g. accounts that predate the trigger setup).
+  await prisma.user.upsert({
     where: { id: ownerId },
-    data: { stripeKey: encrypted, stripeKeyHint: hint },
+    create: { id: ownerId, email, stripeKey: encrypted, stripeKeyHint: hint },
+    update: { stripeKey: encrypted, stripeKeyHint: hint },
   })
 }
 

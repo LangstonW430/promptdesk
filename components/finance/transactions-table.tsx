@@ -42,6 +42,7 @@ function toFormValues(t: SerializedTransaction): Partial<TransactionFormValues> 
     category: t.category,
     occurredAt: t.occurredAt.slice(0, 10),
     clientId: t.clientId ?? '',
+    isRecurring: t.isRecurring,
   }
 }
 
@@ -177,15 +178,22 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
                         {t.clientName ?? <span className="text-muted-foreground/50">—</span>}
                       </td>
                       <td className="px-4 py-3">
-                        {t.source === 'stripe' ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
-                            Stripe
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                            Manual
-                          </span>
-                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {t.source === 'stripe' ? (
+                            <span className="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                              Stripe
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                              Manual
+                            </span>
+                          )}
+                          {t.isRecurring && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                              MRR
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td
                         className={cn(
@@ -233,11 +241,11 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
       </Card>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
-          <SheetHeader>
+        <SheetContent className="flex flex-col sm:max-w-md p-0">
+          <SheetHeader className="border-b border-border px-6 py-4 shrink-0">
             <SheetTitle>{editing ? 'Edit transaction' : 'Add transaction'}</SheetTitle>
           </SheetHeader>
-          <div className="mt-6">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
             <TransactionForm
               clients={clients}
               defaultValues={editing ? toFormValues(editing) : undefined}

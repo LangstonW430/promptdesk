@@ -14,6 +14,7 @@ import type Stripe from 'stripe'
 import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
 import { getStripeForOwner } from './stripe-client'
+import { getPeriodBoundaries } from './calc'
 import {
   chargeToTransaction,
   chargeFeeToTransaction,
@@ -71,6 +72,7 @@ async function upsertTransaction(
       clientId: null,
       externalId: data.externalId,
       externalType: data.externalType,
+      isRecurring: data.isRecurring,
       metadata: data.metadata as unknown as Prisma.InputJsonValue,
     },
     update: {
@@ -79,6 +81,7 @@ async function upsertTransaction(
       description: data.description,
       category: data.category,
       occurredAt: data.occurredAt,
+      isRecurring: data.isRecurring,
       metadata: data.metadata as unknown as Prisma.InputJsonValue,
     },
     select: { id: true },
@@ -137,6 +140,97 @@ async function linkTransactionsByEmail(
  * NOT included: payouts, balance transfers, pending/failed charges.
  * These are excluded by design — see module-level comment.
  */
+// ─── Active MRR from live subscriptions ──────────────────────────────────────
+
+export interface ActiveMRRResult {
+  configured: boolean       // false when no Stripe key is saved
+  permissionError: boolean  // true when key lacks Subscriptions: Read
+  gross: number             // sum of active subscription amounts (monthly, in dollars)
+  monthlyExpenses: number   // actual expenses this calendar month from transaction records
+  net: number               // gross - monthlyExpenses
+  subscriptionCount: number
+}
+
+function normalizeToMonthly(
+  amount: number,
+  interval: string,
+  intervalCount: number,
+): number {
+  const perInterval = amount / intervalCount
+  switch (interval) {
+    case 'day':   return perInterval * 30.4
+    case 'week':  return perInterval * 4.33
+    case 'month': return perInterval
+    case 'year':  return perInterval / 12
+    default:      return perInterval
+  }
+}
+
+/**
+ * Returns true MRR by querying Stripe for currently active subscriptions.
+ * Requires Subscriptions: Read on the restricted key.
+ * Returns configured: false when no key is set, permissionError: true when
+ * the key exists but lacks that permission.
+ */
+export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
+  const { from: expFrom, to: expTo } = getPeriodBoundaries('thisMonth')
+  const expenseAgg = await prisma.transaction.aggregate({
+    where: { ownerId, type: 'expense', occurredAt: { gte: expFrom!, lt: expTo! } },
+    _sum: { amount: true },
+  })
+  const monthlyExpenses = Math.round(Number(expenseAgg._sum.amount ?? 0) * 100) / 100
+
+  const empty: ActiveMRRResult = {
+    configured: false,
+    permissionError: false,
+    gross: 0,
+    monthlyExpenses,
+    net: -monthlyExpenses,
+    subscriptionCount: 0,
+  }
+
+  let stripeClient: Awaited<ReturnType<typeof getStripeForOwner>>
+  try {
+    stripeClient = await getStripeForOwner(ownerId)
+  } catch {
+    return empty  // no key configured
+  }
+
+  let gross = 0
+  let count = 0
+  try {
+    await stripeClient.subscriptions
+      .list({ status: 'active', limit: 100, expand: ['data.items.data.price'] })
+      .autoPagingEach((sub) => {
+        for (const item of sub.items.data) {
+          const price = item.price
+          const unitAmount = price.unit_amount ?? 0
+          const interval = price.recurring?.interval ?? 'month'
+          const intervalCount = price.recurring?.interval_count ?? 1
+          const qty = item.quantity ?? 1
+          gross += normalizeToMonthly(unitAmount * qty, interval, intervalCount) / 100
+        }
+        count += 1
+      })
+  } catch (err) {
+    const isPermErr =
+      err instanceof Error &&
+      (err.message.includes('permission') ||
+        err.message.includes('StripePermissionError') ||
+        (err as { statusCode?: number }).statusCode === 403)
+    return { ...empty, configured: true, permissionError: isPermErr }
+  }
+
+  return {
+    configured: true,
+    permissionError: false,
+    gross: Math.round(gross * 100) / 100,
+    monthlyExpenses,
+    net: Math.round((gross - monthlyExpenses) * 100) / 100,
+    subscriptionCount: count,
+  }
+}
+
 // ─── Webhook event processors ─────────────────────────────────────────────────
 // Called by the route handler for real-time events. All three reuse the same
 // private upsertTransaction / linkTransactionsByEmail helpers as the backfill.
@@ -250,7 +344,8 @@ export async function backfillStripe(ownerId: string): Promise<void> {
     await stripeClient.charges
       .list({
         limit: 100,
-        expand: ['data.balance_transaction', 'data.customer'],
+        // Expanding data.invoice gives us billing_reason for subscription detection.
+        expand: ['data.balance_transaction', 'data.customer', 'data.invoice'],
       })
       .autoPagingEach(async (charge: Stripe.Charge) => {
         // Only process succeeded charges

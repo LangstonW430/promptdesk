@@ -5,6 +5,8 @@ import {
   bucketByMonth,
   groupByCategory,
   groupByClient,
+  calculateMRR,
+  calculateMRRSummary,
 } from '../calc'
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────────
@@ -194,6 +196,67 @@ describe('groupByCategory', () => {
     const cw = result.find((r) => r.category === 'Client work')!
     expect(cw.total).toBe(3000)
     expect(cw.count).toBe(2)
+  })
+})
+
+// ─── calculateMRR ─────────────────────────────────────────────────────────────
+
+describe('calculateMRR', () => {
+  it('returns 0 for empty array', () => {
+    expect(calculateMRR([])).toBe(0)
+  })
+
+  it('sums only recurring income rows', () => {
+    const rows = [
+      { type: 'income', amount: 1000, isRecurring: true },
+      { type: 'income', amount: 500, isRecurring: false },  // one-off — excluded
+      { type: 'expense', amount: 200, isRecurring: true },  // expense — excluded
+    ]
+    expect(calculateMRR(rows)).toBe(1000)
+  })
+
+  it('sums multiple recurring income rows', () => {
+    const rows = [
+      { type: 'income', amount: 400, isRecurring: true },
+      { type: 'income', amount: 600, isRecurring: true },
+    ]
+    expect(calculateMRR(rows)).toBe(1000)
+  })
+
+  it('returns 0 when all income is non-recurring', () => {
+    const rows = [
+      { type: 'income', amount: 5000, isRecurring: false },
+    ]
+    expect(calculateMRR(rows)).toBe(0)
+  })
+})
+
+// ─── calculateMRRSummary ───────────────────────────────────────────────────────
+
+describe('calculateMRRSummary', () => {
+  it('returns zeros for empty array', () => {
+    expect(calculateMRRSummary([])).toEqual({ mrr: 0, expenses: 0, passiveIncome: 0 })
+  })
+
+  it('passive income = mrr - expenses', () => {
+    const rows = [
+      { type: 'income', amount: 2000, isRecurring: true },
+      { type: 'income', amount: 500, isRecurring: false },  // one-off, not in MRR
+      { type: 'expense', amount: 300, isRecurring: false },
+    ]
+    const result = calculateMRRSummary(rows)
+    expect(result.mrr).toBe(2000)
+    expect(result.expenses).toBe(300)
+    expect(result.passiveIncome).toBe(1700)
+  })
+
+  it('passive income is negative when expenses exceed MRR', () => {
+    const rows = [
+      { type: 'income', amount: 500, isRecurring: true },
+      { type: 'expense', amount: 800, isRecurring: false },
+    ]
+    const result = calculateMRRSummary(rows)
+    expect(result.passiveIncome).toBe(-300)
   })
 })
 
