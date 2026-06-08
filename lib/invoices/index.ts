@@ -252,6 +252,60 @@ export async function markInvoicePaid(ownerId: string, id: string) {
   return serializeInvoice(row)
 }
 
+export async function markInvoicePaidFromCheckout(
+  invoiceId: string,
+  ownerId: string,
+  paymentIntentId: string | null,
+) {
+  const existing = await prisma.invoice.findFirst({
+    where: { id: invoiceId, ownerId },
+    include: { client: { select: { id: true, companyName: true, contactName: true } } },
+  })
+  if (!existing) return
+  if (existing.status === 'paid') return
+  if (existing.transactionId) return
+
+  // Idempotency: if a stripe transaction already exists for this payment intent, link it
+  if (paymentIntentId) {
+    const existingTx = await prisma.transaction.findFirst({
+      where: { ownerId, source: 'stripe', externalId: paymentIntentId },
+    })
+    if (existingTx) {
+      await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'paid', transactionId: existingTx.id },
+      })
+      return
+    }
+  }
+
+  const clientName = existing.client.companyName ?? existing.client.contactName ?? 'Client'
+  const total = typeof existing.total === 'object' ? existing.total.toNumber() : Number(existing.total)
+  const invoiceNumberFormatted = `INV-${String(existing.invoiceNumber).padStart(4, '0')}`
+
+  const tx = await prisma.transaction.create({
+    data: {
+      ownerId,
+      type:        'income',
+      source:      'stripe',
+      amount:      total,
+      currency:    'usd',
+      description: `Payment for ${invoiceNumberFormatted} — ${clientName}`,
+      category:    'Client work',
+      occurredAt:  new Date(),
+      clientId:    existing.clientId,
+      externalId:  paymentIntentId,
+      externalType: 'payment_intent',
+      isRecurring: false,
+    },
+  })
+
+  await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { status: 'paid', transactionId: tx.id },
+  })
+}
+
 export async function deleteInvoice(ownerId: string, id: string) {
   const existing = await prisma.invoice.findFirst({ where: { id, ownerId } })
   if (!existing) return false

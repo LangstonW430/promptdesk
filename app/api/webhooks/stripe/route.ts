@@ -21,6 +21,7 @@ import {
   processInvoiceEvent,
   processCustomerEvent,
 } from '@/lib/finance/stripe-sync'
+import { markInvoicePaidFromCheckout } from '@/lib/invoices'
 
 export async function POST(req: Request): Promise<Response> {
   // ── 1. Raw body — must be read before any parsing ─────────────────────────
@@ -88,6 +89,18 @@ async function dispatchEvent(event: Stripe.Event, ownerId: string): Promise<void
     case 'customer.updated': {
       const customer = event.data.object as Stripe.Customer
       await processCustomerEvent(customer, ownerId)
+      break
+    }
+    case 'checkout.session.completed': {
+      const session = event.data.object as Stripe.Checkout.Session
+      const { invoiceId, ownerId } = session.metadata ?? {}
+      if (invoiceId && ownerId) {
+        const paymentIntentId =
+          typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null
+        await markInvoicePaidFromCheckout(invoiceId, ownerId, paymentIntentId)
+      }
       break
     }
     // Other event types are acknowledged (200) and ignored.

@@ -133,7 +133,9 @@ export async function validateStripeKey(
     if (err instanceof Stripe.errors.StripePermissionError) {
       return {
         valid: false,
-        error: 'Key lacks required permissions. Enable "Charges: Read" in the Stripe Dashboard.',
+        error:
+          'Key lacks required permissions. Enable "Charges: Read" in the Stripe Dashboard. ' +
+          'For online invoice payments also enable "Checkout Sessions: Write" and "Payment Intents: Write".',
       }
     }
     const msg = err instanceof Error ? err.message : 'Validation failed'

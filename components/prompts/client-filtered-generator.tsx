@@ -7,12 +7,19 @@ import { PromptResultPanel } from './prompt-result-panel'
 import { usePromptGenerator } from '@/lib/prompts/use-prompt-generator'
 import { cn } from '@/lib/utils'
 
-const GLOBAL_TEMPLATES = [
-  { key: 'business_action_plan', label: 'Business Action Plan', needsObjective: false },
-  { key: 'weekly_planning', label: 'Weekly Planning', needsObjective: false },
-  { key: 'revenue_analysis', label: 'Revenue Analysis', needsObjective: false },
-  { key: 'follow_up_recommendations', label: 'Follow-Up Recommendations', needsObjective: false },
-  { key: 'business_advisor', label: 'Business Advisor', needsObjective: true },
+const SINGLE_CLIENT_TEMPLATES = [
+  { key: 'client_insight', label: 'Client Insight', scope: 'client' as const, needsObjective: false },
+  { key: 'client_review', label: 'Client Review', scope: 'client' as const, needsObjective: false },
+  { key: 'proposal_strategy', label: 'Proposal Strategy', scope: 'client' as const, needsObjective: false },
+  { key: 'lead_qualification', label: 'Lead Qualification', scope: 'client' as const, needsObjective: false },
+] as const
+
+const MULTI_CLIENT_TEMPLATES = [
+  { key: 'business_action_plan', label: 'Business Action Plan', scope: 'global' as const, needsObjective: false },
+  { key: 'weekly_planning', label: 'Weekly Planning', scope: 'global' as const, needsObjective: false },
+  { key: 'revenue_analysis', label: 'Revenue Analysis', scope: 'global' as const, needsObjective: false },
+  { key: 'follow_up_recommendations', label: 'Follow-Up Recommendations', scope: 'global' as const, needsObjective: false },
+  { key: 'business_advisor', label: 'Business Advisor', scope: 'global' as const, needsObjective: true },
 ] as const
 
 export interface ClientOption {
@@ -39,37 +46,69 @@ export function ClientFilteredGenerator({ clients, defaultAi }: ClientFilteredGe
     return clients.filter((c) => c.name.toLowerCase().includes(q))
   }, [clients, search])
 
-  const selectedTemplate = GLOBAL_TEMPLATES.find((t) => t.key === templateKey)
+  const isSingleClient = selectedIds.size === 1
+  const activeTemplates = isSingleClient ? SINGLE_CLIENT_TEMPLATES : MULTI_CLIENT_TEMPLATES
+  const selectedTemplate = activeTemplates.find((t) => t.key === templateKey)
 
   function toggleClient(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
+      // Reset template when crossing the single/multi boundary
+      const nowSingle = next.size === 1
+      const wasSingle = prev.size === 1
+      if (nowSingle !== wasSingle) {
+        const defaults = nowSingle ? SINGLE_CLIENT_TEMPLATES : MULTI_CLIENT_TEMPLATES
+        setTemplateKey(defaults[0].key)
+        setObjective('')
+      }
       return next
     })
     clear()
   }
 
   function selectAll() {
-    setSelectedIds(new Set(filteredClients.map((c) => c.id)))
+    setSelectedIds((prev) => {
+      const next = new Set(filteredClients.map((c) => c.id))
+      const nowSingle = next.size === 1
+      const wasSingle = prev.size === 1
+      if (nowSingle !== wasSingle) {
+        const defaults = nowSingle ? SINGLE_CLIENT_TEMPLATES : MULTI_CLIENT_TEMPLATES
+        setTemplateKey(defaults[0].key)
+        setObjective('')
+      }
+      return next
+    })
     clear()
   }
 
   function clearSelection() {
     setSelectedIds(new Set())
+    setTemplateKey(MULTI_CLIENT_TEMPLATES[0].key)
+    setObjective('')
     clear()
   }
 
   async function handleGenerate() {
     if (selectedIds.size === 0) return
     if (selectedTemplate?.needsObjective && !objective.trim()) return
-    await generate({
-      templateKey,
-      scope: 'global',
-      clientIds: Array.from(selectedIds),
-      objective: objective.trim() || undefined,
-    })
+    if (isSingleClient) {
+      const clientId = Array.from(selectedIds)[0]!
+      await generate({
+        templateKey,
+        scope: 'client',
+        clientId,
+        objective: objective.trim() || undefined,
+      })
+    } else {
+      await generate({
+        templateKey,
+        scope: 'global',
+        clientIds: Array.from(selectedIds),
+        objective: objective.trim() || undefined,
+      })
+    }
   }
 
   const canGenerate =
@@ -85,10 +124,10 @@ export function ClientFilteredGenerator({ clients, defaultAi }: ClientFilteredGe
         <select
           id="cfg-template"
           value={templateKey}
-          onChange={(e) => { setTemplateKey(e.target.value); clear() }}
+          onChange={(e) => { setTemplateKey(e.target.value); setObjective(''); clear() }}
           className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          {GLOBAL_TEMPLATES.map((t) => (
+          {activeTemplates.map((t) => (
             <option key={t.key} value={t.key}>{t.label}</option>
           ))}
         </select>

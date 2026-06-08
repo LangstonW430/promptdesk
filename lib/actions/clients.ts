@@ -24,22 +24,22 @@ export async function createClientAction(data: unknown) {
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message }
   }
-  const client = await createClient(ownerId, parsed.data)
+  await createClient(ownerId, parsed.data)
   revalidatePath('/clients')
-  return { client }
+  return { success: true }
 }
 
 export async function getClientByIdAction(id: string) {
   const ownerId = await getOwnerId()
   const client = await getClientById(ownerId, id)
-  if (!client) return { error: 'Not found' }
-  return { client }
+  if (!client) return { error: 'Not found' as const }
+  return { success: true as const }
 }
 
 export async function listClientsAction(filters: ClientFilters = {}) {
   const ownerId = await getOwnerId()
-  const clients = await listClients(ownerId, filters)
-  return { clients }
+  await listClients(ownerId, filters)
+  return { success: true }
 }
 
 export async function updateClientAction(id: string, data: unknown) {
@@ -48,11 +48,11 @@ export async function updateClientAction(id: string, data: unknown) {
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message }
   }
-  const client = await updateClient(ownerId, id, parsed.data)
-  if (!client) return { error: 'Not found' }
+  const updated = await updateClient(ownerId, id, parsed.data)
+  if (!updated) return { error: 'Not found' }
   revalidatePath('/clients')
   revalidatePath(`/clients/${id}`)
-  return { client }
+  return { success: true }
 }
 
 export async function setClientArchivedAction(id: string, data: unknown) {
@@ -61,11 +61,11 @@ export async function setClientArchivedAction(id: string, data: unknown) {
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message }
   }
-  const client = await setClientArchived(ownerId, id, parsed.data.archived)
-  if (!client) return { error: 'Not found' }
+  const updated = await setClientArchived(ownerId, id, parsed.data.archived)
+  if (!updated) return { error: 'Not found' }
   revalidatePath('/clients')
   revalidatePath(`/clients/${id}`)
-  return { client }
+  return { success: true }
 }
 
 export async function deleteClientAction(id: string) {
