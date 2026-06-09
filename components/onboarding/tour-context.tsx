@@ -4,12 +4,15 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 
 const STORAGE_KEY = 'promptdesk-tour'
 
+const TOTAL_STEPS = 7
+
 interface TourState {
-  step: 1 | 2 | 3
+  step: number
   active: boolean
 }
 
 interface TourContextValue extends TourState {
+  totalSteps: number
   start: () => void
   next: () => void
   skip: () => void
@@ -49,8 +52,12 @@ export function TourContextProvider({ children }: { children: React.ReactNode })
 
   const next = useCallback(() => {
     setState((prev) => {
-      const nextStep = prev.step < 3 ? ((prev.step + 1) as 1 | 2 | 3) : prev.step
-      const nextState: TourState = { step: nextStep, active: true }
+      if (prev.step >= TOTAL_STEPS) {
+        const done: TourState = { step: 1, active: false }
+        persist(done)
+        return done
+      }
+      const nextState: TourState = { step: prev.step + 1, active: true }
       persist(nextState)
       return nextState
     })
@@ -63,7 +70,7 @@ export function TourContextProvider({ children }: { children: React.ReactNode })
   }, [])
 
   return (
-    <TourContext.Provider value={{ ...state, start, next, skip }}>
+    <TourContext.Provider value={{ ...state, totalSteps: TOTAL_STEPS, start, next, skip }}>
       {children}
     </TourContext.Provider>
   )

@@ -28,9 +28,23 @@ export function InvoiceList({ invoices }: { invoices: SerializedInvoice[] }) {
       <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center">
         <FileText className="mb-3 h-8 w-8 text-muted-foreground/40" />
         <p className="text-sm font-medium text-muted-foreground">No invoices yet</p>
-        <p className="mt-1 text-xs text-muted-foreground/60">
-          Create your first invoice or convert time entries.
+        <p className="mt-1 text-xs text-muted-foreground/60 max-w-xs">
+          Create an invoice from scratch, or go to the Time page and convert logged hours directly into a bill.
         </p>
+        <div className="mt-4 flex gap-2">
+          <Link
+            href="/invoices/new"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            Create invoice
+          </Link>
+          <Link
+            href="/time"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Log time first
+          </Link>
+        </div>
       </div>
     )
   }

@@ -43,9 +43,10 @@ export async function createTask(ownerId: string, input: CreateTaskInput) {
   return prisma.task.create({
     data: {
       ownerId,
-      title: input.title,
-      dueDate: input.dueDate ? new Date(input.dueDate) : null,
-      clientId: input.clientId ?? null,
+      title:     input.title,
+      dueDate:   input.dueDate   ? new Date(input.dueDate) : null,
+      clientId:  input.clientId  ?? null,
+      projectId: input.projectId ?? null,
     },
   })
 }

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
   Users,
+  FolderOpen,
   CheckSquare,
   Sparkles,
   Settings,
@@ -24,6 +25,11 @@ export const navItems = [
     label: 'Clients',
     href: '/clients',
     icon: Users,
+  },
+  {
+    label: 'Projects',
+    href: '/projects',
+    icon: FolderOpen,
   },
   {
     label: 'Daily Actions',

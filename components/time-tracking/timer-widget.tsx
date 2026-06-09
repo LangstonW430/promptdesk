@@ -13,6 +13,7 @@ const TIMER_KEY = 'promptdesk:active-timer'
 
 interface StoredTimer {
   clientId:  string
+  projectId: string | null
   startedAt: string  // ISO 8601
 }
 
@@ -60,15 +61,16 @@ interface SaveForm {
 }
 
 interface TimerWidgetProps {
-  clientId:    string
-  clientName:  string
-  defaultRate: number | null
-  projects:    Project[]
+  clientId:         string
+  clientName:       string
+  defaultRate:      number | null
+  projects:         Project[]
+  defaultProjectId?: string  // when set, pre-selects and locks the project dropdown
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function TimerWidget({ clientId, clientName, defaultRate, projects }: TimerWidgetProps) {
+export function TimerWidget({ clientId, clientName, defaultRate, projects, defaultProjectId }: TimerWidgetProps) {
   const router = useRouter()
   const [hydrated,  setHydrated]  = useState(false)
   const [running,   setRunning]   = useState(false)   // timer active for this client
@@ -104,7 +106,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects }: Tim
   }, [running, clientId])
 
   function handleStart() {
-    const t: StoredTimer = { clientId, startedAt: new Date().toISOString() }
+    const t: StoredTimer = { clientId, projectId: defaultProjectId ?? null, startedAt: new Date().toISOString() }
     writeTimer(t)
     setElapsed(0)
     setRunning(true)
@@ -112,6 +114,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects }: Tim
   }
 
   function handleStop() {
+    const stored = readTimer()
     clearTimer()
     setRunning(false)
     if (intervalRef.current) clearInterval(intervalRef.current)
@@ -123,7 +126,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects }: Tim
       rate:        defaultRate != null ? String(defaultRate) : '',
       description: '',
       isBillable:  true,
-      projectId:   '',
+      projectId:   stored?.projectId ?? defaultProjectId ?? '',
     })
     setSaveError(null)
   }
@@ -277,7 +280,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects }: Tim
                 <select
                   value={saveForm.projectId}
                   onChange={(e) => setSaveForm((f) => f && { ...f, projectId: e.target.value })}
-                  disabled={isPending}
+                  disabled={isPending || !!defaultProjectId}
                   className="h-8 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
                 >
                   <option value="">No project</option>

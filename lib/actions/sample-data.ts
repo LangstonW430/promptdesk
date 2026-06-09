@@ -10,6 +10,7 @@ export async function loadSampleDataAction(): Promise<{ success: boolean; error?
     await loadSampleData(ownerId)
     revalidatePath('/dashboard')
     revalidatePath('/clients')
+    revalidatePath('/projects')
     revalidatePath('/daily-actions')
     return { success: true }
   } catch (err) {
@@ -23,6 +24,7 @@ export async function clearSampleDataAction(): Promise<{ success: boolean; error
     await clearSampleData(ownerId)
     revalidatePath('/dashboard')
     revalidatePath('/clients')
+    revalidatePath('/projects')
     revalidatePath('/daily-actions')
     return { success: true }
   } catch (err) {

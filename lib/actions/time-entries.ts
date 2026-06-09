@@ -25,6 +25,7 @@ export async function createTimeEntryAction(data: unknown) {
     const entry = await createTimeEntry(ownerId, parsed.data)
     revalidatePath('/time')
     revalidatePath(`/clients/${parsed.data.clientId}`)
+    if (parsed.data.projectId) revalidatePath(`/projects/${parsed.data.projectId}`)
     return { entry }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to create entry' }

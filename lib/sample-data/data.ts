@@ -14,22 +14,135 @@ export interface SampleTask {
   dueDaysFromNow: number
 }
 
+export interface SampleProjectTask {
+  title: string
+  isDone: boolean
+}
+
+export interface SampleProjectTimeEntry {
+  daysAgo: number
+  hours: number
+  rate: number
+  description: string
+  isBillable: boolean
+}
+
+export interface SampleProject {
+  title:        string
+  status:       'active' | 'completed' | 'on_hold' | 'cancelled'
+  startDaysAgo: number
+  endDaysAgo:   number | null
+  budget:       number | null
+  deliverables: string[]
+  timeEntries:  SampleProjectTimeEntry[]
+  tasks:        SampleProjectTask[]
+}
+
 export interface SampleClientDef {
-  companyName: string
-  contactName: string
-  email: string
-  industry: string
-  status: string
-  estimatedValue: number
-  lastContactDaysAgo: number
-  nextFollowupDaysFromNow: number
-  painPoints: string
-  tags: SampleTag[]
-  notes: SampleNote[]
-  task: SampleTask
+  companyName:              string
+  contactName:              string
+  email:                    string
+  industry:                 string
+  status:                   string
+  estimatedValue:           number
+  lastContactDaysAgo:       number
+  nextFollowupDaysFromNow:  number
+  painPoints:               string
+  tags:                     SampleTag[]
+  notes:                    SampleNote[]
+  task:                     SampleTask
+  projects?:                SampleProject[]
 }
 
 export const SAMPLE_CLIENTS: SampleClientDef[] = [
+  // ── Won client with active projects ─────────────────────────────────────────
+  {
+    companyName: 'Hartwell Digital',
+    contactName: 'Dana Hartwell',
+    email: 'dana@hartwelldigital.com',
+    industry: 'Digital Marketing',
+    status: 'won',
+    estimatedValue: 14000,
+    lastContactDaysAgo: 2,
+    nextFollowupDaysFromNow: 14,
+    painPoints: 'Needed a complete rebrand and SEO overhaul to compete in a crowded market.',
+    tags: [
+      { label: 'web-design', color: '#6366f1' },
+      { label: 'retainer', color: '#10b981' },
+    ],
+    notes: [
+      {
+        body: 'Intro call with Dana. They rebranded 3 years ago and the site looks dated. Wants a fresh identity, new homepage, and a content-led SEO push. Budget confirmed at $14k split across two phases.',
+        noteType: 'call',
+        daysAgo: 55,
+      },
+      {
+        body: 'Sent proposal. Dana loved the phased approach — design first, then SEO. Signed off same day.',
+        noteType: 'email',
+        daysAgo: 50,
+      },
+    ],
+    task: {
+      title: 'Send monthly progress report to Dana',
+      dueDaysFromNow: 14,
+    },
+    projects: [
+      {
+        title: 'Brand & Website Redesign',
+        status: 'completed',
+        startDaysAgo: 48,
+        endDaysAgo: 6,
+        budget: 8500,
+        deliverables: [
+          'Logo & brand guide',
+          'Homepage redesign',
+          '4 interior pages',
+          'Email templates',
+        ],
+        timeEntries: [
+          { daysAgo: 46, hours: 3,   rate: 120, description: 'Discovery & brand audit',          isBillable: true },
+          { daysAgo: 42, hours: 5,   rate: 120, description: 'Wireframes & sitemap',              isBillable: true },
+          { daysAgo: 38, hours: 8,   rate: 120, description: 'Visual design — homepage',          isBillable: true },
+          { daysAgo: 34, hours: 6,   rate: 120, description: 'Visual design — interior pages',    isBillable: true },
+          { daysAgo: 28, hours: 3.5, rate: 120, description: 'Client review & revisions round 1', isBillable: true },
+          { daysAgo: 22, hours: 12,  rate: 120, description: 'Frontend development',              isBillable: true },
+          { daysAgo: 14, hours: 3,   rate: 120, description: 'QA & cross-browser testing',        isBillable: true },
+          { daysAgo: 8,  hours: 1.5, rate: 120, description: 'Launch & DNS handover',             isBillable: true },
+        ],
+        tasks: [
+          { title: 'Export final brand guide as PDF',           isDone: true },
+          { title: 'Hand off all source files to client',       isDone: true },
+          { title: 'Submit site to Google Search Console',      isDone: true },
+        ],
+      },
+      {
+        title: 'SEO & Content Strategy',
+        status: 'active',
+        startDaysAgo: 10,
+        endDaysAgo: null,
+        budget: 5500,
+        deliverables: [
+          'Keyword research report',
+          'On-page SEO audit',
+          '10 pillar articles',
+          'Internal linking map',
+        ],
+        timeEntries: [
+          { daysAgo: 9, hours: 1,   rate: 120, description: 'Project kick-off call',   isBillable: true },
+          { daysAgo: 7, hours: 4.5, rate: 120, description: 'Keyword research',         isBillable: true },
+          { daysAgo: 4, hours: 5,   rate: 120, description: 'On-page audit — 20 pages', isBillable: true },
+        ],
+        tasks: [
+          { title: 'Deliver keyword research report to Dana',   isDone: true },
+          { title: 'Write pillar article #1 — "Digital Marketing ROI"', isDone: false },
+          { title: 'Build internal linking map in Airtable',    isDone: false },
+          { title: 'Schedule content calendar review call',     isDone: false },
+        ],
+      },
+    ],
+  },
+
+  // ── Active pipeline clients (no projects yet) ────────────────────────────────
   {
     companyName: 'Meridian Creative Studio',
     contactName: 'Priya Nair',

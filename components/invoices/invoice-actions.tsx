@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Send, Link2, Printer, Loader2, Trash2, AlertCircle, Copy, FileText } from 'lucide-react'
+import { Check, Send, Link2, Printer, Loader2, Trash2, AlertCircle, Copy, FileText, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { updateInvoiceStatusAction, markInvoicePaidAction, deleteInvoiceAction } from '@/lib/actions/invoices'
 import type { SerializedInvoice } from '@/lib/invoices/types'
@@ -21,6 +21,7 @@ export function InvoiceActions({ invoice, publicUrl, promptText }: Props) {
   const [promptCopied, setPromptCopied] = useState(false)
 
   const isPaid = invoice.status === 'paid'
+  const isDraft = invoice.status === 'draft'
 
   async function handleStatus(status: 'draft' | 'sent') {
     setError(null)
@@ -78,13 +79,25 @@ export function InvoiceActions({ invoice, publicUrl, promptText }: Props) {
         </div>
       )}
 
+      {/* Draft callout — explains the required next step */}
+      {isDraft && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 dark:border-amber-800/40 dark:bg-amber-950/20">
+          <Info className="size-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">This invoice is a draft</p>
+            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+              Click <strong>Mark as Sent</strong> below to activate the client link and enable online payment.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Status actions */}
       <div className="rounded-xl border border-border p-4 flex flex-col gap-3">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Invoice Actions</p>
 
-        {!isPaid && invoice.status === 'draft' && (
+        {!isPaid && isDraft && (
           <Button
-            variant="outline"
             className="w-full justify-start gap-2"
             disabled={isPending}
             onClick={() => handleStatus('sent')}
@@ -107,14 +120,19 @@ export function InvoiceActions({ invoice, publicUrl, promptText }: Props) {
         )}
 
         {!isPaid && (invoice.status === 'sent' || invoice.status === 'overdue') && (
-          <Button
-            className="w-full justify-start gap-2"
-            disabled={isPending}
-            onClick={handleMarkPaid}
-          >
-            {isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-            Mark as Paid
-          </Button>
+          <>
+            <Button
+              className="w-full justify-start gap-2"
+              disabled={isPending}
+              onClick={handleMarkPaid}
+            >
+              {isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+              Mark as Paid
+            </Button>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Or share the client link below — if you&apos;ve connected Stripe, your client can pay by card directly.
+            </p>
+          </>
         )}
 
         {isPaid && (
@@ -129,14 +147,27 @@ export function InvoiceActions({ invoice, publicUrl, promptText }: Props) {
       <div className="rounded-xl border border-border p-4 flex flex-col gap-3">
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Share &amp; Export</p>
 
-        <Button
-          variant="outline"
-          className="w-full justify-start gap-2"
-          onClick={handleCopyLink}
-        >
-          {copied ? <Check className="size-4" /> : <Link2 className="size-4" />}
-          {copied ? 'Link copied!' : 'Copy client link'}
-        </Button>
+        <div className="flex flex-col gap-1.5">
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-2"
+            onClick={handleCopyLink}
+            disabled={isDraft}
+            title={isDraft ? 'Mark invoice as sent before sharing' : undefined}
+          >
+            {copied ? <Check className="size-4" /> : <Link2 className="size-4" />}
+            {copied ? 'Link copied!' : 'Copy client link'}
+          </Button>
+          {isDraft ? (
+            <p className="text-xs text-muted-foreground/70 leading-relaxed pl-0.5">
+              Mark as Sent first to activate the shareable link.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground/70 leading-relaxed pl-0.5">
+              Send this to your client. They can view the invoice, download a PDF, and pay online.
+            </p>
+          )}
+        </div>
 
         <Button
           variant="outline"
@@ -152,8 +183,8 @@ export function InvoiceActions({ invoice, publicUrl, promptText }: Props) {
       {promptText && (
         <div className="rounded-xl border border-border p-4 flex flex-col gap-3">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">AI Cover Email</p>
-          <p className="text-xs text-muted-foreground">
-            Copy this prompt into ChatGPT or Claude to draft the sending email.
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Paste this prompt into ChatGPT or Claude to draft a professional cover email for this invoice.
           </p>
           <Button
             variant="outline"

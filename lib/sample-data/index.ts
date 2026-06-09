@@ -71,8 +71,50 @@ export async function loadSampleData(ownerId: string): Promise<void> {
           dueDate: daysFromNow(def.task.dueDaysFromNow),
         },
       })
+
+      for (const projDef of def.projects ?? []) {
+        const project = await tx.project.create({
+          data: {
+            ownerId,
+            clientId:     client.id,
+            title:        projDef.title,
+            status:       projDef.status,
+            startDate:    daysFromNow(-projDef.startDaysAgo),
+            endDate:      projDef.endDaysAgo != null ? daysFromNow(-projDef.endDaysAgo) : null,
+            budget:       projDef.budget,
+            deliverables: projDef.deliverables,
+          },
+        })
+
+        for (const te of projDef.timeEntries) {
+          await tx.timeEntry.create({
+            data: {
+              ownerId,
+              clientId:    client.id,
+              projectId:   project.id,
+              date:        daysFromNow(-te.daysAgo),
+              hours:       te.hours,
+              rate:        te.rate,
+              description: te.description,
+              isBillable:  te.isBillable,
+            },
+          })
+        }
+
+        for (const taskDef of projDef.tasks) {
+          await tx.task.create({
+            data: {
+              ownerId,
+              clientId:  client.id,
+              projectId: project.id,
+              title:     taskDef.title,
+              isDone:    taskDef.isDone,
+            },
+          })
+        }
+      }
     }
-  })
+  }, { timeout: 30000 })
 
   await updateUserSettings(ownerId, { sampleDataLoaded: true })
 }

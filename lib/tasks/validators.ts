@@ -1,9 +1,10 @@
 import { z } from 'zod'
 
 export const createTaskSchema = z.object({
-  title: z.string().min(1, 'Title is required').max(500),
-  dueDate: z.string().date().optional(),
-  clientId: z.string().uuid().optional(),
+  title:     z.string().min(1, 'Title is required').max(500),
+  dueDate:   z.string().date().optional(),
+  clientId:  z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
 })
 
 export const updateTaskSchema = z.object({

@@ -3,6 +3,13 @@ import type { Project } from '@/lib/generated/prisma/client'
 
 export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled'
 
+export interface ProjectWithStats extends Omit<Project, 'budget'> {
+  budget: number | null
+  clientName: string
+  totalHours: number
+  billableAmount: number
+}
+
 export interface CreateProjectInput {
   clientId: string
   title: string
@@ -66,14 +73,41 @@ export async function getProjectById(
 export async function listProjects(
   ownerId: string,
   filters: ListProjectsFilters = {},
-): Promise<Project[]> {
-  return prisma.project.findMany({
+): Promise<ProjectWithStats[]> {
+  const rows = await prisma.project.findMany({
     where: {
       ownerId,
       ...(filters.clientId !== undefined && { clientId: filters.clientId }),
       ...(filters.status !== undefined && { status: filters.status }),
     },
+    include: {
+      client: { select: { companyName: true, contactName: true } },
+      timeEntries: { select: { hours: true, rate: true, isBillable: true } },
+    },
     orderBy: { updatedAt: 'desc' },
+  })
+
+  return rows.map((r) => {
+    let totalHours = 0
+    let billableAmount = 0
+    for (const e of r.timeEntries) {
+      const h = typeof e.hours === 'object' ? (e.hours as { toNumber(): number }).toNumber() : Number(e.hours)
+      totalHours += h
+      if (e.isBillable && e.rate != null) {
+        const rate = typeof e.rate === 'object' ? (e.rate as { toNumber(): number }).toNumber() : Number(e.rate)
+        billableAmount += h * rate
+      }
+    }
+    const { client, timeEntries: _te, budget, ...rest } = r
+    return {
+      ...rest,
+      budget: budget != null
+        ? (typeof budget === 'object' ? (budget as { toNumber(): number }).toNumber() : Number(budget))
+        : null,
+      clientName: client.companyName ?? client.contactName ?? 'Unknown',
+      totalHours,
+      billableAmount,
+    }
   })
 }
 

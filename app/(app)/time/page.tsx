@@ -39,7 +39,7 @@ export default async function TimePage({
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
           <Clock className="size-3.5" />
-          Start a timer from any client page
+          Start a timer from any project page
         </div>
       </div>
 
