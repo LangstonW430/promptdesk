@@ -24,8 +24,7 @@ export async function createTimeEntryAction(data: unknown) {
   try {
     const entry = await createTimeEntry(ownerId, parsed.data)
     revalidatePath('/time')
-    revalidatePath(`/clients/${parsed.data.clientId}`)
-    if (parsed.data.projectId) revalidatePath(`/projects/${parsed.data.projectId}`)
+    revalidatePath(`/projects/${parsed.data.projectId}`)
     return { entry }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to create entry' }
@@ -47,23 +46,22 @@ export async function updateTimeEntryAction(id: string, data: unknown) {
   if (!entry) return { error: 'Not found' }
 
   revalidatePath('/time')
-  revalidatePath(`/clients/${entry.clientId}`)
+  revalidatePath(`/projects/${entry.projectId}`)
   return { entry }
 }
 
 export async function deleteTimeEntryAction(id: string) {
   const ownerId = await getOwnerId()
 
-  // Fetch clientId before deleting so we can revalidate the right path
   const existing = await import('@/lib/db/client').then(({ prisma }) =>
-    prisma.timeEntry.findFirst({ where: { id, ownerId }, select: { clientId: true } }),
+    prisma.timeEntry.findFirst({ where: { id, ownerId }, select: { projectId: true } }),
   )
 
   const deleted = await deleteTimeEntry(ownerId, id)
   if (!deleted) return { error: 'Not found' }
 
   revalidatePath('/time')
-  if (existing?.clientId) revalidatePath(`/clients/${existing.clientId}`)
+  if (existing?.projectId) revalidatePath(`/projects/${existing.projectId}`)
   return { success: true }
 }
 

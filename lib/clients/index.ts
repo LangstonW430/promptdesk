@@ -7,16 +7,10 @@ import type { CreateClientInput, UpdateClientInput } from './validators'
 
 const withRelations = {
   notes:       { orderBy: { occurredAt: 'desc' as const } },
-  tasks:       { orderBy: [{ isDone: 'asc' as const }, { dueDate: 'asc' as const }] },
   attachments: { orderBy: { createdAt: 'desc' as const } },
   clientTags:  { include: { tag: true } },
   activities:  { orderBy: { createdAt: 'desc' as const }, take: 20 },
   projects:    { where: { status: { not: 'cancelled' } }, orderBy: { updatedAt: 'desc' as const } },
-  timeEntries: {
-    include: { project: { select: { title: true } } },
-    orderBy: [{ date: 'desc' as const }, { createdAt: 'desc' as const }],
-    take: 20,
-  },
 }
 
 export async function createClient(ownerId: string, input: CreateClientInput) {

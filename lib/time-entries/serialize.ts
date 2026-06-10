@@ -1,9 +1,8 @@
 export type SerializedTimeEntry = {
   id:           string
-  clientId:     string
+  projectId:    string
+  projectTitle: string
   clientName:   string
-  projectId:    string | null
-  projectTitle: string | null
   date:         string  // "YYYY-MM-DD"
   hours:        number
   rate:         number | null
@@ -22,16 +21,17 @@ function toNum(d: DecimalLike): number | null {
 
 type TimeEntryRow = {
   id:          string
-  clientId:    string
-  projectId:   string | null
+  projectId:   string
   date:        Date | string
   hours:       DecimalLike
   rate:        DecimalLike
   description: string | null
   isBillable:  boolean
   createdAt:   Date | string
-  client:      { companyName: string | null; contactName: string | null }
-  project:     { title: string } | null
+  project: {
+    title:  string
+    client: { companyName: string | null; contactName: string | null }
+  }
 }
 
 export function serializeTimeEntry(row: TimeEntryRow): SerializedTimeEntry {
@@ -42,10 +42,9 @@ export function serializeTimeEntry(row: TimeEntryRow): SerializedTimeEntry {
 
   return {
     id:           row.id,
-    clientId:     row.clientId,
-    clientName:   row.client.companyName ?? row.client.contactName ?? 'Unknown',
     projectId:    row.projectId,
-    projectTitle: row.project?.title ?? null,
+    projectTitle: row.project.title,
+    clientName:   row.project.client.companyName ?? row.project.client.contactName ?? 'Unknown',
     date:         dateStr,
     hours:        toNum(row.hours) ?? 0,
     rate:         toNum(row.rate),

@@ -252,11 +252,9 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
       {activeTab === 'time' && (
         <div className="flex flex-col gap-4">
           <TimerWidget
-            clientId={project.clientId}
-            clientName={project.clientName}
+            projectId={project.id}
+            projectTitle={project.title}
             defaultRate={project.defaultRate}
-            projects={[{ id: project.id, title: project.title, status: project.status }]}
-            defaultProjectId={project.id}
           />
 
           {timeEntries.length === 0 ? (

@@ -26,7 +26,7 @@ export async function refreshClientSummary(
       orderBy: { createdAt: 'asc' },
     }),
     prisma.task.findMany({
-      where: { clientId, ownerId },
+      where: { ownerId, project: { clientId } },
       select: { isDone: true, dueDate: true },
     }),
   ])

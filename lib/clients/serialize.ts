@@ -32,7 +32,6 @@ type ClientWithRelations = {
   updatedAt: Date
   clientTags: Array<{ tag: { id: string; label: string; color: string | null } }>
   notes: Array<{ id: string; body: string; noteType: string; occurredAt: Date }>
-  tasks: Array<{ id: string; title: string; dueDate: Date | null; isDone: boolean }>
   attachments: Array<{
     id: string
     fileName: string
@@ -47,16 +46,6 @@ type ClientWithRelations = {
     createdAt: Date
   }>
   projects: Array<{ id: string; title: string; status: string }>
-  timeEntries: Array<{
-    id: string
-    projectId: string | null
-    date: Date
-    hours: DecimalLike
-    rate: DecimalLike
-    description: string | null
-    isBillable: boolean
-    project: { title: string } | null
-  }>
   customFields: unknown
 }
 
@@ -92,12 +81,6 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
       noteType: n.noteType,
       occurredAt: n.occurredAt.toISOString(),
     })),
-    tasks: client.tasks.map((t) => ({
-      id: t.id,
-      title: t.title,
-      dueDate: t.dueDate?.toISOString() ?? null,
-      isDone: t.isDone,
-    })),
     attachments: client.attachments.map((a) => ({
       id: a.id,
       fileName: a.fileName,
@@ -115,16 +98,6 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
       id: p.id,
       title: p.title,
       status: p.status,
-    })),
-    timeEntries: client.timeEntries.map((e) => ({
-      id: e.id,
-      projectId:    e.projectId,
-      projectTitle: e.project?.title ?? null,
-      date:         e.date.toISOString().slice(0, 10),
-      hours:        toNum(e.hours) ?? 0,
-      rate:         toNum(e.rate),
-      description:  e.description,
-      isBillable:   e.isBillable,
     })),
     customFields: (client.customFields ?? {}) as Record<string, string>,
   }

@@ -96,8 +96,13 @@ export async function fetchBillableEntries(ownerId: string, entryIds: string[]) 
   const rows = await prisma.timeEntry.findMany({
     where: { id: { in: entryIds }, ownerId, isBillable: true, invoiceId: null },
     include: {
-      client:  { select: { id: true, companyName: true, contactName: true } },
-      project: { select: { id: true, title: true } },
+      project: {
+        select: {
+          id:     true,
+          title:  true,
+          client: { select: { id: true, companyName: true, contactName: true } },
+        },
+      },
     },
     orderBy: [{ date: 'asc' }],
   })
@@ -139,8 +144,8 @@ export async function createInvoiceFromTimeEntries(
   const entries = await fetchBillableEntries(ownerId, input.entryIds)
   if (entries.length === 0) throw new Error('No unbilled billable entries found')
 
-  const clientId = entries[0].client.id
-  const clientSame = entries.every((e) => e.client.id === clientId)
+  const clientId = entries[0].project.client.id
+  const clientSame = entries.every((e) => e.project.client.id === clientId)
   if (!clientSame) throw new Error('All entries must belong to the same client')
 
   const lineItems: LineItem[] = entries.map((e) => {

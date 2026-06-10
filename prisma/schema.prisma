@@ -71,7 +71,6 @@ model Client {
   owner            User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   notes            Note[]
   activities       Activity[]
-  tasks            Task[]
   attachments      Attachment[]
   clientTags       ClientTag[]
   generatedPrompts GeneratedPrompt[]
@@ -81,7 +80,6 @@ model Client {
   defaultRate      Decimal? @map("default_rate") @db.Decimal(10, 2)
 
   transactions Transaction[]
-  timeEntries  TimeEntry[]
   invoices     Invoice[]
 
   @@index([ownerId, status], map: "clients_owner_status_idx")
@@ -131,19 +129,16 @@ model Activity {
 model Task {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ownerId   String    @map("owner_id") @db.Uuid
-  clientId  String?   @map("client_id") @db.Uuid
-  projectId String?   @map("project_id") @db.Uuid
+  projectId String    @map("project_id") @db.Uuid
   title     String
   dueDate   DateTime? @map("due_date") @db.Date
   isDone    Boolean   @default(false) @map("is_done")
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  client  Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  owner   User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([ownerId, isDone, dueDate],   map: "tasks_owner_done_due_idx")
-  @@index([clientId, isDone, dueDate],  map: "tasks_client_done_due_idx")
   @@index([projectId, isDone, dueDate], map: "tasks_project_done_due_idx")
   @@map("tasks")
 }
@@ -179,8 +174,7 @@ model Project {
 model TimeEntry {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ownerId     String    @map("owner_id") @db.Uuid
-  clientId    String    @map("client_id") @db.Uuid
-  projectId   String?   @map("project_id") @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
   date        DateTime  @db.Date
   hours       Decimal   @db.Decimal(5, 2)
   rate        Decimal?  @db.Decimal(10, 2)
@@ -191,14 +185,12 @@ model TimeEntry {
 
   invoiceId   String?   @map("invoice_id") @db.Uuid
 
-  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  owner   User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   invoice Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
-  @@index([ownerId, date(sort: Desc)],   map: "time_entries_owner_date_idx")
-  @@index([clientId, date(sort: Desc)],  map: "time_entries_client_date_idx")
-  @@index([projectId, date(sort: Desc)], map: "time_entries_project_date_idx")
+  @@index([ownerId, date(sort: Desc)],    map: "time_entries_owner_date_idx")
+  @@index([projectId, date(sort: Desc)],  map: "time_entries_project_date_idx")
   @@map("time_entries")
 }
 

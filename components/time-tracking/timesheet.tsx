@@ -25,49 +25,37 @@ function formatCurrency(amount: number): string {
 // ── Grouping ──────────────────────────────────────────────────────────────────
 
 interface ProjectGroup {
-  projectId:    string | null
-  projectTitle: string | null
+  projectId:    string
+  projectTitle: string
+  clientName:   string
   entries:      SerializedTimeEntry[]
   totalHours:   number
   billableAmt:  number
 }
 
-interface ClientGroup {
-  clientId:     string
-  clientName:   string
-  projects:     ProjectGroup[]
-  totalHours:   number
-  billableHours: number
-  billableAmt:  number
-}
-
-function groupEntries(entries: SerializedTimeEntry[]): ClientGroup[] {
-  const clientMap = new Map<string, ClientGroup>()
+function groupEntries(entries: SerializedTimeEntry[]): ProjectGroup[] {
+  const map = new Map<string, ProjectGroup>()
 
   for (const e of entries) {
-    let cg = clientMap.get(e.clientId)
-    if (!cg) {
-      cg = { clientId: e.clientId, clientName: e.clientName, projects: [], totalHours: 0, billableHours: 0, billableAmt: 0 }
-      clientMap.set(e.clientId, cg)
-    }
-
-    const projKey = e.projectId ?? '__none__'
-    let pg = cg.projects.find((p) => (p.projectId ?? '__none__') === projKey)
+    let pg = map.get(e.projectId)
     if (!pg) {
-      pg = { projectId: e.projectId, projectTitle: e.projectTitle, entries: [], totalHours: 0, billableAmt: 0 }
-      cg.projects.push(pg)
+      pg = {
+        projectId:    e.projectId,
+        projectTitle: e.projectTitle,
+        clientName:   e.clientName,
+        entries:      [],
+        totalHours:   0,
+        billableAmt:  0,
+      }
+      map.set(e.projectId, pg)
     }
 
     pg.entries.push(e)
     pg.totalHours += e.hours
     if (e.isBillable && e.rate != null) pg.billableAmt += e.hours * e.rate
-
-    cg.totalHours += e.hours
-    if (e.isBillable) cg.billableHours += e.hours
-    cg.billableAmt += e.isBillable && e.rate != null ? e.hours * e.rate : 0
   }
 
-  return Array.from(clientMap.values())
+  return Array.from(map.values())
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -196,104 +184,92 @@ export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
         </p>
       ) : (
         <div className="flex flex-col gap-4">
-          {groups.map((cg) => (
-            <div key={cg.clientId} className="overflow-hidden rounded-xl border border-border">
-              {/* Client header */}
+          {groups.map((pg) => (
+            <div key={pg.projectId} className="overflow-hidden rounded-xl border border-border">
+              {/* Project header */}
               <div className="flex items-center justify-between border-b border-border bg-muted/40 px-4 py-2.5">
-                <span className="text-sm font-medium">{cg.clientName}</span>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{pg.projectTitle}</span>
+                  <span className="text-xs text-muted-foreground">{pg.clientName}</span>
+                </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>{formatHours(cg.totalHours)}</span>
-                  {cg.billableAmt > 0 && (
-                    <span className="text-foreground font-medium">{formatCurrency(cg.billableAmt)}</span>
+                  <span>{formatHours(pg.totalHours)}</span>
+                  {pg.billableAmt > 0 && (
+                    <span className="text-foreground font-medium">{formatCurrency(pg.billableAmt)}</span>
                   )}
                 </div>
               </div>
 
-              {/* Project groups */}
-              {cg.projects.map((pg) => (
-                <div key={pg.projectId ?? '__none__'}>
-                  {/* Project sub-header (only shown when there are multiple project groups) */}
-                  {(cg.projects.length > 1 || pg.projectId != null) && (
-                    <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-4 py-1.5">
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {pg.projectTitle ?? 'No project'}
+              {/* Entries */}
+              <ul>
+                {pg.entries.map((entry, idx) => {
+                  const isSelectable = entry.isBillable && entry.rate != null
+                  const isSelected   = selected.has(entry.id)
+                  const lineTotal    = entry.rate != null ? entry.hours * entry.rate : null
+
+                  return (
+                    <li
+                      key={entry.id}
+                      className={cn(
+                        'group flex items-center gap-3 px-4 py-2.5 text-sm',
+                        idx !== pg.entries.length - 1 && 'border-b border-border/40',
+                        isSelected && 'bg-primary/5',
+                      )}
+                    >
+                      {/* Selection checkbox */}
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={!isSelectable || isPending}
+                        onChange={() => toggleEntry(entry.id)}
+                        className={cn('rounded border-input accent-primary', !isSelectable && 'invisible')}
+                        aria-label={`Select entry: ${entry.description ?? entry.date}`}
+                      />
+
+                      {/* Date */}
+                      <span className="w-28 shrink-0 text-xs text-muted-foreground">
+                        {formatDate(entry.date)}
                       </span>
-                      <span className="text-xs text-muted-foreground">{formatHours(pg.totalHours)}</span>
-                    </div>
-                  )}
 
-                  {/* Entries */}
-                  <ul>
-                    {pg.entries.map((entry, idx) => {
-                      const isSelectable = entry.isBillable && entry.rate != null
-                      const isSelected   = selected.has(entry.id)
-                      const lineTotal    = entry.rate != null ? entry.hours * entry.rate : null
+                      {/* Description */}
+                      <span className="flex-1 truncate text-muted-foreground">
+                        {entry.description ?? <span className="italic">No description</span>}
+                      </span>
 
-                      return (
-                        <li
-                          key={entry.id}
-                          className={cn(
-                            'group flex items-center gap-3 px-4 py-2.5 text-sm',
-                            idx !== pg.entries.length - 1 && 'border-b border-border/40',
-                            isSelected && 'bg-primary/5',
-                          )}
-                        >
-                          {/* Selection checkbox */}
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={!isSelectable || isPending}
-                            onChange={() => toggleEntry(entry.id)}
-                            className={cn('rounded border-input accent-primary', !isSelectable && 'invisible')}
-                            aria-label={`Select entry: ${entry.description ?? entry.date}`}
-                          />
+                      {/* Billable badge */}
+                      {!entry.isBillable && (
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-px text-[10px] font-medium text-muted-foreground">
+                          non-billable
+                        </span>
+                      )}
 
-                          {/* Date */}
-                          <span className="w-28 shrink-0 text-xs text-muted-foreground">
-                            {formatDate(entry.date)}
-                          </span>
+                      {/* Hours */}
+                      <span className="w-12 shrink-0 text-right tabular-nums font-medium">
+                        {formatHours(entry.hours)}
+                      </span>
 
-                          {/* Description */}
-                          <span className="flex-1 truncate text-muted-foreground">
-                            {entry.description ?? <span className="italic">No description</span>}
-                          </span>
+                      {/* Rate / line total */}
+                      <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground text-xs">
+                        {lineTotal != null
+                          ? formatCurrency(lineTotal)
+                          : entry.rate != null
+                            ? `@ $${entry.rate}/hr`
+                            : '—'}
+                      </span>
 
-                          {/* Billable badge */}
-                          {!entry.isBillable && (
-                            <span className="shrink-0 rounded-full bg-muted px-2 py-px text-[10px] font-medium text-muted-foreground">
-                              non-billable
-                            </span>
-                          )}
-
-                          {/* Hours */}
-                          <span className="w-12 shrink-0 text-right tabular-nums font-medium">
-                            {formatHours(entry.hours)}
-                          </span>
-
-                          {/* Rate / line total */}
-                          <span className="w-20 shrink-0 text-right tabular-nums text-muted-foreground text-xs">
-                            {lineTotal != null
-                              ? formatCurrency(lineTotal)
-                              : entry.rate != null
-                                ? `@ $${entry.rate}/hr`
-                                : '—'}
-                          </span>
-
-                          {/* Delete */}
-                          <button
-                            onClick={() => handleDelete(entry.id)}
-                            disabled={isPending}
-                            aria-label="Delete entry"
-                            className="invisible shrink-0 group-hover:visible text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              ))}
+                      {/* Delete */}
+                      <button
+                        onClick={() => handleDelete(entry.id)}
+                        disabled={isPending}
+                        aria-label="Delete entry"
+                        className="invisible shrink-0 group-hover:visible text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           ))}
         </div>

@@ -8,10 +8,9 @@ function buildTaskWhere(
 ): Prisma.TaskWhereInput {
   const conditions: Prisma.TaskWhereInput[] = [{ ownerId }]
 
-  if (filters.clientId) conditions.push({ clientId: filters.clientId })
+  if (filters.projectId) conditions.push({ projectId: filters.projectId })
 
   if (filters.due) {
-    // Compute today's boundary at midnight UTC for consistent date comparisons
     const todayStr = new Date().toISOString().split('T')[0]
     const todayStart = new Date(todayStr)
     const tomorrowStart = new Date(todayStr)
@@ -23,7 +22,6 @@ function buildTaskWhere(
         dueDate: { gte: todayStart, lt: tomorrowStart },
       })
     } else {
-      // overdue
       conditions.push({
         isDone: false,
         dueDate: { not: null, lt: todayStart },
@@ -35,18 +33,15 @@ function buildTaskWhere(
 }
 
 export async function createTask(ownerId: string, input: CreateTaskInput) {
-  if (input.clientId) {
-    const ok = await prisma.client.count({ where: { id: input.clientId, ownerId } })
-    if (!ok) return null
-  }
+  const ok = await prisma.project.count({ where: { id: input.projectId, ownerId } })
+  if (!ok) return null
 
   return prisma.task.create({
     data: {
       ownerId,
+      projectId: input.projectId,
       title:     input.title,
-      dueDate:   input.dueDate   ? new Date(input.dueDate) : null,
-      clientId:  input.clientId  ?? null,
-      projectId: input.projectId ?? null,
+      dueDate:   input.dueDate ? new Date(input.dueDate) : null,
     },
   })
 }
@@ -73,8 +68,8 @@ export async function updateTask(
   return prisma.task.update({
     where: { id },
     data: {
-      ...(input.title !== undefined && { title: input.title }),
-      ...(input.isDone !== undefined && { isDone: input.isDone }),
+      ...(input.title   !== undefined && { title:   input.title }),
+      ...(input.isDone  !== undefined && { isDone:  input.isDone }),
       ...(input.dueDate !== undefined && {
         dueDate: input.dueDate ? new Date(input.dueDate) : null,
       }),

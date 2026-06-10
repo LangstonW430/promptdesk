@@ -26,7 +26,7 @@ export default async function NewInvoicePage({
     if (entryIds.length > 0) {
       const entries = await fetchBillableEntries(ownerId, entryIds)
       if (entries.length > 0) {
-        const clientId = entries[0].client.id
+        const clientId = entries[0].project.client.id
         const lineItems: LineItem[] = entries.map((e) => {
           const h = typeof e.hours === 'object' ? e.hours.toNumber() : Number(e.hours)
           const r = e.rate != null

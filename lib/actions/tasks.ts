@@ -11,10 +11,9 @@ export async function createTaskAction(data: unknown) {
   if (!parsed.success) return { error: parsed.error.issues[0].message }
 
   const task = await createTask(ownerId, parsed.data)
-  if (!task) return { error: 'Client not found' }
+  if (!task) return { error: 'Project not found' }
 
-  revalidatePath('/clients')
-  if (parsed.data.clientId) revalidatePath(`/clients/${parsed.data.clientId}`)
+  revalidatePath(`/projects/${parsed.data.projectId}`)
   return { task }
 }
 
@@ -34,23 +33,20 @@ export async function updateTaskAction(id: string, data: unknown) {
   const task = await updateTask(ownerId, id, parsed.data)
   if (!task) return { error: 'Not found' }
 
-  revalidatePath('/clients')
-  if (task.clientId) revalidatePath(`/clients/${task.clientId}`)
+  revalidatePath(`/projects/${task.projectId}`)
   return { task }
 }
 
 export async function deleteTaskAction(id: string) {
   const ownerId = await getOwnerId()
 
-  // Fetch clientId before deleting so we can revalidate the right path
   const existing = await import('@/lib/db/client').then(({ prisma }) =>
-    prisma.task.findFirst({ where: { id, ownerId }, select: { clientId: true } }),
+    prisma.task.findFirst({ where: { id, ownerId }, select: { projectId: true } }),
   )
 
   const deleted = await deleteTask(ownerId, id)
   if (!deleted) return { error: 'Not found' }
 
-  revalidatePath('/clients')
-  if (existing?.clientId) revalidatePath(`/clients/${existing.clientId}`)
+  if (existing?.projectId) revalidatePath(`/projects/${existing.projectId}`)
   return { success: true }
 }

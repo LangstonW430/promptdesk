@@ -63,15 +63,6 @@ export async function loadSampleData(ownerId: string): Promise<void> {
         })
       }
 
-      await tx.task.create({
-        data: {
-          ownerId,
-          clientId: client.id,
-          title: def.task.title,
-          dueDate: daysFromNow(def.task.dueDaysFromNow),
-        },
-      })
-
       for (const projDef of def.projects ?? []) {
         const project = await tx.project.create({
           data: {
@@ -90,7 +81,6 @@ export async function loadSampleData(ownerId: string): Promise<void> {
           await tx.timeEntry.create({
             data: {
               ownerId,
-              clientId:    client.id,
               projectId:   project.id,
               date:        daysFromNow(-te.daysAgo),
               hours:       te.hours,
@@ -105,7 +95,6 @@ export async function loadSampleData(ownerId: string): Promise<void> {
           await tx.task.create({
             data: {
               ownerId,
-              clientId:  client.id,
               projectId: project.id,
               title:     taskDef.title,
               isDone:    taskDef.isDone,

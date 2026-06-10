@@ -169,7 +169,7 @@ export async function fetchContext(
       })))
     }
 
-    const taskClientFilter = clientIds?.length ? { clientId: { in: fetchedClientIds } } : {}
+    const taskClientFilter = clientIds?.length ? { project: { clientId: { in: fetchedClientIds } } } : {}
     const activityClientFilter = clientIds?.length ? { clientId: { in: fetchedClientIds } } : {}
 
     const [rawTasks, rawActivities] = await Promise.all([
@@ -191,8 +191,8 @@ export async function fetchContext(
 
     tasks.push(...rawTasks.map((t) => ({
       id: t.id,
-      clientId: t.clientId,
-      projectId: t.projectId ?? null,
+      clientId: null as string | null,
+      projectId: t.projectId,
       title: t.title,
       dueDate: t.dueDate,
       isDone: t.isDone,
@@ -268,13 +268,13 @@ export async function fetchContext(
     if (spec.scope === 'client') {
       if (spec.includeTasks !== false) {
         const rawTasks = await prisma.task.findMany({
-          where: { clientId, ownerId },
+          where: { ownerId, project: { clientId } },
           orderBy: [{ isDone: 'asc' }, { dueDate: { sort: 'asc', nulls: 'last' } }],
         })
         tasks.push(...rawTasks.map((t) => ({
           id: t.id,
-          clientId: t.clientId,
-          projectId: t.projectId ?? null,
+          clientId: null as string | null,
+          projectId: t.projectId,
           title: t.title,
           dueDate: t.dueDate,
           isDone: t.isDone,

@@ -8,8 +8,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
 
   const raw = {
-    due: searchParams.get('due') ?? undefined,
-    clientId: searchParams.get('clientId') ?? undefined,
+    due:       searchParams.get('due')       ?? undefined,
+    projectId: searchParams.get('projectId') ?? undefined,
   }
   const parsed = listTasksSchema.safeParse(raw)
   if (!parsed.success) {
@@ -29,6 +29,6 @@ export async function POST(req: NextRequest) {
   }
 
   const task = await createTask(ownerId, parsed.data)
-  if (!task) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
+  if (!task) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
   return NextResponse.json({ task }, { status: 201 })
 }

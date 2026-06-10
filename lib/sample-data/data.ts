@@ -9,11 +9,6 @@ export interface SampleNote {
   daysAgo: number
 }
 
-export interface SampleTask {
-  title: string
-  dueDaysFromNow: number
-}
-
 export interface SampleProjectTask {
   title: string
   isDone: boolean
@@ -50,7 +45,6 @@ export interface SampleClientDef {
   painPoints:               string
   tags:                     SampleTag[]
   notes:                    SampleNote[]
-  task:                     SampleTask
   projects?:                SampleProject[]
 }
 
@@ -82,10 +76,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 50,
       },
     ],
-    task: {
-      title: 'Send monthly progress report to Dana',
-      dueDaysFromNow: 14,
-    },
     projects: [
       {
         title: 'Brand & Website Redesign',
@@ -169,10 +159,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 8,
       },
     ],
-    task: {
-      title: 'Follow up with Priya on proposal — she was reviewing with her co-founder',
-      dueDaysFromNow: -3,
-    },
   },
   {
     companyName: 'Peaks & Partners LLC',
@@ -197,10 +183,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 5,
       },
     ],
-    task: {
-      title: 'Check in with James after board review — ask for a decision timeline',
-      dueDaysFromNow: 7,
-    },
   },
   {
     companyName: 'Brightleaf Marketing',
@@ -222,10 +204,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 40,
       },
     ],
-    task: {
-      title: 'Re-engage Sofia — deal was close to closing, no response in 5 weeks',
-      dueDaysFromNow: -5,
-    },
   },
   {
     companyName: 'Tomlin & Reyes Architects',
@@ -248,10 +226,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 3,
       },
     ],
-    task: {
-      title: 'Send discovery questionnaire to Marcus and schedule a scoping call',
-      dueDaysFromNow: 2,
-    },
   },
   {
     companyName: 'Sunriver Spa Group',
@@ -271,9 +245,5 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 40,
       },
     ],
-    task: {
-      title: 'Reach out to Lena — went quiet after receiving the quote',
-      dueDaysFromNow: -10,
-    },
   },
 ]

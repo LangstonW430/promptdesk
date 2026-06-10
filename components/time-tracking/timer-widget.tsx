@@ -12,8 +12,7 @@ import { createTimeEntryAction } from '@/lib/actions/time-entries'
 const TIMER_KEY = 'promptdesk:active-timer'
 
 interface StoredTimer {
-  clientId:  string
-  projectId: string | null
+  projectId: string
   startedAt: string  // ISO 8601
 }
 
@@ -49,31 +48,26 @@ function todayISO(): string {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface Project { id: string; title: string; status: string }
-
 interface SaveForm {
   hours:       string
   date:        string
   rate:        string
   description: string
   isBillable:  boolean
-  projectId:   string
 }
 
 interface TimerWidgetProps {
-  clientId:         string
-  clientName:       string
-  defaultRate:      number | null
-  projects:         Project[]
-  defaultProjectId?: string  // when set, pre-selects and locks the project dropdown
+  projectId:    string
+  projectTitle: string
+  defaultRate:  number | null
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function TimerWidget({ clientId, clientName, defaultRate, projects, defaultProjectId }: TimerWidgetProps) {
+export function TimerWidget({ projectId, projectTitle, defaultRate }: TimerWidgetProps) {
   const router = useRouter()
   const [hydrated,  setHydrated]  = useState(false)
-  const [running,   setRunning]   = useState(false)   // timer active for this client
+  const [running,   setRunning]   = useState(false)
   const [elapsed,   setElapsed]   = useState(0)       // seconds
   const [saveForm,  setSaveForm]  = useState<SaveForm | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -83,13 +77,13 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
   // Hydrate from localStorage — runs only on client
   useEffect(() => {
     const stored = readTimer()
-    if (stored && stored.clientId === clientId) {
+    if (stored && stored.projectId === projectId) {
       const secs = Math.floor((Date.now() - new Date(stored.startedAt).getTime()) / 1000)
       setElapsed(Math.max(0, secs))
       setRunning(true)
     }
     setHydrated(true)
-  }, [clientId])
+  }, [projectId])
 
   // Tick while running
   useEffect(() => {
@@ -99,14 +93,14 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
     }
     intervalRef.current = setInterval(() => {
       const stored = readTimer()
-      if (!stored || stored.clientId !== clientId) { setRunning(false); return }
+      if (!stored || stored.projectId !== projectId) { setRunning(false); return }
       setElapsed(Math.floor((Date.now() - new Date(stored.startedAt).getTime()) / 1000))
     }, 1000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [running, clientId])
+  }, [running, projectId])
 
   function handleStart() {
-    const t: StoredTimer = { clientId, projectId: defaultProjectId ?? null, startedAt: new Date().toISOString() }
+    const t: StoredTimer = { projectId, startedAt: new Date().toISOString() }
     writeTimer(t)
     setElapsed(0)
     setRunning(true)
@@ -114,7 +108,6 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
   }
 
   function handleStop() {
-    const stored = readTimer()
     clearTimer()
     setRunning(false)
     if (intervalRef.current) clearInterval(intervalRef.current)
@@ -122,11 +115,10 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
     const hours = elapsed > 0 ? (elapsed / 3600).toFixed(2) : '0.25'
     setSaveForm({
       hours,
-      date:        todayISO(),
-      rate:        defaultRate != null ? String(defaultRate) : '',
+      date:       todayISO(),
+      rate:       defaultRate != null ? String(defaultRate) : '',
       description: '',
-      isBillable:  true,
-      projectId:   stored?.projectId ?? defaultProjectId ?? '',
+      isBillable: true,
     })
     setSaveError(null)
   }
@@ -149,8 +141,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
 
     startTransition(async () => {
       const result = await createTimeEntryAction({
-        clientId,
-        projectId:   saveForm.projectId || undefined,
+        projectId,
         date:        saveForm.date,
         hours:       hoursNum,
         rate:        saveForm.rate !== '' ? Number(saveForm.rate) : undefined,
@@ -193,7 +184,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
               {formatElapsed(elapsed)}
             </span>
             <span className="mr-auto text-xs text-muted-foreground truncate">
-              {clientName}
+              {projectTitle}
             </span>
             <Button size="sm" variant="outline" onClick={handleStop} className="shrink-0">
               <Square className="size-3 fill-current" />
@@ -204,7 +195,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
           <span className="flex-1 text-sm text-muted-foreground">Timer stopped — save entry below</span>
         ) : (
           <>
-            <span className="flex-1 text-sm text-muted-foreground">Track time for {clientName}</span>
+            <span className="flex-1 text-sm text-muted-foreground">Track time for {projectTitle}</span>
             <Button size="sm" variant="outline" onClick={handleStart} className="shrink-0">
               <Play className="size-3 fill-current" />
               Start
@@ -230,7 +221,7 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-3 gap-2">
             {/* Hours */}
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-muted-foreground">Hours</label>
@@ -272,24 +263,6 @@ export function TimerWidget({ clientId, clientName, defaultRate, projects, defau
                 className="h-8 rounded-lg border border-input bg-background px-2 text-sm tabular-nums placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
               />
             </div>
-
-            {/* Project */}
-            {projects.length > 0 && (
-              <div className="flex flex-col gap-1">
-                <label className="text-[11px] font-medium text-muted-foreground">Project</label>
-                <select
-                  value={saveForm.projectId}
-                  onChange={(e) => setSaveForm((f) => f && { ...f, projectId: e.target.value })}
-                  disabled={isPending || !!defaultProjectId}
-                  className="h-8 rounded-lg border border-input bg-background px-2 text-sm text-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-                >
-                  <option value="">No project</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.title}</option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Description */}
