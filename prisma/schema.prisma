@@ -34,6 +34,7 @@ model User {
   projects         Project[]
   timeEntries      TimeEntry[]
   invoices         Invoice[]
+  forms            Form[]
 
   @@map("users")
 }
@@ -163,6 +164,7 @@ model Project {
   tasks       Task[]
   timeEntries TimeEntry[]
   invoices    Invoice[]
+  forms       Form[]
 
   @@index([ownerId, status], map: "projects_owner_status_idx")
   @@index([clientId],        map: "projects_client_idx")
@@ -357,6 +359,43 @@ model Invoice {
   @@index([ownerId, status], map: "invoices_owner_status_idx")
   @@index([clientId],        map: "invoices_client_idx")
   @@map("invoices")
+}
+
+// ============ FORMS ============
+
+model Form {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId     String   @map("owner_id") @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  title       String
+  description String?
+  publicToken String   @unique @map("public_token")
+  isActive    Boolean  @default(true) @map("is_active")
+  fields      Json     @default("[]") @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner       User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  submissions FormSubmission[]
+
+  @@index([ownerId], map: "forms_owner_idx")
+  @@index([projectId], map: "forms_project_idx")
+  @@map("forms")
+}
+
+model FormSubmission {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  formId         String   @map("form_id") @db.Uuid
+  submitterName  String?  @map("submitter_name")
+  submitterEmail String?  @map("submitter_email")
+  answers        Json     @db.JsonB
+  submittedAt    DateTime @default(now()) @map("submitted_at") @db.Timestamptz(6)
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId, submittedAt(sort: Desc)], map: "form_submissions_form_submitted_idx")
+  @@map("form_submissions")
 }
 
 model StripeSyncState {

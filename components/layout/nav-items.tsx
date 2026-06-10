@@ -12,6 +12,7 @@ import {
   Wallet,
   Clock,
   FileText,
+  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -50,6 +51,11 @@ export const navItems = [
     label: 'Invoices',
     href: '/invoices',
     icon: FileText,
+  },
+  {
+    label: 'Forms',
+    href: '/forms',
+    icon: ClipboardList,
   },
   {
     label: 'Prompts',
