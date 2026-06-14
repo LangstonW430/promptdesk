@@ -1,17 +1,26 @@
 import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { type NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/signup', '/auth/callback']
+const PUBLIC_PREFIXES = [
+  '/login',
+  '/signup',
+  '/auth',
+  '/invoice',
+  '/f',
+  '/api/public',
+  '/api/invoice',
+]
 
-function isPublicPath(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + '/'))
+function isPublic(pathname: string): boolean {
+  if (pathname === '/') return true
+  return PUBLIC_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
+  )
 }
 
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request })
+  let supabaseResponse = NextResponse.next({ request })
 
-  // Create a Supabase client that can read and write the session cookie.
-  // The response is mutated here so Set-Cookie headers are forwarded.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
@@ -24,45 +33,38 @@ export async function proxy(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value),
           )
-          response = NextResponse.next({ request })
+          supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
+            supabaseResponse.cookies.set(name, value, options),
           )
         },
       },
     },
   )
 
-  // getUser() is the authoritative check — it validates the JWT with Supabase.
-  // getSession() alone cannot be trusted server-side.
+  // Always call getUser() — this refreshes the session cookie.
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
 
-  // Unauthenticated user trying to reach a protected page
-  if (!user && !isPublicPath(pathname)) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  if (isPublic(pathname)) {
+    return supabaseResponse
   }
 
-  // Authenticated user hitting an auth page — send them into the app
-  if (user && isPublicPath(pathname)) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+  if (!user) {
+    const loginUrl = request.nextUrl.clone()
+    loginUrl.pathname = '/login'
+    loginUrl.searchParams.set('next', pathname)
+    return NextResponse.redirect(loginUrl)
   }
 
-  return response
+  return supabaseResponse
 }
 
 export const config = {
   matcher: [
-    /*
-     * Run on all paths except:
-     *   - _next/static  (static files)
-     *   - _next/image   (image optimisation)
-     *   - favicon.ico
-     *   - api routes (they authenticate themselves)
-     */
-    '/((?!_next/static|_next/image|favicon.ico|api/).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
