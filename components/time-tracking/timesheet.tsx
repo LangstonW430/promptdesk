@@ -79,7 +79,7 @@ export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
   function toggleEntry(id: string) {
     setSelected((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
       return next
     })
   }

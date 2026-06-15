@@ -160,7 +160,6 @@ export function ClientForm({ client }: ClientFormProps) {
   })
 
   const { formState: { errors } } = form
-  const serverError = form.getValues('__serverError' as keyof ClientFormValues)
 
   async function onSubmit(values: ClientFormValues) {
     const payload = toActionPayload(values)

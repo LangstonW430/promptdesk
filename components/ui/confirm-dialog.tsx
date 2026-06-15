@@ -3,8 +3,6 @@
 import { Dialog } from '@base-ui/react/dialog'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
-
 interface ConfirmDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void

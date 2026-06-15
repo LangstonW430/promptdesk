@@ -3,7 +3,6 @@ import { prisma } from '@/lib/db/client'
 import {
   OPEN_STAGES,
   type DashboardAggregates,
-  type OpenStage,
   type StageBreakdown,
 } from './types'
 

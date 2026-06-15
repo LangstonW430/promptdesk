@@ -3,7 +3,6 @@
 import { useState, useRef, useTransition } from 'react'
 import { Upload, Download, AlertCircle, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
 import { importClientsAction, type ImportRow, type ImportResult } from '@/lib/actions/import'
 
 // ── Constants ──────────────────────────────────────────────────────────────

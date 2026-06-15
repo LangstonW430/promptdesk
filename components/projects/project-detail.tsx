@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, Clock, DollarSign, CalendarDays, AlertCircle } from 'lucide-react'
+import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, DollarSign, CalendarDays, AlertCircle } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { ProjectStatusBadge } from './project-status-badge'
 import { TimerWidget } from '@/components/time-tracking/timer-widget'
@@ -68,13 +68,9 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
   const [isPending, startTransition] = useTransition()
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  // Deliverable completion stored locally (persisted via updateProject)
-  const [deliverables, setDeliverables] = useState<string[]>(project.deliverables)
+  // Deliverable completion stored locally
+  const deliverables = project.deliverables
   const [completed, setCompleted] = useState<Set<string>>(new Set())
-
-  // New task form state
-  const [newTaskTitle, setNewTaskTitle] = useState('')
-  const [taskError, setTaskError] = useState<string | null>(null)
 
   const totalHours   = timeEntries.reduce((s, e) => s + e.hours, 0)
   const billableAmt  = timeEntries
@@ -84,7 +80,7 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
   function toggleDeliverable(item: string) {
     setCompleted((prev) => {
       const next = new Set(prev)
-      next.has(item) ? next.delete(item) : next.add(item)
+      if (next.has(item)) { next.delete(item) } else { next.add(item) }
       return next
     })
   }

@@ -8,7 +8,6 @@ import { BusinessAdvisorGenerator } from './business-advisor-generator'
 import { ClientFilteredGenerator, type ClientOption } from './client-filtered-generator'
 import { usePromptGenerator } from '@/lib/prompts/use-prompt-generator'
 import { cn } from '@/lib/utils'
-import type { GenerateResult } from '@/lib/prompts/types'
 
 // ─── Shared helper ────────────────────────────────────────────────────────────
 

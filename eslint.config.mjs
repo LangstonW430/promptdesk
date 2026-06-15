@@ -18,6 +18,14 @@ const eslintConfig = defineConfig([
       // after server revalidation). Turning this off avoids scatter-gun disable
       // comments across the component layer.
       "react-hooks/set-state-in-effect": "off",
+      // Allow _-prefixed variables as intentional discards (e.g. destructuring to
+      // exclude a key from a rest spread: const { excluded: _x, ...rest } = obj).
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        args: "after-used",
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        ignoreRestSiblings: true,
+      }],
     },
   },
 ]);

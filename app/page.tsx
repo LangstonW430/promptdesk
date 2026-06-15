@@ -173,9 +173,9 @@ export default async function LandingPage() {
               </div>
               <div className="space-y-4 text-background/70">
                 <p>
-                  Who's your client? What's their budget? What did you last discuss? What's
-                  the deal status? You know all of this — it's in your head and your notes.
-                  But your AI doesn't.
+                  Who&apos;s your client? What&apos;s their budget? What did you last discuss? What&apos;s
+                  the deal status? You know all of this — it&apos;s in your head and your notes.
+                  But your AI doesn&apos;t.
                 </p>
                 <p>
                   PromptDesk fixes that. It keeps your structured business data and assembles
@@ -254,7 +254,7 @@ export default async function LandingPage() {
               <h3 className="mt-4 text-lg font-semibold">Prompt Builder Engine</h3>
               <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
                 Eight built-in templates. The engine scores, ranks, and compresses your data
-                to fit any model's context window — then hands you a copy-ready prompt.
+                to fit any model&apos;s context window — then hands you a copy-ready prompt.
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 {[
