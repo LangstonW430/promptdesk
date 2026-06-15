@@ -21,7 +21,13 @@ export const createClientSchema = z.object({
   customFields: z.record(z.string(), z.unknown()).optional(),
 })
 
-export const updateClientSchema = createClientSchema.partial()
+export const updateClientSchema = createClientSchema
+  .partial()
+  .extend({
+    status: z.enum(CLIENT_STATUSES).optional(),
+    lastContactDate: z.union([z.string().date(), z.literal('')]).optional(),
+    nextFollowupDate: z.union([z.string().date(), z.literal('')]).optional(),
+  })
 
 export const listClientSchema = z.object({
   status: z.enum(CLIENT_STATUSES).optional(),

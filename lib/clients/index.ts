@@ -46,27 +46,54 @@ export async function updateClient(
   id: string,
   input: UpdateClientInput,
 ) {
-  const exists = await prisma.client.count({ where: { id, ownerId } })
-  if (!exists) return null
-
-  const { customFields, estimatedValue, lastContactDate, nextFollowupDate, ...rest } = input
-
-  return prisma.client.update({
-    where: { id },
-    data: {
-      ...rest,
-      ...(estimatedValue !== undefined && { estimatedValue }),
-      ...(lastContactDate !== undefined && {
-        lastContactDate: lastContactDate ? new Date(lastContactDate) : null,
-      }),
-      ...(nextFollowupDate !== undefined && {
-        nextFollowupDate: nextFollowupDate ? new Date(nextFollowupDate) : null,
-      }),
-      ...(customFields !== undefined && {
-        customFields: customFields as unknown as Prisma.InputJsonValue,
-      }),
-    },
+  const current = await prisma.client.findFirst({
+    where: { id, ownerId },
+    select: { status: true },
   })
+  if (!current) return null
+
+  // Extract status so it never silently lands in ...rest and bypasses logging.
+  const { customFields, estimatedValue, lastContactDate, nextFollowupDate, status, ...rest } = input
+  const statusChanging = status !== undefined && status !== current.status
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const result = await tx.client.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(statusChanging && { status }),
+        ...(estimatedValue !== undefined && { estimatedValue }),
+        ...(lastContactDate !== undefined && {
+          lastContactDate: lastContactDate ? new Date(lastContactDate) : null,
+        }),
+        ...(nextFollowupDate !== undefined && {
+          nextFollowupDate: nextFollowupDate ? new Date(nextFollowupDate) : null,
+        }),
+        ...(customFields !== undefined && {
+          customFields: customFields as unknown as Prisma.InputJsonValue,
+        }),
+      },
+    })
+
+    if (statusChanging) {
+      await tx.activity.create({
+        data: {
+          ownerId,
+          clientId: id,
+          type: 'status_changed',
+          detail: { from: current.status, to: status } as unknown as Prisma.InputJsonValue,
+        },
+      })
+    }
+
+    return result
+  })
+
+  if (statusChanging) {
+    await refreshClientSummary(ownerId, id)
+  }
+
+  return updated
 }
 
 export async function setClientArchived(

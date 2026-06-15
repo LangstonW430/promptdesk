@@ -559,7 +559,6 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
   function handleFollowupDateChange(field: 'lastContactDate' | 'nextFollowupDate', value: string) {
     if (field === 'lastContactDate') setLocalLastContact(value)
     else setLocalNextFollowup(value)
-    if (!value) return
     startDateTransition(async () => {
       await updateClientAction(client.id, { [field]: value })
       router.refresh()
