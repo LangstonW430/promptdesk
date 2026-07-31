@@ -32,3 +32,16 @@ jobs:
 
       - name: Test
         run: npm run test
+
+      # Catches type errors and build-time failures that lint and unit tests
+      # miss. Env vars are placeholders: lib/env.ts validates their shape at
+      # import time, and nothing is contacted during a build.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: placeholder
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+          DATABASE_URL: postgresql://user:pass@localhost:5432/placeholder
+          DIRECT_URL: postgresql://user:pass@localhost:5432/placeholder
+          NEXT_PUBLIC_APP_URL: http://localhost:3000

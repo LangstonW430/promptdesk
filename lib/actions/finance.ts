@@ -1,6 +1,7 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
+import { financeTag, dashboardTag } from '@/lib/cache-tags'
 import { getOwnerId } from '@/lib/auth'
 import { createTransaction, updateTransaction, deleteTransaction } from '@/lib/finance'
 import { createTransactionSchema, updateTransactionSchema } from '@/lib/finance/validators'
@@ -15,6 +16,8 @@ export async function createTransactionAction(data: unknown) {
   const transaction = await createTransaction(ownerId, parsed.data)
   revalidatePath('/finance')
   revalidatePath('/dashboard')
+  updateTag(financeTag(ownerId))
+  updateTag(dashboardTag(ownerId))
   return { success: true as const, data: transaction }
 }
 
@@ -30,6 +33,8 @@ export async function updateTransactionAction(id: string, data: unknown) {
   }
   revalidatePath('/finance')
   revalidatePath('/dashboard')
+  updateTag(financeTag(ownerId))
+  updateTag(dashboardTag(ownerId))
   return { success: true as const, data: transaction }
 }
 
@@ -44,6 +49,8 @@ export async function deleteTransactionAction(id: string) {
   }
   revalidatePath('/finance')
   revalidatePath('/dashboard')
+  updateTag(financeTag(ownerId))
+  updateTag(dashboardTag(ownerId))
   return { success: true as const }
 }
 
@@ -53,6 +60,8 @@ export async function syncStripeAction() {
     await backfillStripe(ownerId)
     revalidatePath('/finance')
     revalidatePath('/dashboard')
+    updateTag(financeTag(ownerId))
+    updateTag(dashboardTag(ownerId))
     return { success: true as const }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Stripe sync failed'

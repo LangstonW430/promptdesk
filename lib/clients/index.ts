@@ -5,12 +5,15 @@ import { buildClientWhere } from './filters'
 import type { ClientFilters, ClientStatus } from './types'
 import type { CreateClientInput, UpdateClientInput } from './validators'
 
+// Child collections are capped so a long-lived client's detail page does not
+// degrade linearly with its history. `activities` was already bounded; the
+// rest were not.
 const withRelations = {
-  notes:       { orderBy: { occurredAt: 'desc' as const } },
-  attachments: { orderBy: { createdAt: 'desc' as const } },
+  notes:       { orderBy: { occurredAt: 'desc' as const }, take: 50 },
+  attachments: { orderBy: { createdAt: 'desc' as const }, take: 50 },
   clientTags:  { include: { tag: true } },
   activities:  { orderBy: { createdAt: 'desc' as const }, take: 20 },
-  projects:    { where: { status: { not: 'cancelled' } }, orderBy: { updatedAt: 'desc' as const } },
+  projects:    { where: { status: { not: 'cancelled' } }, orderBy: { updatedAt: 'desc' as const }, take: 50 },
 }
 
 export async function createClient(ownerId: string, input: CreateClientInput) {

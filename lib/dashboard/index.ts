@@ -1,5 +1,6 @@
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/client'
+import { dashboardTag } from '@/lib/cache-tags'
 import {
   OPEN_STAGES,
   type DashboardAggregates,
@@ -11,8 +12,18 @@ export type { DashboardAggregates, StageBreakdown, OpenStage } from './types'
 
 // ─── Aggregates ───────────────────────────────────────────────────────────────
 
-export const getDashboardAggregates = unstable_cache(
-  async (ownerId: string): Promise<DashboardAggregates> => {
+// Keyed and tagged per owner so mutations can evict it — see lib/cache-tags.ts.
+export const getDashboardAggregates = (
+  ownerId: string,
+): Promise<DashboardAggregates> =>
+  unstable_cache(computeDashboardAggregates, ['dashboard-aggregates', ownerId], {
+    revalidate: 60,
+    tags: [dashboardTag(ownerId)],
+  })(ownerId)
+
+const computeDashboardAggregates = async (
+  ownerId: string,
+): Promise<DashboardAggregates> => {
   const rawGroups = await prisma.client.groupBy({
     by: ['status'],
     where: { ownerId, isArchived: false },
@@ -58,10 +69,7 @@ export const getDashboardAggregates = unstable_cache(
     wonCount,
     lostCount,
   }
-},
-['dashboard-aggregates'],
-{ revalidate: 60 },
-)
+}
 
 // ─── Recent activity ──────────────────────────────────────────────────────────
 
