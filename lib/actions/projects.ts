@@ -7,6 +7,7 @@ import {
   createProject,
   updateProject,
   deleteProject,
+  setProjectArchived,
 } from '@/lib/projects'
 
 const createProjectSchema = z.object({
@@ -67,6 +68,29 @@ export async function updateProjectAction(id: string, data: unknown) {
     return { project }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Failed to update project' }
+  }
+}
+
+const archiveProjectSchema = z.object({ archived: z.boolean() })
+
+export async function setProjectArchivedAction(id: string, data: unknown) {
+  const ownerId = await getOwnerId()
+  const parsed = archiveProjectSchema.safeParse(data)
+  if (!parsed.success) return { error: parsed.error.issues[0].message }
+
+  try {
+    const project = await setProjectArchived(ownerId, id, parsed.data.archived)
+    if (!project) return { error: 'Project not found' }
+    revalidatePath('/projects')
+    revalidatePath(`/projects/${id}`)
+    // Archived projects drop out of the client detail page and the invoice,
+    // form and time-entry pickers, so those surfaces need refreshing too.
+    revalidatePath(`/clients/${project.clientId}`)
+    revalidatePath('/forms')
+    revalidatePath('/time')
+    return { project }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Failed to archive project' }
   }
 }
 

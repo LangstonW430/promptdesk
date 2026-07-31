@@ -194,6 +194,16 @@ export async function getRetainerReminders(ownerId: string): Promise<RetainerRem
       isRecurring: true,
       frequency: { not: null },
       occurredAt: { gte: since },
+      // Archived clients are out of the pipeline, so their retainers should not
+      // be nagging from Daily Actions. The other queues on this page filter on
+      // the client row directly; this one reaches the client through the
+      // transaction, so the filter has to be expressed on the relation.
+      // clientId is nullable — transactions with no client are not tied to an
+      // archived one and are kept.
+      OR: [
+        { clientId: null },
+        { client: { isArchived: false } },
+      ],
     },
     select: {
       id: true,

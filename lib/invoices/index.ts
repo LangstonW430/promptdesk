@@ -85,7 +85,7 @@ export async function fetchClientsForPicker(ownerId: string) {
 
 export async function fetchProjectsForPicker(ownerId: string, clientId: string) {
   const rows = await prisma.project.findMany({
-    where: { ownerId, clientId, status: 'active' },
+    where: { ownerId, clientId, status: 'active', isArchived: false },
     select: { id: true, title: true },
     orderBy: { title: 'asc' },
   })

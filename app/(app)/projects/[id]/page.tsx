@@ -53,6 +53,7 @@ export default async function ProjectDetailPage({ params }: { params: Params }) 
     clientId:     project.clientId,
     clientName,
     defaultRate,
+    isArchived:   project.isArchived,
     tasks:        project.tasks.map((t) => ({
       id:      t.id,
       title:   t.title,

@@ -10,7 +10,7 @@ const withRelations = {
   attachments: { orderBy: { createdAt: 'desc' as const } },
   clientTags:  { include: { tag: true } },
   activities:  { orderBy: { createdAt: 'desc' as const }, take: 20 },
-  projects:    { where: { status: { not: 'cancelled' } }, orderBy: { updatedAt: 'desc' as const } },
+  projects:    { where: { status: { not: 'cancelled' }, isArchived: false }, orderBy: { updatedAt: 'desc' as const } },
 }
 
 export async function createClient(ownerId: string, input: CreateClientInput) {
