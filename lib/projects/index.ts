@@ -70,43 +70,70 @@ export async function getProjectById(
   })
 }
 
+/**
+ * Per-project time totals, aggregated in the database.
+ *
+ * This previously came back as `include: { timeEntries: ... }` and was summed
+ * in JS, which pulled every time entry of every project over the wire just to
+ * produce two numbers per project. `billableAmount` is SUM(hours * rate),
+ * which Prisma's `groupBy` cannot express, so this drops to raw SQL.
+ */
+async function timeStatsByProject(
+  ownerId: string,
+): Promise<Map<string, { totalHours: number; billableAmount: number }>> {
+  const rows = await prisma.$queryRaw<
+    { project_id: string; total_hours: number | null; billable_amount: number | null }[]
+  >`
+    SELECT project_id,
+           (SUM(hours))::float8 AS total_hours,
+           (SUM(hours * rate) FILTER (WHERE is_billable AND rate IS NOT NULL))::float8
+             AS billable_amount
+    FROM time_entries
+    WHERE owner_id = ${ownerId}::uuid
+    GROUP BY project_id
+  `
+
+  return new Map(
+    rows.map((r) => [
+      r.project_id,
+      {
+        totalHours: r.total_hours ?? 0,
+        billableAmount: r.billable_amount ?? 0,
+      },
+    ]),
+  )
+}
+
 export async function listProjects(
   ownerId: string,
   filters: ListProjectsFilters = {},
 ): Promise<ProjectWithStats[]> {
-  const rows = await prisma.project.findMany({
-    where: {
-      ownerId,
-      ...(filters.clientId !== undefined && { clientId: filters.clientId }),
-      ...(filters.status !== undefined && { status: filters.status }),
-    },
-    include: {
-      client: { select: { companyName: true, contactName: true } },
-      timeEntries: { select: { hours: true, rate: true, isBillable: true } },
-    },
-    orderBy: { updatedAt: 'desc' },
-  })
+  const [rows, timeStats] = await Promise.all([
+    prisma.project.findMany({
+      where: {
+        ownerId,
+        ...(filters.clientId !== undefined && { clientId: filters.clientId }),
+        ...(filters.status !== undefined && { status: filters.status }),
+      },
+      include: {
+        client: { select: { companyName: true, contactName: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    timeStatsByProject(ownerId),
+  ])
 
   return rows.map((r) => {
-    let totalHours = 0
-    let billableAmount = 0
-    for (const e of r.timeEntries) {
-      const h = typeof e.hours === 'object' ? (e.hours as { toNumber(): number }).toNumber() : Number(e.hours)
-      totalHours += h
-      if (e.isBillable && e.rate != null) {
-        const rate = typeof e.rate === 'object' ? (e.rate as { toNumber(): number }).toNumber() : Number(e.rate)
-        billableAmount += h * rate
-      }
-    }
-    const { client, timeEntries: _te, budget, ...rest } = r
+    const stats = timeStats.get(r.id)
+    const { client, budget, ...rest } = r
     return {
       ...rest,
       budget: budget != null
         ? (typeof budget === 'object' ? (budget as { toNumber(): number }).toNumber() : Number(budget))
         : null,
       clientName: client.companyName ?? client.contactName ?? 'Unknown',
-      totalHours,
-      billableAmount,
+      totalHours: stats?.totalHours ?? 0,
+      billableAmount: stats?.billableAmount ?? 0,
     }
   })
 }

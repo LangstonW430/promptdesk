@@ -1,6 +1,7 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
+import { dashboardTag } from '@/lib/cache-tags'
 import { getOwnerId } from '@/lib/auth'
 import {
   createClient,
@@ -26,6 +27,7 @@ export async function createClientAction(data: unknown) {
   }
   await createClient(ownerId, parsed.data)
   revalidatePath('/clients')
+  updateTag(dashboardTag(ownerId))
   return { success: true }
 }
 
@@ -51,6 +53,7 @@ export async function updateClientAction(id: string, data: unknown) {
   const updated = await updateClient(ownerId, id, parsed.data)
   if (!updated) return { error: 'Not found' }
   revalidatePath('/clients')
+  updateTag(dashboardTag(ownerId))
   revalidatePath(`/clients/${id}`)
   return { success: true }
 }
@@ -64,6 +67,7 @@ export async function setClientArchivedAction(id: string, data: unknown) {
   const updated = await setClientArchived(ownerId, id, parsed.data.archived)
   if (!updated) return { error: 'Not found' }
   revalidatePath('/clients')
+  updateTag(dashboardTag(ownerId))
   revalidatePath(`/clients/${id}`)
   return { success: true }
 }
@@ -73,6 +77,7 @@ export async function deleteClientAction(id: string) {
   const deleted = await deleteClient(ownerId, id)
   if (!deleted) return { error: 'Not found' }
   revalidatePath('/clients')
+  updateTag(dashboardTag(ownerId))
   return { success: true }
 }
 
@@ -81,5 +86,6 @@ export async function changeClientStatusAction(id: string, newStatus: string) {
   const result = await changeClientStatus(ownerId, id, newStatus as ClientStatus)
   if (!result) return { error: 'Not found or status unchanged' }
   revalidatePath('/clients')
+  updateTag(dashboardTag(ownerId))
   return { success: true }
 }

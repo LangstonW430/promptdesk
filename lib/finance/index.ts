@@ -6,6 +6,19 @@ import type { CreateTransactionInput, UpdateTransactionInput } from './validator
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
+/**
+ * Transactions for the finance table and its stat-card breakdowns.
+ *
+ * Callers should pass the period they are displaying. The finance page used to
+ * call this with no filters at all, pulling every transaction ever recorded
+ * (plus a client join) on every load, and then filtered by period in the
+ * browser. Filtering in the query instead is the same result for far fewer
+ * rows.
+ *
+ * Deliberately not row-capped: the stat cards itemise these into breakdown
+ * dialogs, so truncating would leave a dialog whose items sum to less than the
+ * total on the card it opened from.
+ */
 export async function listTransactions(
   ownerId: string,
   filters: TransactionFilters = {},
