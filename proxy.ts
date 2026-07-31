@@ -18,7 +18,36 @@ function isPublic(pathname: string): boolean {
   )
 }
 
+/**
+ * Session gate.
+ *
+ * `supabase.auth.getUser()` is a network round-trip to the Supabase Auth
+ * server, and it is also what refreshes the session cookie — so it stays on
+ * the path that needs it (real navigations to protected routes) and is skipped
+ * on the two paths that provably do not:
+ *
+ *   1. Public routes. The landing page, public invoice/form pages and the
+ *      unauthenticated API routes never read the session, so paying for an
+ *      auth call before discovering that was pure waste.
+ *   2. Router prefetches. These are speculative and fire in bursts (every
+ *      sidebar link entering the viewport), competing with the navigation the
+ *      user actually clicked. Skipping the gate here does not expose anything:
+ *      every protected page and route handler calls `getOwnerId()`, which
+ *      revalidates the session itself and throws without one. A prefetch that
+ *      slips past this gate renders an error, not data. The subsequent real
+ *      navigation still runs the full check and refreshes the cookie.
+ */
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  if (isPublic(pathname)) {
+    return NextResponse.next({ request })
+  }
+
+  if (request.headers.get('next-router-prefetch') === '1') {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -42,16 +71,10 @@ export async function proxy(request: NextRequest) {
     },
   )
 
-  // Always call getUser() — this refreshes the session cookie.
+  // Refreshes the session cookie as a side effect of validating the token.
   const {
     data: { user },
   } = await supabase.auth.getUser()
-
-  const { pathname } = request.nextUrl
-
-  if (isPublic(pathname)) {
-    return supabaseResponse
-  }
 
   if (!user) {
     const loginUrl = request.nextUrl.clone()

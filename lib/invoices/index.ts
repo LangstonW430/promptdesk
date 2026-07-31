@@ -29,19 +29,15 @@ function calcTotals(lineItems: LineItem[], taxPct: number | null | undefined) {
 // ── Queries ───────────────────────────────────────────────────────────────────
 
 export async function listInvoices(ownerId: string) {
-  // Lazily flip sent invoices whose due date has passed to overdue
-  const now = new Date()
-  await prisma.invoice.updateMany({
-    where: { ownerId, status: 'sent', dueDate: { lt: now } },
-    data: { status: 'overdue' },
-  })
-
   const rows = await prisma.invoice.findMany({
     where: { ownerId },
     include: WITH_JOIN,
     orderBy: { createdAt: 'desc' },
   })
-  return rows.map(serializeInvoice)
+  // `overdue` is derived in serializeInvoice — see the note there for why this
+  // no longer writes to the database on a read path.
+  const now = new Date()
+  return rows.map((row) => serializeInvoice(row, now))
 }
 
 export async function getInvoice(ownerId: string, id: string) {
@@ -50,15 +46,6 @@ export async function getInvoice(ownerId: string, id: string) {
     include: WITH_JOIN,
   })
   if (!row) return null
-  // Lazy overdue flip
-  if (row.status === 'sent' && row.dueDate < new Date()) {
-    const updated = await prisma.invoice.update({
-      where: { id },
-      data: { status: 'overdue' },
-      include: WITH_JOIN,
-    })
-    return serializeInvoice(updated)
-  }
   return serializeInvoice(row)
 }
 

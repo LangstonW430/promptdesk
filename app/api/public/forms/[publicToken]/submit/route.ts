@@ -2,10 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getFormByPublicToken, createFormSubmission } from '@/lib/forms'
 
+// This route is unauthenticated — anyone holding the form's public token can
+// POST to it. Bound what a single submission can carry so a caller cannot push
+// arbitrarily large blobs into the answers jsonb column.
+const MAX_BODY_BYTES = 64 * 1024
+const MAX_ANSWER_FIELDS = 100
+const MAX_ANSWER_LENGTH = 10_000
+
+const answerValue = z.union([
+  z.string().max(MAX_ANSWER_LENGTH),
+  z.number(),
+  z.boolean(),
+  z.null(),
+])
+
 const submitSchema = z.object({
   submitterName:  z.string().max(200).optional(),
   submitterEmail: z.string().email().max(300).optional(),
-  answers:        z.record(z.string(), z.unknown()),
+  answers:        z.record(z.string().max(200), answerValue).refine(
+    (a) => Object.keys(a).length <= MAX_ANSWER_FIELDS,
+    { message: `A submission cannot contain more than ${MAX_ANSWER_FIELDS} answers` },
+  ),
 })
 
 export async function POST(
@@ -19,9 +36,20 @@ export async function POST(
     return NextResponse.json({ error: 'Form not found' }, { status: 404 })
   }
 
+  // Reject oversized payloads before parsing them into memory.
+  const declaredLength = Number(req.headers.get('content-length') ?? 0)
+  if (declaredLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: 'Submission too large' }, { status: 413 })
+  }
+
+  const raw = await req.text()
+  if (raw.length > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: 'Submission too large' }, { status: 413 })
+  }
+
   let body: unknown
   try {
-    body = await req.json()
+    body = JSON.parse(raw)
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }

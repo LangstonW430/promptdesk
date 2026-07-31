@@ -43,7 +43,26 @@ function formatInvoiceNumber(n: number): string {
   return `INV-${String(n).padStart(4, '0')}`
 }
 
-export function serializeInvoice(row: InvoiceRow): SerializedInvoice {
+/**
+ * `overdue` is derived at read time rather than persisted.
+ *
+ * It is purely a function of `status === 'sent'` and the due date having
+ * passed, so writing it back to the database bought nothing and forced a write
+ * transaction ahead of every invoice read. Deriving it also keeps the public
+ * invoice page consistent with the owner's list — the old write-on-read only
+ * ran on the authenticated paths, so a public invoice could still show "sent"
+ * after its due date.
+ *
+ * A manually-set `overdue` status is preserved: this only ever promotes
+ * `sent`, never demotes.
+ */
+function deriveStatus(status: string, dueDate: Date | string, now: Date): InvoiceStatus {
+  if (status !== 'sent') return status as InvoiceStatus
+  const due = dueDate instanceof Date ? dueDate : new Date(dueDate)
+  return due < now ? 'overdue' : 'sent'
+}
+
+export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): SerializedInvoice {
   return {
     id: row.id,
     ownerId: row.ownerId,
@@ -55,7 +74,7 @@ export function serializeInvoice(row: InvoiceRow): SerializedInvoice {
     projectId: row.projectId,
     projectTitle: row.project?.title ?? null,
     lineItems: row.lineItems as LineItem[],
-    status: row.status as InvoiceStatus,
+    status: deriveStatus(row.status, row.dueDate, now),
     issueDate: toDateStr(row.issueDate),
     dueDate: toDateStr(row.dueDate),
     subtotal: toNum(row.subtotal) ?? 0,
@@ -68,9 +87,12 @@ export function serializeInvoice(row: InvoiceRow): SerializedInvoice {
   }
 }
 
-export function serializeInvoicePublic(row: InvoiceRowPublic): SerializedInvoicePublic {
+export function serializeInvoicePublic(
+  row: InvoiceRowPublic,
+  now: Date = new Date(),
+): SerializedInvoicePublic {
   return {
-    ...serializeInvoice(row),
+    ...serializeInvoice(row, now),
     ownerBusinessName: row.owner.businessName,
     ownerEmail: row.owner.email,
   }

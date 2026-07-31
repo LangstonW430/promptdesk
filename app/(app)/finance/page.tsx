@@ -40,7 +40,9 @@ export default async function FinancePage({
       getActiveMRR(ownerId),
       getMonthlySeries(ownerId, 6),
       getExpensesByCategory(ownerId, period),
-      listTransactions(ownerId, {}),
+      // Scoped to the displayed period — the stat cards filter to this range
+      // (and to `thisMonth`, which is always a subset of it) client-side.
+      listTransactions(ownerId, { period }),
       fetchClientsForPicker(ownerId),
       getSyncState(ownerId),
     ])

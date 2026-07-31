@@ -85,6 +85,7 @@ model Client {
 
   @@index([ownerId, status], map: "clients_owner_status_idx")
   @@index([ownerId, nextFollowupDate], map: "clients_owner_next_followup_idx")
+  @@index([ownerId, isArchived, updatedAt(sort: Desc)], map: "clients_owner_archived_updated_idx")
   @@index([ownerId, stripeCustomerId], map: "clients_owner_stripe_customer_idx")
   @@index([customFields(ops: JsonbOps)], type: Gin, map: "clients_custom_fields_gin_idx")
   // GIN index on searchVector (tsvector) is added as raw SQL in the migration — see migrations/
@@ -171,7 +172,7 @@ model Project {
 
   @@index([ownerId, status], map: "projects_owner_status_idx")
   @@index([clientId],        map: "projects_client_idx")
-  @@index([ownerId, isArchived], map: "projects_owner_archived_idx")
+  @@index([ownerId, updatedAt(sort: Desc)], map: "projects_owner_updated_idx")
   @@map("projects")
 }
 
@@ -362,6 +363,7 @@ model Invoice {
   @@unique([ownerId, invoiceNumber], map: "invoices_owner_number_unique")
   @@index([ownerId, status], map: "invoices_owner_status_idx")
   @@index([clientId],        map: "invoices_client_idx")
+  @@index([ownerId, createdAt(sort: Desc)], map: "invoices_owner_created_idx")
   @@map("invoices")
 }
 
@@ -385,6 +387,7 @@ model Form {
 
   @@index([ownerId], map: "forms_owner_idx")
   @@index([projectId], map: "forms_project_idx")
+  @@index([ownerId, updatedAt(sort: Desc)], map: "forms_owner_updated_idx")
   @@map("forms")
 }
 

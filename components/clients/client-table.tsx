@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { useTransition, useState, useEffect } from 'react'
 import {
@@ -17,9 +18,26 @@ import {
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { StatusBadge } from '@/components/clients/status-badge'
-import { KanbanBoard } from '@/components/clients/kanban-board'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { CLIENT_STATUSES } from '@/lib/clients/types'
+
+// Loaded on demand: the kanban view pulls in @dnd-kit, and list is the default
+// view — a static import shipped the drag-and-drop machinery to every visitor
+// of /clients whether or not they ever switched.
+const KanbanBoard = dynamic(
+  () => import('@/components/clients/kanban-board').then((m) => m.KanbanBoard),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-64 w-full rounded-xl" />
+        ))}
+      </div>
+    ),
+  },
+)
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
