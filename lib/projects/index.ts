@@ -114,6 +114,7 @@ export async function listProjects(
     prisma.project.findMany({
       where: {
         ownerId,
+        isArchived: filters.archived ?? false,
         ...(filters.clientId !== undefined && { clientId: filters.clientId }),
         ...(filters.status !== undefined && { status: filters.status }),
       },

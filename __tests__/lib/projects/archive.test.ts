@@ -3,6 +3,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const projectFindMany = vi.fn()
 const projectCount = vi.fn()
 const projectUpdate = vi.fn()
+// listProjects also aggregates per-project time totals in SQL.
+const queryRaw = vi.fn()
 
 vi.mock('@/lib/db/client', () => ({
   prisma: {
@@ -16,6 +18,9 @@ vi.mock('@/lib/db/client', () => ({
       get update() {
         return projectUpdate
       },
+    },
+    get $queryRaw() {
+      return queryRaw
     },
   },
 }))
@@ -31,6 +36,8 @@ describe('listProjects', () => {
   beforeEach(() => {
     projectFindMany.mockReset()
     projectFindMany.mockResolvedValue([])
+    queryRaw.mockReset()
+    queryRaw.mockResolvedValue([])
   })
 
   it('hides archived projects by default', async () => {
