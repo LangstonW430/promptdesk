@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTransition, useState } from 'react'
-import { Clock, DollarSign, Trash2, ExternalLink } from 'lucide-react'
+import { Clock, DollarSign, Trash2, ExternalLink, Archive, ArchiveRestore } from 'lucide-react'
 import { ProjectStatusBadge } from './project-status-badge'
-import { deleteProjectAction } from '@/lib/actions/projects'
+import { deleteProjectAction, setProjectArchivedAction } from '@/lib/actions/projects'
 import type { ProjectWithStats } from '@/lib/projects'
 
 function formatHours(h: number): string {
@@ -38,13 +38,16 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
 
 interface ProjectListProps {
   projects: ProjectWithStats[]
+  /** True when the list is showing archived projects rather than active ones. */
+  archived?: boolean
 }
 
-export function ProjectList({ projects }: ProjectListProps) {
+export function ProjectList({ projects, archived = false }: ProjectListProps) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
 
   const filtered = statusFilter === 'all'
     ? projects
@@ -58,6 +61,17 @@ export function ProjectList({ projects }: ProjectListProps) {
     startTransition(async () => {
       await deleteProjectAction(id)
       setDeletingId(null)
+      router.refresh()
+    })
+  }
+
+  function handleToggleArchived(e: React.MouseEvent, id: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    setArchivingId(id)
+    startTransition(async () => {
+      await setProjectArchivedAction(id, { archived: !archived })
+      setArchivingId(null)
       router.refresh()
     })
   }
@@ -90,12 +104,18 @@ export function ProjectList({ projects }: ProjectListProps) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="py-12 text-center text-sm text-muted-foreground">
-          No projects yet.{' '}
-          <Link href="/projects/new" className="text-foreground underline underline-offset-2">
-            Create your first project
-          </Link>
-        </p>
+        archived ? (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No archived projects.
+          </p>
+        ) : (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            No projects yet.{' '}
+            <Link href="/projects/new" className="text-foreground underline underline-offset-2">
+              Create your first project
+            </Link>
+          </p>
+        )
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((project) => (
@@ -150,15 +170,29 @@ export function ProjectList({ projects }: ProjectListProps) {
                 <ExternalLink className="size-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
 
-              {/* Delete */}
-              <button
-                onClick={(e) => handleDelete(e, project.id)}
-                disabled={isPending && deletingId === project.id}
-                aria-label="Delete project"
-                className="absolute right-3 top-3 hidden group-hover:flex items-center justify-center size-6 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
+              {/* Row actions */}
+              <div className="absolute right-3 top-3 hidden group-hover:flex items-center gap-1">
+                <button
+                  onClick={(e) => handleToggleArchived(e, project.id)}
+                  disabled={isPending && archivingId === project.id}
+                  aria-label={archived ? 'Restore project' : 'Archive project'}
+                  title={archived ? 'Restore project' : 'Archive project'}
+                  className="flex items-center justify-center size-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  {archived
+                    ? <ArchiveRestore className="size-3.5" />
+                    : <Archive className="size-3.5" />}
+                </button>
+                <button
+                  onClick={(e) => handleDelete(e, project.id)}
+                  disabled={isPending && deletingId === project.id}
+                  aria-label="Delete project"
+                  title="Delete project"
+                  className="flex items-center justify-center size-6 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
             </Link>
           ))}
         </div>

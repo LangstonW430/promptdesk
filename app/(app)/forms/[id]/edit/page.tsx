@@ -25,7 +25,22 @@ export default async function EditFormPage({ params }: { params: Params }) {
   }
 
   const allProjects = await listProjects(ownerId)
-  const projects = allProjects.map((p) => ({ id: p.id, title: p.title, clientName: p.clientName }))
+
+  // A form keeps its project even after that project is archived, and archived
+  // projects are excluded from listProjects. Without this the picker would have
+  // no option matching the form's own project and would render as unselected.
+  let projectOptions = allProjects
+  if (!allProjects.some((p) => p.id === form.projectId)) {
+    const archived = await listProjects(ownerId, { archived: true })
+    const own = archived.find((p) => p.id === form.projectId)
+    if (own) projectOptions = [own, ...allProjects]
+  }
+
+  const projects = projectOptions.map((p) => ({
+    id: p.id,
+    title: p.isArchived ? `${p.title} (archived)` : p.title,
+    clientName: p.clientName,
+  }))
 
   return (
     <div className="mx-auto max-w-2xl">

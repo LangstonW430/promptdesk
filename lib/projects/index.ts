@@ -32,6 +32,8 @@ export interface UpdateProjectInput {
 export interface ListProjectsFilters {
   clientId?: string
   status?: ProjectStatus
+  /** Include archived projects instead of active ones. Defaults to false. */
+  archived?: boolean
 }
 
 export async function createProject(
@@ -159,6 +161,42 @@ export async function updateProject(
   })
 }
 
+/**
+ * Archive or unarchive a project.
+ *
+ * Purely a visibility flag: time entries and invoices that reference the
+ * project keep working and stay visible, the same way archiving a client
+ * leaves their transactions in Finance. Returns null when the project does not
+ * belong to this owner.
+ */
+export async function setProjectArchived(
+  ownerId: string,
+  id: string,
+  archived: boolean,
+): Promise<Project | null> {
+  const count = await prisma.project.count({ where: { id, ownerId } })
+  if (count === 0) return null
+
+  return prisma.project.update({
+    where: { id },
+    data: { isArchived: archived },
+  })
+}
+
 export async function deleteProject(ownerId: string, id: string): Promise<void> {
   await prisma.project.deleteMany({ where: { id, ownerId } })
+}
+
+/**
+ * Whether a project is a valid target for new work (time entries, tasks,
+ * forms). Archived projects are not.
+ */
+export async function isProjectActionable(
+  ownerId: string,
+  projectId: string,
+): Promise<boolean> {
+  const count = await prisma.project.count({
+    where: { id: projectId, ownerId, isArchived: false },
+  })
+  return count > 0
 }

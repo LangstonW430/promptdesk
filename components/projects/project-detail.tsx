@@ -3,11 +3,11 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, DollarSign, CalendarDays, AlertCircle } from 'lucide-react'
+import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, DollarSign, CalendarDays, AlertCircle, Archive, ArchiveRestore } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { ProjectStatusBadge } from './project-status-badge'
 import { TimerWidget } from '@/components/time-tracking/timer-widget'
-import { updateProjectAction, deleteProjectAction } from '@/lib/actions/projects'
+import { updateProjectAction, deleteProjectAction, setProjectArchivedAction } from '@/lib/actions/projects'
 import { deleteTimeEntryAction } from '@/lib/actions/time-entries'
 import type { SerializedTimeEntry } from '@/lib/time-entries/serialize'
 
@@ -32,6 +32,7 @@ interface ProjectDetailProps {
     clientId:     string
     clientName:   string
     defaultRate:  number | null
+    isArchived:   boolean
     tasks:        ProjectTask[]
   }
   timeEntries: SerializedTimeEntry[]
@@ -108,6 +109,13 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
     })
   }
 
+  function handleToggleArchived() {
+    startTransition(async () => {
+      await setProjectArchivedAction(project.id, { archived: !project.isArchived })
+      router.refresh()
+    })
+  }
+
   const TABS: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'time',     label: `Time${totalHours > 0 ? ` · ${formatHours(totalHours)}` : ''}` },
@@ -150,11 +158,22 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {project.status === 'active' && (
+          {project.status === 'active' && !project.isArchived && (
             <Button variant="outline" size="sm" onClick={handleCompleteProject} disabled={isPending}>
               Mark complete
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleArchived}
+            disabled={isPending}
+            title={project.isArchived ? 'Restore project' : 'Archive project'}
+          >
+            {project.isArchived
+              ? <><ArchiveRestore className="size-3.5" />Restore</>
+              : <><Archive className="size-3.5" />Archive</>}
+          </Button>
           <Link href={`/projects/${project.id}/edit`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
             <Pencil className="size-3.5" />
             Edit
@@ -165,6 +184,17 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
           </Button>
         </div>
       </div>
+
+      {project.isArchived && (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          <Archive className="size-4 shrink-0" />
+          <span>
+            This project is archived. It is hidden from your project list and cannot be
+            selected for new time entries, tasks, invoices, or forms. Existing records are
+            unchanged.
+          </span>
+        </div>
+      )}
 
       {deleteError && (
         <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -247,15 +277,20 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
       {/* ── Time tab ───────────────────────────────────────────────────── */}
       {activeTab === 'time' && (
         <div className="flex flex-col gap-4">
-          <TimerWidget
-            projectId={project.id}
-            projectTitle={project.title}
-            defaultRate={project.defaultRate}
-          />
+          {/* No new time against an archived project — the server rejects it too. */}
+          {!project.isArchived && (
+            <TimerWidget
+              projectId={project.id}
+              projectTitle={project.title}
+              defaultRate={project.defaultRate}
+            />
+          )}
 
           {timeEntries.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No time logged yet. Start the timer above.
+              {project.isArchived
+                ? 'No time was logged on this project.'
+                : 'No time logged yet. Start the timer above.'}
             </p>
           ) : (
             <div className="overflow-hidden rounded-xl border border-border">
@@ -324,6 +359,7 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
           tasks={project.tasks}
           isPending={isPending}
           startTransition={startTransition}
+          readOnly={project.isArchived}
         />
       )}
     </div>
@@ -337,9 +373,11 @@ interface TasksTabProps {
   tasks:           ProjectTask[]
   isPending:       boolean
   startTransition: (fn: () => Promise<void>) => void
+  /** Archived projects cannot take new tasks — createTask rejects them server-side. */
+  readOnly?:       boolean
 }
 
-function TasksTab({ projectId, tasks, isPending, startTransition }: TasksTabProps) {
+function TasksTab({ projectId, tasks, isPending, startTransition, readOnly = false }: TasksTabProps) {
   const router = useRouter()
   const [newTitle, setNewTitle] = useState('')
   const [adding, setAdding] = useState(false)
@@ -387,7 +425,7 @@ function TasksTab({ projectId, tasks, isPending, startTransition }: TasksTabProp
       )}
 
       {/* Add task */}
-      {adding ? (
+      {readOnly ? null : adding ? (
         <form onSubmit={handleAdd} className="flex items-center gap-2">
           <input
             autoFocus

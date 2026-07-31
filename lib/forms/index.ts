@@ -113,7 +113,10 @@ async function fetchFormRow(id: string, ownerId: string) {
 // ── Domain functions ──────────────────────────────────────────────────────────
 
 export async function createForm(ownerId: string, input: CreateFormInput): Promise<SerializedForm> {
-  const projectCount = await prisma.project.count({ where: { id: input.projectId, ownerId } })
+  // Archived projects are not valid targets for new work.
+  const projectCount = await prisma.project.count({
+    where: { id: input.projectId, ownerId, isArchived: false },
+  })
   if (projectCount === 0) throw new Error('Project not found')
 
   const row = await prisma.form.create({

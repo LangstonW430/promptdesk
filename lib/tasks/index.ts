@@ -33,7 +33,10 @@ function buildTaskWhere(
 }
 
 export async function createTask(ownerId: string, input: CreateTaskInput) {
-  const ok = await prisma.project.count({ where: { id: input.projectId, ownerId } })
+  // Archived projects are not valid targets for new work.
+  const ok = await prisma.project.count({
+    where: { id: input.projectId, ownerId, isArchived: false },
+  })
   if (!ok) return null
 
   return prisma.task.create({
