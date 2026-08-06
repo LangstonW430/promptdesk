@@ -83,10 +83,10 @@ export async function setProjectArchivedAction(id: string, data: unknown) {
     if (!project) return { error: 'Project not found' }
     revalidatePath('/projects')
     revalidatePath(`/projects/${id}`)
-    // Archived projects drop out of the client detail page and the invoice,
-    // form and time-entry pickers, so those surfaces need refreshing too.
+    // Archived projects drop out of the client detail page and the invoice and
+    // time-entry pickers, so those surfaces need refreshing too. (The form
+    // picker was a third: restore the '/forms' path here if Forms comes back.)
     revalidatePath(`/clients/${project.clientId}`)
-    revalidatePath('/forms')
     revalidatePath('/time')
     return { project }
   } catch (err) {
