@@ -116,8 +116,16 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
       if (value) params.set(key, value)
       else params.delete(key)
     }
+    // A replace() to the URL we are already on still costs a full RSC request
+    // and re-renders the table. The debounced filter effects below re-run on
+    // mount (and whenever the user types a value back to what it already was),
+    // so without this guard every visit to /clients fired two redundant
+    // navigations 300ms after paint.
+    const next = params.toString()
+    if (next === searchParams.toString()) return
+
     startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+      router.replace(`${pathname}?${next}`, { scroll: false })
     })
   }
 

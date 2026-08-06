@@ -1,11 +1,8 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
 import { listTransactions, fetchClientsForPicker } from '@/lib/finance'
-import {
-  getFinancialSummary,
-  getMonthlySeries,
-  getExpensesByCategory,
-} from '@/lib/finance/aggregates'
+import { getMonthlySeries } from '@/lib/finance/aggregates'
+import { sumFinancials, groupByCategory } from '@/lib/finance/calc'
 import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
 import { PeriodSelector } from '@/components/finance/period-selector'
 import { MonthlyChart } from '@/components/finance/monthly-chart'
@@ -34,18 +31,27 @@ export default async function FinancePage({
       ? (rawPeriod as Period)
       : 'thisMonth'
 
-  const [summary, activeMRR, monthlySeries, expensesByCategory, transactions, clients, syncState] =
+  const [activeMRR, monthlySeries, transactions, clients, syncState] =
     await Promise.all([
-      getFinancialSummary(ownerId, period),
       getActiveMRR(ownerId),
       getMonthlySeries(ownerId, 6),
-      getExpensesByCategory(ownerId, period),
       // Scoped to the displayed period — the stat cards filter to this range
       // (and to `thisMonth`, which is always a subset of it) client-side.
       listTransactions(ownerId, { period }),
       fetchClientsForPicker(ownerId),
       getSyncState(ownerId),
     ])
+
+  // Derived from the rows already in memory rather than re-queried.
+  // getFinancialSummary and getExpensesByCategory ran the same owner+period
+  // scan as listTransactions above and reduced it with these very functions,
+  // so the page was reading the same transactions out of Postgres three times
+  // per load. `sumFinancials` and `groupByCategory` are the pure reducers from
+  // lib/finance/calc — same inputs, same outputs, no round-trip.
+  const summary = sumFinancials(transactions)
+  const expensesByCategory = groupByCategory(
+    transactions.filter((t) => t.type === 'expense'),
+  )
 
   return (
     <div className="flex flex-col gap-6">

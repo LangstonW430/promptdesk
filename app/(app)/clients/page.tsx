@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
-import { listClients } from '@/lib/clients'
+import { listClientsForTable } from '@/lib/clients'
 import { ClientTable } from '@/components/clients/client-table'
 import type { ClientStatus } from '@/lib/clients/types'
 
@@ -26,7 +26,7 @@ export default async function ClientsPage({
 
   const params = await searchParams
 
-  const rawClients = await listClients(ownerId, {
+  const rawClients = await listClientsForTable(ownerId, {
     q: params.q,
     status: params.status as ClientStatus | undefined,
     tag: params.tag,

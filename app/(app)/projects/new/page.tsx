@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
-import { listClients } from '@/lib/clients'
+import { listClientOptions } from '@/lib/clients'
 import { ProjectForm } from '@/components/projects/project-form'
 
 type SearchParams = Promise<{ clientId?: string }>
@@ -17,11 +17,8 @@ export default async function NewProjectPage({ searchParams }: { searchParams: S
 
   const { clientId } = await searchParams
 
-  const clients = await listClients(ownerId, { archived: false })
-  const clientOptions = clients.map((c) => ({
-    id: c.id,
-    displayName: c.companyName ?? c.contactName ?? 'Unnamed client',
-  }))
+  const clients = await listClientOptions(ownerId)
+  const clientOptions = clients.map((c) => ({ id: c.id, displayName: c.name }))
 
   return (
     <div className="mx-auto max-w-xl">
