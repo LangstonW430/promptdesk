@@ -3,7 +3,7 @@ import { redirect, notFound } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { getProjectById } from '@/lib/projects'
-import { listClients } from '@/lib/clients'
+import { listClientOptions } from '@/lib/clients'
 import { ProjectForm } from '@/components/projects/project-form'
 
 type Params = Promise<{ id: string }>
@@ -19,15 +19,12 @@ export default async function EditProjectPage({ params }: { params: Params }) {
   const { id } = await params
   const [project, clients] = await Promise.all([
     getProjectById(ownerId, id),
-    listClients(ownerId, { archived: false }),
+    listClientOptions(ownerId),
   ])
 
   if (!project) notFound()
 
-  const clientOptions = clients.map((c) => ({
-    id: c.id,
-    displayName: c.companyName ?? c.contactName ?? 'Unnamed client',
-  }))
+  const clientOptions = clients.map((c) => ({ id: c.id, displayName: c.name }))
 
   const serializedProject = {
     id:           project.id,

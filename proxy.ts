@@ -6,6 +6,10 @@ const PUBLIC_PREFIXES = [
   '/signup',
   '/auth',
   '/invoice',
+  // '/f' and '/api/public' served the public form-fill page and its submit
+  // endpoint. Both routes are removed while Forms is shelved; the prefixes are
+  // kept so restoring those files is all that is needed to bring the feature
+  // back. Nothing is reachable under them in the meantime.
   '/f',
   '/api/public',
   '/api/invoice',

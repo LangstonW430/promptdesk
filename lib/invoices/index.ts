@@ -28,9 +28,17 @@ function calcTotals(lineItems: LineItem[], taxPct: number | null | undefined) {
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-export async function listInvoices(ownerId: string) {
+export interface ListInvoicesFilters {
+  /** Return archived invoices instead of active ones. Defaults to false. */
+  archived?: boolean
+}
+
+export async function listInvoices(
+  ownerId: string,
+  filters: ListInvoicesFilters = {},
+) {
   const rows = await prisma.invoice.findMany({
-    where: { ownerId },
+    where: { ownerId, isArchived: filters.archived ?? false },
     include: WITH_JOIN,
     orderBy: { createdAt: 'desc' },
   })
@@ -61,14 +69,8 @@ export async function getInvoiceByPublicToken(publicToken: string) {
   return serializeInvoicePublic(row)
 }
 
-export async function fetchClientsForPicker(ownerId: string) {
-  const rows = await prisma.client.findMany({
-    where: { ownerId, isArchived: false },
-    select: { id: true, companyName: true, contactName: true },
-    orderBy: [{ companyName: 'asc' }, { contactName: 'asc' }],
-  })
-  return rows.map((r) => ({ id: r.id, name: r.companyName ?? r.contactName ?? 'Unknown' }))
-}
+// See lib/finance/index.ts — single definition lives in lib/clients.
+export { listClientOptions as fetchClientsForPicker } from '@/lib/clients'
 
 export async function fetchProjectsForPicker(ownerId: string, clientId: string) {
   const rows = await prisma.project.findMany({
@@ -160,8 +162,13 @@ export async function createInvoiceFromTimeEntries(
 
   const projectId = entries[0].projectId ?? null
 
-  const [row] = await prisma.$transaction([
-    prisma.invoice.create({
+  // Creating the invoice and claiming its time entries has to be one unit: the
+  // create used to sit alone inside `$transaction([...])` with the updateMany
+  // issued separately afterwards, so a failure between the two (or a request
+  // that died in the gap) left an invoice billing entries that were still
+  // marked unbilled — free to be pulled onto a second invoice.
+  const row = await prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.create({
       data: {
         ownerId,
         invoiceNumber,
@@ -178,14 +185,19 @@ export async function createInvoiceFromTimeEntries(
         notes:     input.notes ?? null,
       },
       include: WITH_JOIN,
-    }),
-    // Mark entries as attached to this invoice — done via post-create below
-  ])
+    })
 
-  // Link entries to invoice
-  await prisma.timeEntry.updateMany({
-    where: { id: { in: entries.map((e) => e.id) }, ownerId },
-    data: { invoiceId: row.id },
+    // Re-assert `invoiceId: null` so two concurrent calls cannot both claim the
+    // same entries; the loser updates 0 rows and rolls back.
+    const claimed = await tx.timeEntry.updateMany({
+      where: { id: { in: entries.map((e) => e.id) }, ownerId, invoiceId: null },
+      data: { invoiceId: invoice.id },
+    })
+    if (claimed.count !== entries.length) {
+      throw new Error('Some entries were invoiced by another request — try again')
+    }
+
+    return invoice
   })
 
   return serializeInvoice(row)
@@ -296,6 +308,33 @@ export async function markInvoicePaidFromCheckout(
     where: { id: invoiceId },
     data: { status: 'paid', transactionId: tx.id },
   })
+}
+
+/**
+ * Archive or unarchive an invoice.
+ *
+ * Purely a visibility flag — unlike deletion, this is allowed for paid
+ * invoices, which are the ones most worth filing away once settled. The
+ * invoice keeps its number, its public token stays live for anyone holding
+ * the link, and any linked transaction is untouched, the same way archiving a
+ * client leaves their transactions in Finance.
+ *
+ * Returns null when the invoice does not belong to this owner.
+ */
+export async function setInvoiceArchived(
+  ownerId: string,
+  id: string,
+  archived: boolean,
+) {
+  const count = await prisma.invoice.count({ where: { id, ownerId } })
+  if (count === 0) return null
+
+  const row = await prisma.invoice.update({
+    where: { id },
+    data: { isArchived: archived },
+    include: WITH_JOIN,
+  })
+  return serializeInvoice(row)
 }
 
 export async function deleteInvoice(ownerId: string, id: string) {

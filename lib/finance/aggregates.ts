@@ -3,13 +3,11 @@ import { prisma } from '@/lib/db/client'
 import { financeTag } from '@/lib/cache-tags'
 import {
   getPeriodBoundaries,
-  sumFinancials,
   bucketByMonth,
-  groupByCategory,
   groupByClient,
   calculateMRRSummary,
 } from './calc'
-import type { Period, FinancialSummary, MonthlyStat, CategoryStat, ClientIncomeStat, MRRSummary } from './types'
+import type { Period, MonthlyStat, ClientIncomeStat, MRRSummary } from './types'
 
 function dateFilter(from: Date | null, to: Date | null) {
   if (!from && !to) return {}
@@ -43,19 +41,11 @@ function ownerCache<A extends unknown[], R>(
     })(...args)
 }
 
-// ─── Financial summary ────────────────────────────────────────────────────────
-
-export const getFinancialSummary = ownerCache(
-  'finance-summary',
-  async (ownerId: string, period: Period): Promise<FinancialSummary> => {
-    const { from, to } = getPeriodBoundaries(period)
-    const rows = await prisma.transaction.findMany({
-      where: { ownerId, ...dateFilter(from, to) },
-      select: { type: true, amount: true },
-    })
-    return sumFinancials(rows.map((r) => ({ type: r.type, amount: Number(r.amount) })))
-  },
-)
+// The finance page derives its period summary and expense-by-category
+// breakdown from the transaction rows it already loads for the table, using
+// `sumFinancials` / `groupByCategory` directly. The cached aggregate wrappers
+// that used to live here re-ran the same owner+period scan to produce those
+// two values, so they were removed rather than left as unused exports.
 
 // ─── Monthly series ───────────────────────────────────────────────────────────
 
@@ -80,22 +70,6 @@ export const getMonthlySeries = ownerCache(
         occurredAt: r.occurredAt.toISOString(),
       })),
       months,
-    )
-  },
-)
-
-// ─── Expenses by category ─────────────────────────────────────────────────────
-
-export const getExpensesByCategory = ownerCache(
-  'finance-expenses-category',
-  async (ownerId: string, period: Period): Promise<CategoryStat[]> => {
-    const { from, to } = getPeriodBoundaries(period)
-    const rows = await prisma.transaction.findMany({
-      where: { ownerId, type: 'expense', ...dateFilter(from, to) },
-      select: { type: true, amount: true, category: true },
-    })
-    return groupByCategory(
-      rows.map((r) => ({ type: r.type, amount: Number(r.amount), category: r.category })),
     )
   },
 )

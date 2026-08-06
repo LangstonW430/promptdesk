@@ -351,6 +351,10 @@ model Invoice {
   total         Decimal       @db.Decimal(12, 2)
   notes         String?
   transactionId String?       @unique @map("transaction_id") @db.Uuid
+  // Separate axis from `status`: status is where the invoice stands
+  // (draft/sent/paid/overdue), isArchived is whether it should still appear in
+  // the working list. Mirrors Client and Project.
+  isArchived    Boolean       @default(false) @map("is_archived")
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -364,6 +368,7 @@ model Invoice {
   @@index([ownerId, status], map: "invoices_owner_status_idx")
   @@index([clientId],        map: "invoices_client_idx")
   @@index([ownerId, createdAt(sort: Desc)], map: "invoices_owner_created_idx")
+  @@index([ownerId, isArchived], map: "invoices_owner_archived_idx")
   @@map("invoices")
 }
 

@@ -5,8 +5,6 @@ import { dashboardTag } from '@/lib/cache-tags'
 import { getOwnerId } from '@/lib/auth'
 import {
   createClient,
-  getClientById,
-  listClients,
   updateClient,
   setClientArchived,
   deleteClient,
@@ -17,7 +15,7 @@ import {
   updateClientSchema,
   archiveClientSchema,
 } from '@/lib/clients/validators'
-import type { ClientFilters, ClientStatus } from '@/lib/clients/types'
+import type { ClientStatus } from '@/lib/clients/types'
 
 export async function createClientAction(data: unknown) {
   const ownerId = await getOwnerId()
@@ -31,18 +29,12 @@ export async function createClientAction(data: unknown) {
   return { success: true }
 }
 
-export async function getClientByIdAction(id: string) {
-  const ownerId = await getOwnerId()
-  const client = await getClientById(ownerId, id)
-  if (!client) return { error: 'Not found' as const }
-  return { success: true as const }
-}
-
-export async function listClientsAction(filters: ClientFilters = {}) {
-  const ownerId = await getOwnerId()
-  await listClients(ownerId, filters)
-  return { success: true }
-}
+// getClientByIdAction / listClientsAction were removed: both ran a full query
+// (listClientsAction an unbounded, caller-filtered one) and then discarded the
+// result to return a bare `{ success: true }`. Neither had a caller, and every
+// `'use server'` export is a reachable RPC endpoint, so they were doing real
+// database work on request without producing anything. The pages read this
+// data directly through lib/clients.
 
 export async function updateClientAction(id: string, data: unknown) {
   const ownerId = await getOwnerId()

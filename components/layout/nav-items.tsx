@@ -12,7 +12,6 @@ import {
   Wallet,
   Clock,
   FileText,
-  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -52,11 +51,10 @@ export const navItems = [
     href: '/invoices',
     icon: FileText,
   },
-  {
-    label: 'Forms',
-    href: '/forms',
-    icon: ClipboardList,
-  },
+  // Forms is shelved for now. The domain layer (lib/forms, lib/actions/forms),
+  // the components under components/forms, and the Form/FormSubmission tables
+  // are all left in place — only the routes and this nav entry were removed,
+  // so bringing the feature back is a matter of restoring those files.
   {
     label: 'Prompts',
     href: '/prompts',

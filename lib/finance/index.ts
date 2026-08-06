@@ -48,17 +48,9 @@ export async function listTransactions(
   return rows.map(serializeTransaction)
 }
 
-export async function fetchClientsForPicker(ownerId: string) {
-  const rows = await prisma.client.findMany({
-    where: { ownerId, isArchived: false },
-    select: { id: true, companyName: true, contactName: true },
-    orderBy: [{ companyName: 'asc' }, { contactName: 'asc' }],
-  })
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.companyName ?? r.contactName ?? 'Unknown',
-  }))
-}
+// Re-exported from lib/clients so the finance and invoice pickers cannot drift
+// apart — this was a byte-identical copy of the one in lib/invoices.
+export { listClientOptions as fetchClientsForPicker } from '@/lib/clients'
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 

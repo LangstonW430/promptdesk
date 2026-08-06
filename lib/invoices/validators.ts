@@ -30,6 +30,11 @@ export const updateInvoiceStatusSchema = z.object({
   status: z.enum(['draft', 'sent', 'paid', 'overdue']),
 })
 
+export const archiveInvoiceSchema = z.object({
+  archived: z.boolean(),
+})
+
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>
 export type CreateFromEntriesInput = z.infer<typeof createFromEntriesSchema>
 export type UpdateInvoiceStatusInput = z.infer<typeof updateInvoiceStatusSchema>
+export type ArchiveInvoiceInput = z.infer<typeof archiveInvoiceSchema>
