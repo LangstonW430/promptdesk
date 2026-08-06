@@ -28,9 +28,17 @@ function calcTotals(lineItems: LineItem[], taxPct: number | null | undefined) {
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
-export async function listInvoices(ownerId: string) {
+export interface ListInvoicesFilters {
+  /** Return archived invoices instead of active ones. Defaults to false. */
+  archived?: boolean
+}
+
+export async function listInvoices(
+  ownerId: string,
+  filters: ListInvoicesFilters = {},
+) {
   const rows = await prisma.invoice.findMany({
-    where: { ownerId },
+    where: { ownerId, isArchived: filters.archived ?? false },
     include: WITH_JOIN,
     orderBy: { createdAt: 'desc' },
   })
@@ -300,6 +308,33 @@ export async function markInvoicePaidFromCheckout(
     where: { id: invoiceId },
     data: { status: 'paid', transactionId: tx.id },
   })
+}
+
+/**
+ * Archive or unarchive an invoice.
+ *
+ * Purely a visibility flag — unlike deletion, this is allowed for paid
+ * invoices, which are the ones most worth filing away once settled. The
+ * invoice keeps its number, its public token stays live for anyone holding
+ * the link, and any linked transaction is untouched, the same way archiving a
+ * client leaves their transactions in Finance.
+ *
+ * Returns null when the invoice does not belong to this owner.
+ */
+export async function setInvoiceArchived(
+  ownerId: string,
+  id: string,
+  archived: boolean,
+) {
+  const count = await prisma.invoice.count({ where: { id, ownerId } })
+  if (count === 0) return null
+
+  const row = await prisma.invoice.update({
+    where: { id },
+    data: { isArchived: archived },
+    include: WITH_JOIN,
+  })
+  return serializeInvoice(row)
 }
 
 export async function deleteInvoice(ownerId: string, id: string) {

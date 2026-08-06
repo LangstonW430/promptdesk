@@ -7,12 +7,14 @@ import {
   createInvoiceFromTimeEntries,
   updateInvoiceStatus,
   markInvoicePaid,
+  setInvoiceArchived,
   deleteInvoice,
 } from '@/lib/invoices'
 import {
   createInvoiceSchema,
   createFromEntriesSchema,
   updateInvoiceStatusSchema,
+  archiveInvoiceSchema,
 } from '@/lib/invoices/validators'
 
 export async function createInvoiceAction(data: unknown) {
@@ -78,6 +80,26 @@ export async function markInvoicePaidAction(id: string) {
     return { success: true as const, data: invoice }
   } catch (err) {
     return { success: false as const, error: err instanceof Error ? err.message : 'Failed to mark paid' }
+  }
+}
+
+export async function setInvoiceArchivedAction(id: string, data: unknown) {
+  const ownerId = await getOwnerId()
+  const parsed = archiveInvoiceSchema.safeParse(data)
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0].message }
+  }
+  try {
+    const invoice = await setInvoiceArchived(ownerId, id, parsed.data.archived)
+    if (!invoice) return { success: false as const, error: 'Invoice not found' }
+    revalidatePath('/invoices')
+    revalidatePath(`/invoices/${id}`)
+    return { success: true as const, data: invoice }
+  } catch (err) {
+    return {
+      success: false as const,
+      error: err instanceof Error ? err.message : 'Failed to archive invoice',
+    }
   }
 }
 

@@ -29,6 +29,7 @@ export type InvoiceRow = {
   total: DecimalLike
   notes: string | null
   transactionId: string | null
+  isArchived?: boolean
   createdAt: Date | string
   updatedAt: Date | string
   client: { companyName: string | null; contactName: string | null }
@@ -82,6 +83,7 @@ export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): Seria
     total: toNum(row.total) ?? 0,
     notes: row.notes,
     transactionId: row.transactionId,
+    isArchived: row.isArchived ?? false,
     createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
   }

@@ -27,6 +27,7 @@ export type SerializedInvoice = {
   total: number
   notes: string | null
   transactionId: string | null
+  isArchived: boolean
   createdAt: string
   updatedAt: string
 }
