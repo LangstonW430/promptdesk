@@ -28,7 +28,6 @@ export default async function EditClientPage({ params }: { params: Params }) {
     companySize: client.companySize,
     leadSource: client.leadSource,
     status: client.status,
-    estimatedValue: client.estimatedValue ? Number(client.estimatedValue) : null,
     projectType: client.projectType,
     painPoints: client.painPoints,
     requirements: client.requirements,

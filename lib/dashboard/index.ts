@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/client'
 import { dashboardTag } from '@/lib/cache-tags'
+import { pipelineValueByClientStatus } from '@/lib/clients/pipeline-value'
 import {
   OPEN_STAGES,
   type DashboardAggregates,
@@ -24,17 +25,23 @@ export const getDashboardAggregates = (
 const computeDashboardAggregates = async (
   ownerId: string,
 ): Promise<DashboardAggregates> => {
-  const rawGroups = await prisma.client.groupBy({
-    by: ['status'],
-    where: { ownerId, isArchived: false },
-    _count: { id: true },
-    _sum: { estimatedValue: true },
-  })
+  // Counts are still per client — a lead is one lead regardless of how many
+  // projects it carries — but value now comes from those projects' budgets, so
+  // the two are aggregated separately and joined by status here. Summing them
+  // in one grouped join would have multiplied each client by its project count.
+  const [rawGroups, valueByStatus] = await Promise.all([
+    prisma.client.groupBy({
+      by: ['status'],
+      where: { ownerId, isArchived: false },
+      _count: { id: true },
+    }),
+    pipelineValueByClientStatus(ownerId),
+  ])
 
   const groups = rawGroups.map((g) => ({
     status: g.status,
     count: g._count.id,
-    sumValue: Number(g._sum.estimatedValue ?? 0),
+    sumValue: valueByStatus.get(g.status) ?? 0,
   }))
 
   const byStatus = Object.fromEntries(groups.map((g) => [g.status, g]))

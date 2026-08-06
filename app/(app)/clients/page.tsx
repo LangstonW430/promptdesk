@@ -42,7 +42,7 @@ export default async function ClientsPage({
     email: c.email,
     industry: c.industry,
     status: c.status,
-    estimatedValue: c.estimatedValue ? Number(c.estimatedValue) : null,
+    pipelineValue: c.pipelineValue,
     lastContactDate: c.lastContactDate?.toISOString() ?? null,
     nextFollowupDate: c.nextFollowupDate?.toISOString() ?? null,
     clientTags: c.clientTags.map((ct) => ({

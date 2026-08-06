@@ -1,7 +1,11 @@
 export interface DashboardAggregates {
   totalLeads: number
   activeClients: number
-  /** Raw sum of estimatedValue across all open-stage, non-archived clients. */
+  /**
+   * Sum of open project budgets (proposed + active) across all open-stage,
+   * non-archived clients. Derived from projects — clients no longer carry a
+   * value of their own.
+   */
   totalPipelineValue: number
   /** won / (won + lost). null when no closed deals exist yet. */
   conversionRate: number | null

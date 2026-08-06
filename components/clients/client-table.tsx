@@ -51,7 +51,8 @@ export type SerializedClient = {
   email: string | null
   industry: string | null
   status: string
-  estimatedValue: number | null
+  /** Sum of the client's open project budgets; null when they have none. */
+  pipelineValue: number | null
   lastContactDate: string | null
   nextFollowupDate: string | null
   clientTags: Array<{ tag: { id: string; label: string } }>
@@ -347,7 +348,7 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
                         'Company / Contact',
                         'Status',
                         'Industry',
-                        'Est. Value',
+                        'Pipeline',
                         'Last Contact',
                         'Next Follow-up',
                         '',
@@ -448,9 +449,14 @@ function ClientRow({
         {client.industry ?? '—'}
       </td>
 
-      {/* Est. Value */}
-      <td className="px-4 py-3 tabular-nums text-sm">
-        {formatCurrency(client.estimatedValue)}
+      {/* Pipeline value — summed from the client's open projects, so an empty
+          cell means "nothing quoted yet" rather than "worth nothing". */}
+      <td className="px-4 py-3 text-sm tabular-nums">
+        {client.pipelineValue == null ? (
+          <span className="text-muted-foreground/50">—</span>
+        ) : (
+          formatCurrency(client.pipelineValue)
+        )}
       </td>
 
       {/* Last Contact */}

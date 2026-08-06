@@ -79,7 +79,6 @@ export type ClientForEdit = {
   companySize: string | null
   leadSource: string | null
   status: string
-  estimatedValue: number | null
   projectType: string | null
   painPoints: string | null
   requirements: string | null
@@ -101,7 +100,6 @@ function toFormValues(client: ClientForEdit): ClientFormValues {
     companySize: client.companySize ?? '',
     leadSource: client.leadSource ?? '',
     status: (client.status as ClientFormValues['status']) ?? 'lead',
-    estimatedValue: client.estimatedValue != null ? String(client.estimatedValue) : '',
     projectType: client.projectType ?? '',
     painPoints: client.painPoints ?? '',
     requirements: client.requirements ?? '',
@@ -127,7 +125,6 @@ function toActionPayload(values: ClientFormValues) {
     companySize: values.companySize || undefined,
     leadSource: values.leadSource || undefined,
     status: values.status,
-    estimatedValue: values.estimatedValue ? Number(values.estimatedValue) : undefined,
     projectType: values.projectType || undefined,
     painPoints: values.painPoints || undefined,
     requirements: values.requirements || undefined,
@@ -266,27 +263,6 @@ export function ClientForm({ client }: ClientFormProps) {
                   <FormLabel>Website</FormLabel>
                   <FormControl>
                     <Input placeholder="https://acme.com" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Estimated value */}
-            <FormField
-              control={form.control}
-              name="estimatedValue"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Estimated value ($)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="5000"
-                      {...field}
-                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

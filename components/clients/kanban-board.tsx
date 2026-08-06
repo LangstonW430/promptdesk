@@ -307,10 +307,10 @@ function KanbanCard({ client }: { client: SerializedClient }) {
           <p className="mt-0.5 text-xs text-muted-foreground">{client.contactName}</p>
         )}
 
-        {client.estimatedValue != null && (
+        {client.pipelineValue != null && (
           <p className="mt-2 flex items-center gap-1 text-xs font-medium text-foreground">
             <DollarSign className="size-3 text-muted-foreground" />
-            {formatCurrency(client.estimatedValue).replace('$', '')}
+            {formatCurrency(client.pipelineValue).replace('$', '')}
           </p>
         )}
       </button>
@@ -332,10 +332,10 @@ function CardOverlay({ client }: { client: SerializedClient }) {
       {client.contactName && (
         <p className="mt-0.5 text-xs text-muted-foreground">{client.contactName}</p>
       )}
-      {client.estimatedValue != null && (
+      {client.pipelineValue != null && (
         <p className="mt-2 flex items-center gap-1 text-xs font-medium text-foreground">
           <DollarSign className="size-3 text-muted-foreground" />
-          {formatCurrency(client.estimatedValue).replace('$', '')}
+          {formatCurrency(client.pipelineValue).replace('$', '')}
         </p>
       )}
     </div>

@@ -11,7 +11,6 @@ export const createClientSchema = z.object({
   companySize: z.string().optional(),
   leadSource: z.string().optional(),
   status: z.enum(CLIENT_STATUSES).default('lead'),
-  estimatedValue: z.number().nonnegative().optional(),
   projectType: z.string().optional(),
   painPoints: z.string().optional(),
   requirements: z.string().optional(),
@@ -57,11 +56,6 @@ export const clientFormSchema = z.object({
   companySize: z.string(),
   leadSource: z.string(),
   status: z.enum(CLIENT_STATUSES),
-  estimatedValue: z
-    .string()
-    .refine((v) => v === '' || (!Number.isNaN(Number(v)) && Number(v) >= 0), {
-      message: 'Must be a valid non-negative amount',
-    }),
   projectType: z.string(),
   painPoints: z.string(),
   requirements: z.string(),
@@ -82,7 +76,6 @@ export const clientFormDefaultValues: ClientFormValues = {
   companySize: '',
   leadSource: '',
   status: 'lead',
-  estimatedValue: '',
   projectType: '',
   painPoints: '',
   requirements: '',

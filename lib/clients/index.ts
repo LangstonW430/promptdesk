@@ -2,6 +2,7 @@ import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
 import { refreshClientSummary } from '@/lib/relationship-summary/refresh'
 import { buildClientWhere } from './filters'
+import { pipelineValueByClient } from './pipeline-value'
 import type { ClientFilters, ClientStatus } from './types'
 import type { CreateClientInput, UpdateClientInput } from './validators'
 
@@ -21,7 +22,6 @@ export async function createClient(ownerId: string, input: CreateClientInput) {
     data: {
       ownerId,
       ...input,
-      estimatedValue: input.estimatedValue ?? null,
       lastContactDate: input.lastContactDate ? new Date(input.lastContactDate) : null,
       nextFollowupDate: input.nextFollowupDate ? new Date(input.nextFollowupDate) : null,
       customFields: (input.customFields ?? {}) as unknown as Prisma.InputJsonValue,
@@ -66,21 +66,33 @@ const CLIENT_TABLE_SELECT = {
   email: true,
   industry: true,
   status: true,
-  estimatedValue: true,
   lastContactDate: true,
   nextFollowupDate: true,
   clientTags: { select: { tag: { select: { id: true, label: true } } } },
 } as const
 
+/**
+ * Rows for /clients, each carrying the pipeline value derived from its open
+ * projects.
+ *
+ * The value is a second grouped query rather than a relation aggregate on the
+ * client rows: Prisma cannot sum a relation's column inside a `select`, and
+ * including the projects themselves would pull every project of every client
+ * across the wire to add up one number each.
+ */
 export async function listClientsForTable(
   ownerId: string,
   filters: ClientFilters = {},
 ) {
-  return prisma.client.findMany({
+  const rows = await prisma.client.findMany({
     where: buildClientWhere(ownerId, filters),
     select: CLIENT_TABLE_SELECT,
     orderBy: { updatedAt: 'desc' },
   })
+
+  const values = await pipelineValueByClient(ownerId, rows.map((r) => r.id))
+
+  return rows.map((r) => ({ ...r, pipelineValue: values.get(r.id) ?? null }))
 }
 
 /**
@@ -117,7 +129,7 @@ export async function updateClient(
   if (!current) return null
 
   // Extract status so it never silently lands in ...rest and bypasses logging.
-  const { customFields, estimatedValue, lastContactDate, nextFollowupDate, status, ...rest } = input
+  const { customFields, lastContactDate, nextFollowupDate, status, ...rest } = input
   const statusChanging = status !== undefined && status !== current.status
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -126,7 +138,6 @@ export async function updateClient(
       data: {
         ...rest,
         ...(statusChanging && { status }),
-        ...(estimatedValue !== undefined && { estimatedValue }),
         ...(lastContactDate !== undefined && {
           lastContactDate: lastContactDate ? new Date(lastContactDate) : null,
         }),

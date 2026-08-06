@@ -26,10 +26,11 @@ function formatDate(d: Date | string | null): string | null {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-type StatusFilter = 'all' | 'active' | 'on_hold' | 'completed' | 'cancelled'
+type StatusFilter = 'all' | 'proposed' | 'active' | 'on_hold' | 'completed' | 'cancelled'
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'all',       label: 'All' },
+  { value: 'proposed',  label: 'Proposed' },
   { value: 'active',    label: 'Active' },
   { value: 'on_hold',   label: 'On Hold' },
   { value: 'completed', label: 'Completed' },
@@ -127,6 +128,7 @@ export function ProjectList({ projects, archived = false }: ProjectListProps) {
               {/* Status dot */}
               <span className={[
                 'mt-0.5 size-2 shrink-0 rounded-full',
+                project.status === 'proposed'  ? 'bg-violet-500' :
                 project.status === 'active'    ? 'bg-green-500' :
                 project.status === 'completed' ? 'bg-blue-500' :
                 project.status === 'on_hold'   ? 'bg-yellow-500' :

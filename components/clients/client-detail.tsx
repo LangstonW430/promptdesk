@@ -43,7 +43,8 @@ export type SerializedClientDetail = {
   companySize: string | null
   leadSource: string | null
   status: string
-  estimatedValue: number | null
+  /** Summed from the client's proposed + active projects. */
+  pipelineValue: number
   defaultRate: number | null
   projectType: string | null
   painPoints: string | null
@@ -69,7 +70,7 @@ export type SerializedClientDetail = {
     detail: Record<string, unknown>
     createdAt: string
   }>
-  projects: Array<{ id: string; title: string; status: string }>
+  projects: Array<{ id: string; title: string; status: string; budget?: number | null }>
   customFields: Record<string, string>
 }
 
@@ -601,11 +602,14 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
   const followupOverdue = isOverdue(localNextFollowup || null)
   const hasContact = !!(client.email || client.phone || client.website)
   const hasPipeline = !!(
-    client.estimatedValue != null ||
+    client.pipelineValue > 0 ||
     client.industry || client.companySize ||
     client.leadSource || client.projectType
   )
   const customFieldEntries = Object.entries(customFields)
+  const openProjectCount = client.projects.filter(
+    (p) => p.status === 'proposed' || p.status === 'active',
+  ).length
 
   // Derive displayed tag chips: use allTags when loaded for optimistic accuracy
   const displayedTags: PickerTag[] = allTags
@@ -657,9 +661,15 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
         <SectionHeading>Pipeline</SectionHeading>
         {hasPipeline ? (
           <dl className="flex flex-col gap-2.5">
-            {client.estimatedValue != null && (
-              <FieldRow icon={<DollarSign />} label="Est. value">
-                <span className="font-medium">{formatCurrency(client.estimatedValue)}</span>
+            {client.pipelineValue > 0 && (
+              <FieldRow icon={<DollarSign />} label="Open value">
+                <span className="font-medium">{formatCurrency(client.pipelineValue)}</span>
+                {/* Read-only: the number is the sum of this client's proposed
+                    and active project budgets, so it is edited on the projects
+                    themselves rather than here. */}
+                <span className="ml-1.5 text-xs text-muted-foreground">
+                  across {openProjectCount} {openProjectCount === 1 ? 'project' : 'projects'}
+                </span>
               </FieldRow>
             )}
             {client.industry && (
