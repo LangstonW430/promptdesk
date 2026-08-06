@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "npm install",
-  "buildCommand": "npm run build",
+  "buildCommand": "npx prisma migrate deploy && npm run build",
   "regions": ["iad1"]
 }

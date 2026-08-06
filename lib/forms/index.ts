@@ -98,11 +98,21 @@ function serializeForm(row: Awaited<ReturnType<typeof fetchFormRow>>): Serialize
   }
 }
 
+// `select` rather than `include` on `project`: a bare `include` pulls every
+// column of Project, so any future column added there (e.g. `isArchived`)
+// would be fetched here too even though forms never read it — and would
+// break this query outright if that column isn't in the DB yet everywhere
+// this app is deployed.
+const formProjectSelect = {
+  title: true,
+  client: { select: { companyName: true, contactName: true } },
+} as const
+
 async function fetchFormRow(id: string, ownerId: string) {
   const row = await prisma.form.findFirst({
     where: { id, ownerId },
     include: {
-      project: { include: { client: { select: { companyName: true, contactName: true } } } },
+      project: { select: formProjectSelect },
       _count: { select: { submissions: true } },
     },
   })
@@ -129,7 +139,7 @@ export async function createForm(ownerId: string, input: CreateFormInput): Promi
       fields: (input.fields ?? []) as object[],
     },
     include: {
-      project: { include: { client: { select: { companyName: true, contactName: true } } } },
+      project: { select: formProjectSelect },
       _count: { select: { submissions: true } },
     },
   })
@@ -144,7 +154,7 @@ export async function listForms(ownerId: string, projectId?: string): Promise<Se
   const rows = await prisma.form.findMany({
     where: { ownerId, ...(projectId ? { projectId } : {}) },
     include: {
-      project: { include: { client: { select: { companyName: true, contactName: true } } } },
+      project: { select: formProjectSelect },
       _count: { select: { submissions: true } },
     },
     orderBy: { updatedAt: 'desc' },
