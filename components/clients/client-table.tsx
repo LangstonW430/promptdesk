@@ -14,6 +14,8 @@ import {
   List,
   LayoutGrid,
   Archive,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +23,7 @@ import { StatusBadge } from '@/components/clients/status-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { CLIENT_STATUSES } from '@/lib/clients/types'
+import { setClientArchivedAction } from '@/lib/actions/clients'
 
 // Loaded on demand: the kanban view pulls in @dnd-kit, and list is the default
 // view — a static import shipped the drag-and-drop machinery to every visitor
@@ -107,8 +110,48 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
   const [searchInput, setSearchInput] = useState(currentQ)
   const [tagInput, setTagInput] = useState(currentTag)
 
+  // Rows the user has just archived/restored. Archiving moves a client out of
+  // whichever list is on screen, so the row is hidden the moment the action is
+  // dispatched rather than after the server round-trip — otherwise it sits
+  // there looking untouched for the length of the request. Cleared whenever
+  // fresh server data arrives, which is the authoritative list.
+  const [removedIds, setRemovedIds] = useState<ReadonlySet<string>>(new Set())
+  const [archiveError, setArchiveError] = useState<string | null>(null)
+  const [, startArchiveTransition] = useTransition()
+
+  useEffect(() => {
+    setRemovedIds(new Set())
+  }, [clients])
+
+  const visibleClients = clients.filter((c) => !removedIds.has(c.id))
+
   const hasActiveFilters =
     currentQ !== '' || currentStatus !== '' || currentTag !== '' || isGoingCold || isArchived
+
+  function handleArchiveToggle(client: SerializedClient) {
+    // In the Archived view the same control restores instead.
+    const archived = !isArchived
+    const name = client.companyName ?? client.contactName ?? 'This client'
+
+    setArchiveError(null)
+    setRemovedIds((prev) => new Set(prev).add(client.id))
+
+    startArchiveTransition(async () => {
+      const result = await setClientArchivedAction(client.id, { archived })
+      if ('error' in result) {
+        setRemovedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(client.id)
+          return next
+        })
+        setArchiveError(
+          `Couldn't ${archived ? 'archive' : 'restore'} ${name}. ${result.error ?? 'Please try again.'}`,
+        )
+        return
+      }
+      router.refresh()
+    })
+  }
 
   function pushFilters(updates: Record<string, string | null>) {
     const params = new URLSearchParams(searchParams.toString())
@@ -262,13 +305,24 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
         </div>
       </div>
 
+      {/* ── Archive failure ─────────────────────────────────────────────── */}
+      {archiveError && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          {archiveError}
+        </div>
+      )}
+
       {/* ── Kanban view ──────────────────────────────────────────────────── */}
       {currentView === 'kanban' ? (
         <div className={cn('transition-opacity duration-150', isPending && 'opacity-50')}>
-          <KanbanBoard clients={clients} />
-          {clients.length > 0 && (
+          <KanbanBoard clients={visibleClients} />
+          {visibleClients.length > 0 && (
             <p className="mt-3 text-xs text-muted-foreground">
-              {clients.length} {clients.length === 1 ? 'client' : 'clients'}
+              {visibleClients.length} {visibleClients.length === 1 ? 'client' : 'clients'}
               {hasActiveFilters && ' matching filters'}
             </p>
           )}
@@ -282,7 +336,7 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
               isPending && 'opacity-50',
             )}
           >
-            {clients.length === 0 ? (
+            {visibleClients.length === 0 ? (
               <EmptyState hasFilters={hasActiveFilters} onClear={clearAllFilters} />
             ) : (
               <div className="overflow-x-auto">
@@ -300,7 +354,7 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
                       ].map((h) => (
                         <th
                           key={h}
-                          className="px-4 py-3 text-left text-xs font-medium tracking-wide text-muted-foreground first:pl-5 last:w-8"
+                          className="px-4 py-3 text-left text-xs font-medium tracking-wide text-muted-foreground first:pl-5 last:w-16"
                         >
                           {h}
                         </th>
@@ -308,11 +362,13 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {clients.map((client) => (
+                    {visibleClients.map((client) => (
                       <ClientRow
                         key={client.id}
                         client={client}
+                        isArchivedView={isArchived}
                         onClick={() => router.push(`/clients/${client.id}`)}
+                        onArchiveToggle={() => handleArchiveToggle(client)}
                       />
                     ))}
                   </tbody>
@@ -321,9 +377,9 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
             )}
           </div>
 
-          {clients.length > 0 && (
+          {visibleClients.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              {clients.length} {clients.length === 1 ? 'client' : 'clients'}
+              {visibleClients.length} {visibleClients.length === 1 ? 'client' : 'clients'}
               {hasActiveFilters && ' matching filters'}
             </p>
           )}
@@ -337,12 +393,18 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
 
 function ClientRow({
   client,
+  isArchivedView,
   onClick,
+  onArchiveToggle,
 }: {
   client: SerializedClient
+  isArchivedView: boolean
   onClick: () => void
+  onArchiveToggle: () => void
 }) {
   const overdue = isOverdue(client.nextFollowupDate)
+  const name = client.companyName ?? client.contactName ?? 'this client'
+  const actionLabel = isArchivedView ? 'Restore' : 'Archive'
 
   return (
     <tr
@@ -396,9 +458,30 @@ function ClientRow({
         </span>
       </td>
 
-      {/* Chevron */}
+      {/* Row actions */}
       <td className="pr-4 py-3 text-muted-foreground">
-        <ChevronRight className="size-4 opacity-0 transition-opacity group-hover:opacity-100" />
+        <div className="flex items-center justify-end gap-0.5">
+          {/* Revealed on hover, and on keyboard focus so it is reachable
+              without a pointer. Stops propagation so archiving does not also
+              trigger the row's navigation. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onArchiveToggle()
+            }}
+            aria-label={`${actionLabel} ${name}`}
+            title={`${actionLabel} ${name}`}
+            className="flex size-7 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none group-hover:opacity-100"
+          >
+            {isArchivedView ? (
+              <RotateCcw className="size-3.5" />
+            ) : (
+              <Archive className="size-3.5" />
+            )}
+          </button>
+          <ChevronRight className="size-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+        </div>
       </td>
     </tr>
   )
