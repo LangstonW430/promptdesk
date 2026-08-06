@@ -11,6 +11,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { deleteTransactionAction } from '@/lib/actions/finance'
 import { TransactionForm, type ClientOption } from './transaction-form'
@@ -60,6 +61,7 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
 
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<SerializedTransaction | null>(null)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
 
@@ -84,8 +86,13 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
     router.refresh()
   }
 
-  function handleDelete(id: string) {
-    if (!confirm('Delete this transaction? This cannot be undone.')) return
+  // Was a bare window.confirm(): an unstyled OS dialog that blocks the main
+  // thread and looks nothing like the rest of the app. ConfirmDialog is what
+  // every other destructive path here uses.
+  function handleDeleteConfirmed() {
+    const id = pendingDeleteId
+    if (!id) return
+    setPendingDeleteId(null)
     startTransition(async () => {
       await deleteTransactionAction(id)
       router.refresh()
@@ -223,7 +230,7 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
                               variant="ghost"
                               size="icon"
                               className="size-7 text-destructive hover:text-destructive"
-                              onClick={() => handleDelete(t.id)}
+                              onClick={() => setPendingDeleteId(t.id)}
                               aria-label="Delete transaction"
                             >
                               <Trash2 className="size-3.5" />
@@ -256,6 +263,16 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
           </div>
         </SheetContent>
       </Sheet>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteId(null) }}
+        title="Delete transaction?"
+        description="This permanently removes the transaction and the figures it feeds on the Finance page. This cannot be undone."
+        confirmLabel="Delete transaction"
+        variant="destructive"
+        onConfirm={handleDeleteConfirmed}
+      />
     </>
   )
 }

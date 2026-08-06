@@ -199,3 +199,51 @@ export function groupByClient(
   }
   return Array.from(map.values()).sort((a, b) => b.total - a.total)
 }
+
+// ─── Category tail folding ────────────────────────────────────────────────────
+
+/** Label used for the folded remainder. Not a real category. */
+export const OTHER_CATEGORY = 'Other'
+
+/**
+ * Caps a category breakdown at `limit` coloured slices, folding everything past
+ * that into a single "Other" bucket.
+ *
+ * The chart palette has a fixed number of slots assigned in order. Wrapping back
+ * round to slot 1 for the ninth category would give two categories the same
+ * colour in the same chart, which is exactly the confusion the palette ordering
+ * exists to prevent. Folding keeps the total honest — the bucket carries the sum
+ * of everything it absorbed — while capping how many colours have to stay
+ * distinguishable.
+ *
+ * Assumes `stats` is sorted descending by total, which `groupByCategory`
+ * guarantees. A pre-existing "Other" category merges into the bucket rather than
+ * producing two rows with the same label.
+ */
+export function foldCategoryTail(
+  stats: ReadonlyArray<CategoryStat>,
+  limit: number,
+): CategoryStat[] {
+  if (limit < 1) return []
+  // Nothing to fold, and no pre-existing "Other" that would collide.
+  if (stats.length <= limit && !stats.some((s) => s.category === OTHER_CATEGORY)) {
+    return stats.slice()
+  }
+
+  const head: CategoryStat[] = []
+  let otherTotal = 0
+  let otherCount = 0
+
+  for (const stat of stats) {
+    // "Other" always folds, wherever it sorted, so the label is never duplicated.
+    if (head.length < limit && stat.category !== OTHER_CATEGORY) {
+      head.push({ ...stat })
+    } else {
+      otherTotal += stat.total
+      otherCount += stat.count
+    }
+  }
+
+  if (otherCount === 0) return head
+  return [...head, { category: OTHER_CATEGORY, total: otherTotal, count: otherCount }]
+}

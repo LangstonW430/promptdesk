@@ -408,16 +408,29 @@ function ClientRow({
 
   return (
     <tr
-      onClick={onClick}
+      onClick={(e) => {
+        // The name cell holds the real link, so a click that already landed on
+        // it (or on the archive button) is handled there — firing the row
+        // handler too would push the same route a second time.
+        if ((e.target as HTMLElement).closest('a,button')) return
+        onClick()
+      }}
       className="group cursor-pointer border-b border-border last:border-0 hover:bg-muted/40 transition-colors"
     >
-      {/* Company / Contact */}
+      {/* Company / Contact. The row-level onClick above is a pointer
+          convenience only; this link is what makes the client reachable by
+          keyboard and what a screen reader announces. Previously the row's
+          onClick was the sole way in, which left the whole table unusable
+          without a mouse. */}
       <td className="pl-5 pr-4 py-3">
-        <div className="font-medium leading-tight">
+        <Link
+          href={`/clients/${client.id}`}
+          className="rounded font-medium leading-tight hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
           {client.companyName ?? (
             <span className="text-muted-foreground italic">No company</span>
           )}
-        </div>
+        </Link>
         {client.contactName && (
           <div className="mt-0.5 text-xs text-muted-foreground">
             {client.contactName}
