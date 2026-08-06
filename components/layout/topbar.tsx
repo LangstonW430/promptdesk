@@ -1,4 +1,5 @@
 import { MobileNav } from '@/components/layout/mobile-nav'
+import { ThemeToggle } from '@/components/layout/theme-toggle'
 import { getCurrentUser } from '@/lib/auth'
 import { signOut } from '@/lib/actions/auth'
 import { Button } from '@/components/ui/button'
@@ -12,6 +13,7 @@ export async function Topbar() {
     <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <MobileNav />
       <div className="flex flex-1 items-center justify-end gap-2">
+        <ThemeToggle />
         <div
           className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
           title={user?.email}
