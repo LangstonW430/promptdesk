@@ -76,13 +76,6 @@ export default async function FinancePage({
     },
   ]
 
-  // Trends for the stat tiles. The monthly series is already loaded for the
-  // chart, so the shape of each number's history costs no extra query and no
-  // extra space on the page.
-  const incomeTrend = monthlySeries.map((m) => m.income)
-  const expenseTrend = monthlySeries.map((m) => m.expense)
-  const netTrend = monthlySeries.map((m) => m.net)
-
   return (
     <div className="flex flex-col gap-6">
       {/* ── Header ─────────────────────────────────────────────── */}
@@ -99,9 +92,6 @@ export default async function FinancePage({
       {/* ── Stat cards + MRR ───────────────────────────────────── */}
       <FinanceStatCards
         summary={summary}
-        incomeTrend={incomeTrend}
-        expenseTrend={expenseTrend}
-        netTrend={netTrend}
         activeMRR={activeMRR}
         transactions={transactions}
         period={period}

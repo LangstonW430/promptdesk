@@ -1,4 +1,9 @@
+'use client'
+
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { TrendChart } from './trend-chart'
+import { cn } from '@/lib/utils'
 import type { MonthlyStat } from '@/lib/finance/types'
 
 function fmt(n: number) {
@@ -16,20 +21,62 @@ interface MonthlyChartProps {
   data: MonthlyStat[]
 }
 
+type View = 'bars' | 'trend'
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'bars',  label: 'Monthly' },
+  { id: 'trend', label: 'Trend' },
+]
+
 export function MonthlyChart({ data }: MonthlyChartProps) {
+  const [view, setView] = useState<View>('bars')
   const max = Math.max(...data.flatMap((d) => [d.income, d.expense]), 1)
   const hasData = data.some((d) => d.income > 0 || d.expense > 0)
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Monthly Income vs Expenses</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle>
+          {view === 'bars' ? 'Monthly Income vs Expenses' : 'Income, Net & Expenses'}
+        </CardTitle>
+
+        {/* Two readings of the same months: the columns compare each month on
+            its own, the lines show which way the numbers are heading. A tab
+            strip keeps both in the footprint one chart already occupies. */}
+        <div
+          role="tablist"
+          aria-label="Chart view"
+          className="flex shrink-0 gap-0.5 rounded-lg border border-border bg-muted/30 p-0.5"
+        >
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              role="tab"
+              aria-selected={v.id === view}
+              onClick={() => setView(v.id)}
+              className={cn(
+                'rounded-md px-2.5 py-1 text-xs font-medium transition-colors outline-none',
+                'focus-visible:ring-2 focus-visible:ring-ring/50',
+                v.id === view
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent>
         {!hasData ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
             No transactions recorded yet.
           </p>
+        ) : view === 'trend' ? (
+          <div className="flex flex-col gap-4">
+            <TrendChart data={data} />
+            <MonthlyTable data={data} />
+          </div>
         ) : (
           <div className="flex flex-col gap-4">
             {/* Columns. A zero month renders no bar at all — the previous
@@ -58,44 +105,7 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
               <LegendKey color={EXPENSE} label="Expenses" />
             </div>
 
-            {/* The table view. Every value in the chart is readable here too. */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <caption className="sr-only">Monthly income and expenses</caption>
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground">
-                    <th scope="col" className="pb-1.5 text-left font-medium">Month</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium">Income</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium">Expenses</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium">Net</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.map((d) => {
-                    const empty = d.income === 0 && d.expense === 0
-                    return (
-                      <tr key={d.label} className="border-b border-border last:border-0">
-                        <th scope="row" className="py-1.5 text-left font-normal">{d.label}</th>
-                        <Cell value={d.income} />
-                        <Cell value={d.expense} />
-                        {/* Text stays in text tokens rather than wearing the
-                            series colour — the light aqua and red steps are not
-                            legible as text on the card surface. The sign is
-                            carried by the explicit +/− prefix, so it survives
-                            greyscale and CVD. */}
-                        <td className="py-1.5 text-right font-medium tabular-nums">
-                          {empty ? (
-                            <span className="text-muted-foreground/50">—</span>
-                          ) : (
-                            `${d.net < 0 ? '−' : '+'}${fmt(Math.abs(d.net))}`
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <MonthlyTable data={data} />
           </div>
         )}
       </CardContent>
@@ -135,5 +145,50 @@ function Cell({ value }: { value: number }) {
     <td className="py-1.5 text-right tabular-nums">
       {value > 0 ? fmt(value) : <span className="text-muted-foreground/50">—</span>}
     </td>
+  )
+}
+
+/**
+ * The table view, shared by both charts. Every value either one plots is
+ * readable here, so neither is the only way to reach a number.
+ */
+function MonthlyTable({ data }: { data: MonthlyStat[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <caption className="sr-only">Monthly income, expenses and net</caption>
+        <thead>
+          <tr className="border-b border-border text-muted-foreground">
+            <th scope="col" className="pb-1.5 text-left font-medium">Month</th>
+            <th scope="col" className="pb-1.5 text-right font-medium">Income</th>
+            <th scope="col" className="pb-1.5 text-right font-medium">Expenses</th>
+            <th scope="col" className="pb-1.5 text-right font-medium">Net</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((d) => {
+            const empty = d.income === 0 && d.expense === 0
+            return (
+              <tr key={d.label} className="border-b border-border last:border-0">
+                <th scope="row" className="py-1.5 text-left font-normal">{d.label}</th>
+                <Cell value={d.income} />
+                <Cell value={d.expense} />
+                {/* Text stays in text tokens rather than wearing the series
+                    colour, which is not legible as text on the card surface.
+                    The sign rides an explicit +/− prefix so it survives
+                    greyscale and CVD. */}
+                <td className="py-1.5 text-right font-medium tabular-nums">
+                  {empty ? (
+                    <span className="text-muted-foreground/50">—</span>
+                  ) : (
+                    `${d.net < 0 ? '−' : '+'}${fmt(Math.abs(d.net))}`
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
