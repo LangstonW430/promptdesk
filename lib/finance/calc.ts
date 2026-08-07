@@ -63,13 +63,55 @@ export function sumFinancials(
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+/** Months between two year/month pairs. Negative when `to` precedes `from`. */
+function monthsBetween(
+  fromYear: number, fromMonth: number,
+  toYear: number, toMonth: number,
+): number {
+  return (toYear - fromYear) * 12 + (toMonth - fromMonth)
+}
+
+/** How many months apart two consecutive charges are, for a given cadence. */
+function monthsPerPeriod(frequency: string | null | undefined): number {
+  if (frequency === 'quarterly') return 3
+  if (frequency === 'annual') return 12
+  return 1
+}
+
+export interface BucketableRow {
+  type: string
+  amount: number
+  /** ISO date string. */
+  occurredAt: string
+  /**
+   * A recurring row is a standing charge — it repeats from `occurredAt` at its
+   * cadence rather than landing in one month.
+   */
+  isRecurring?: boolean
+  frequency?: string | null
+  /** ISO date string. Null/absent means the charge is still running. */
+  recurrenceEndedAt?: string | null
+}
+
 /**
  * Produces `months` consecutive monthly buckets ending in the current month,
- * summing income and expense for each. Transactions outside the window are ignored.
- * `occurredAt` must be an ISO date string.
+ * summing income and expense for each. Transactions outside the window are
+ * ignored.
+ *
+ * Recurring rows repeat. A monthly hosting fee entered once in March is charged
+ * again every month after, so it belongs in every bucket from March onward —
+ * previously it appeared in March alone and every later month understated the
+ * real cost. Quarterly and annual rows land in the months they are actually
+ * charged (March, June, September…) rather than being spread thinly across all
+ * of them: this chart is cash in and out per month, so a $300 quarterly bill is
+ * $300 in one month and nothing in the next two. MRR is where that same charge
+ * gets normalised to a rate.
+ *
+ * A recurrence never starts before `occurredAt` and stops after
+ * `recurrenceEndedAt`, so ending one leaves the months it did apply to intact.
  */
 export function bucketByMonth(
-  rows: ReadonlyArray<{ type: string; amount: number; occurredAt: string }>,
+  rows: ReadonlyArray<BucketableRow>,
   months: number,
   now: Date = new Date(),
 ): MonthlyStat[] {
@@ -95,13 +137,51 @@ export function bucketByMonth(
   // Index by "year-month" for O(1) lookup
   const idx = new Map(buckets.map((b) => [`${b.year}-${b.month}`, b]))
 
+  const first = buckets[0]
+  const last = buckets[buckets.length - 1]
+
+  function add(bucket: MonthlyStat | undefined, row: BucketableRow) {
+    if (!bucket) return
+    if (row.type === 'income') bucket.income += row.amount
+    else bucket.expense += row.amount
+  }
+
   for (const r of rows) {
     const d = new Date(r.occurredAt)
-    const key = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`
-    const bucket = idx.get(key)
-    if (!bucket) continue
-    if (r.type === 'income') bucket.income += r.amount
-    else bucket.expense += r.amount
+    const startYear = d.getUTCFullYear()
+    const startMonth = d.getUTCMonth() + 1
+
+    if (!r.isRecurring) {
+      add(idx.get(`${startYear}-${startMonth}`), r)
+      continue
+    }
+
+    const step = monthsPerPeriod(r.frequency)
+
+    // Walk the charge dates that fall inside the window. Start at the first
+    // occurrence on or after the window opens, so a charge running for years
+    // costs a handful of iterations rather than one per month since it began.
+    const offsetToWindow = monthsBetween(startYear, startMonth, first.year, first.month)
+    const firstIndex = offsetToWindow <= 0 ? 0 : Math.ceil(offsetToWindow / step)
+
+    // ...and stop at the window's end, or when the recurrence ended.
+    let lastIndex = Math.floor(
+      monthsBetween(startYear, startMonth, last.year, last.month) / step,
+    )
+    if (r.recurrenceEndedAt) {
+      const e = new Date(r.recurrenceEndedAt)
+      // Inclusive of the month it ended in — a charge cancelled mid-month was
+      // still charged that month.
+      const endIndex = Math.floor(
+        monthsBetween(startYear, startMonth, e.getUTCFullYear(), e.getUTCMonth() + 1) / step,
+      )
+      lastIndex = Math.min(lastIndex, endIndex)
+    }
+
+    for (let i = Math.max(firstIndex, 0); i <= lastIndex; i++) {
+      const total = (startMonth - 1) + i * step
+      add(idx.get(`${startYear + Math.floor(total / 12)}-${(total % 12) + 1}`), r)
+    }
   }
 
   for (const b of buckets) b.net = b.income - b.expense

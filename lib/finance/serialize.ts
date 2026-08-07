@@ -14,6 +14,8 @@ export type SerializedTransaction = {
   externalType: string | null
   isRecurring: boolean
   frequency: string | null
+  /** YYYY-MM-DD, or null while the standing charge is still running. */
+  recurrenceEndedAt: string | null
   metadata: Record<string, unknown>
   createdAt: string
   updatedAt: string
@@ -34,6 +36,7 @@ type TransactionRow = {
   externalType: string | null
   isRecurring: boolean
   frequency: string | null
+  recurrenceEndedAt?: Date | string | null
   metadata: unknown
   createdAt: Date
   updatedAt: Date
@@ -62,6 +65,11 @@ export function serializeTransaction(t: TransactionRow): SerializedTransaction {
     externalType: t.externalType,
     isRecurring: t.isRecurring,
     frequency: t.frequency,
+    recurrenceEndedAt: t.recurrenceEndedAt
+      ? (t.recurrenceEndedAt instanceof Date
+          ? t.recurrenceEndedAt.toISOString().slice(0, 10)
+          : String(t.recurrenceEndedAt).slice(0, 10))
+      : null,
     metadata: (t.metadata ?? {}) as Record<string, unknown>,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),

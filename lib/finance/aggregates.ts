@@ -58,9 +58,25 @@ export const getMonthlySeries = ownerCache(
     windowStart.setUTCDate(1)
     windowStart.setUTCHours(0, 0, 0, 0)
 
+    // Recurring rows are standing charges that repeat into the window from
+    // whenever they started, so they cannot be filtered out by date the way
+    // one-off rows can — a hosting fee begun two years ago still applies to
+    // every month on this chart.
     const rows = await prisma.transaction.findMany({
-      where: { ownerId, occurredAt: { gte: windowStart } },
-      select: { type: true, amount: true, occurredAt: true },
+      where: {
+        OR: [
+          { ownerId, occurredAt: { gte: windowStart } },
+          { ownerId, isRecurring: true },
+        ],
+      },
+      select: {
+        type: true,
+        amount: true,
+        occurredAt: true,
+        isRecurring: true,
+        frequency: true,
+        recurrenceEndedAt: true,
+      },
     })
 
     return bucketByMonth(
@@ -68,6 +84,9 @@ export const getMonthlySeries = ownerCache(
         type: r.type,
         amount: Number(r.amount),
         occurredAt: r.occurredAt.toISOString(),
+        isRecurring: r.isRecurring,
+        frequency: r.frequency,
+        recurrenceEndedAt: r.recurrenceEndedAt?.toISOString() ?? null,
       })),
       months,
     )

@@ -315,8 +315,15 @@ model Transaction {
   clientId     String?             @map("client_id") @db.Uuid
   externalId   String?             @map("external_id")      // Stripe object id (ch_..., in_..., etc.)
   externalType String?             @map("external_type")    // "charge" | "refund" | "invoice" | "fee"
+  // A recurring transaction is a standing charge, not a payment record: it is
+  // entered once and counts in every period from occurredAt onward. Do not also
+  // log each period's payment, or that period counts twice.
   isRecurring  Boolean             @default(false) @map("is_recurring") // true = part of MRR
   frequency    RecurringFrequency? // billing cadence for recurring transactions
+  /// When the standing charge stopped. Null means still running. Set this
+  /// rather than deleting or un-ticking `isRecurring` when something is
+  /// cancelled — those erase the charge from the months it did apply to.
+  recurrenceEndedAt DateTime?      @map("recurrence_ended_at") @db.Date
   metadata     Json                @default("{}") @db.JsonB  // counterparty, Stripe ids, fee details
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
