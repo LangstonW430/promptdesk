@@ -1,8 +1,9 @@
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/client'
 import { financeTag } from '@/lib/cache-tags'
-import { bucketByMonth } from './calc'
-import type { MonthlyStat } from './types'
+import { buildBuckets, bucketSeries, type SeriesPoint, type Granularity } from './series'
+import { getPeriodBoundaries } from './calc'
+import type { Period } from './types'
 
 /**
  * Wraps an owner-scoped query in `unstable_cache` with a per-owner key and a
@@ -32,25 +33,49 @@ function ownerCache<A extends unknown[], R>(
 // that used to live here re-ran the same owner+period scan to produce those
 // two values, so they were removed rather than left as unused exports.
 
-// ─── Monthly series ───────────────────────────────────────────────────────────
+// ─── Period series ───────────────────────────────────────────────────────────
 
-export const getMonthlySeries = ownerCache(
-  'finance-monthly',
-  async (ownerId: string, months: number): Promise<MonthlyStat[]> => {
-    // Fetch enough history to fill all buckets
-    const windowStart = new Date()
-    windowStart.setUTCMonth(windowStart.getUTCMonth() - (months - 1))
-    windowStart.setUTCDate(1)
-    windowStart.setUTCHours(0, 0, 0, 0)
+export interface PeriodSeries {
+  points: SeriesPoint[]
+  granularity: Granularity
+}
 
-    // Recurring rows are standing charges that repeat into the window from
-    // whenever they started, so they cannot be filtered out by date the way
-    // one-off rows can — a hosting fee begun two years ago still applies to
-    // every month on this chart.
+/**
+ * The charted series for the selected period.
+ *
+ * This replaced a fixed six-month window that ignored the period selector
+ * entirely, so the chart described a different span from the stat cards
+ * directly above it. Granularity is chosen by `buildBuckets`; see there for
+ * why "this month" is plotted by day.
+ */
+export const getPeriodSeries = ownerCache(
+  'finance-series',
+  async (ownerId: string, period: Period): Promise<PeriodSeries> => {
+    const { from } = getPeriodBoundaries(period)
+
+    // allTime anchors its buckets to the first transaction, so it has to be
+    // asked for. Every other period has fixed bounds and skips the query.
+    let earliest: Date | null = null
+    if (period === 'allTime') {
+      const first = await prisma.transaction.findFirst({
+        where: { ownerId },
+        orderBy: { occurredAt: 'asc' },
+        select: { occurredAt: true },
+      })
+      earliest = first?.occurredAt ?? null
+    }
+
+    const { granularity, buckets } = buildBuckets(period, new Date(), earliest)
+    if (buckets.length === 0) return { points: [], granularity }
+
+    const windowStart = buckets[0].start
+
+    // A standing charge that began before the window still applies inside it,
+    // so recurring rows cannot be excluded by date the way one-off rows can.
     const rows = await prisma.transaction.findMany({
       where: {
         OR: [
-          { ownerId, occurredAt: { gte: windowStart } },
+          { ownerId, occurredAt: { gte: from ?? windowStart } },
           { ownerId, isRecurring: true },
         ],
       },
@@ -64,17 +89,20 @@ export const getMonthlySeries = ownerCache(
       },
     })
 
-    return bucketByMonth(
-      rows.map((r) => ({
-        type: r.type,
-        amount: Number(r.amount),
-        occurredAt: r.occurredAt.toISOString(),
-        isRecurring: r.isRecurring,
-        frequency: r.frequency,
-        recurrenceEndedAt: r.recurrenceEndedAt?.toISOString() ?? null,
-      })),
-      months,
-    )
+    return {
+      points: bucketSeries(
+        rows.map((r) => ({
+          type: r.type,
+          amount: Number(r.amount),
+          occurredAt: r.occurredAt.toISOString(),
+          isRecurring: r.isRecurring,
+          frequency: r.frequency,
+          recurrenceEndedAt: r.recurrenceEndedAt?.toISOString() ?? null,
+        })),
+        buckets,
+      ),
+      granularity,
+    }
   },
 )
 

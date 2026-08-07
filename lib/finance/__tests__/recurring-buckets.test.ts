@@ -1,15 +1,36 @@
 import { describe, it, expect } from 'vitest'
-import { bucketByMonth, expandRecurring } from '../calc'
+import { expandRecurring, type BucketableRow } from '../calc'
+import { bucketSeries, type Bucket } from '../series'
 
-// Fixed "now" so the six-month window is Mar–Aug 2026.
+// Fixed window of Mar–Aug 2026, matching what the charts used to hard-code.
 const NOW = new Date('2026-08-15T12:00:00Z')
 const WINDOW = 6
 
-function months(rows: Parameters<typeof bucketByMonth>[0]) {
-  return bucketByMonth(rows, WINDOW, NOW)
+const LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+/** Six month buckets ending in NOW's month, oldest first. */
+function monthBuckets(): Bucket[] {
+  const out: Bucket[] = []
+  for (let i = WINDOW - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth() - i, 1))
+    const y = d.getUTCFullYear()
+    const m = d.getUTCMonth()
+    out.push({
+      key: `${y}-${m + 1}`,
+      label: `${LABELS[m]} ${y}`,
+      shortLabel: LABELS[m],
+      start: new Date(Date.UTC(y, m, 1)),
+      end: new Date(Date.UTC(y, m + 1, 1)),
+    })
+  }
+  return out
 }
 
-function expenseByLabel(rows: Parameters<typeof bucketByMonth>[0]) {
+function months(rows: ReadonlyArray<BucketableRow>) {
+  return bucketSeries(rows, monthBuckets())
+}
+
+function expenseByLabel(rows: ReadonlyArray<BucketableRow>) {
   return Object.fromEntries(months(rows).map((b) => [b.label, b.expense]))
 }
 
@@ -21,7 +42,7 @@ const hosting = {
   frequency: 'monthly',
 }
 
-describe('bucketByMonth — one-off rows', () => {
+describe('bucketSeries — one-off rows', () => {
   it('lands in the month it occurred and nowhere else', () => {
     const byLabel = expenseByLabel([
       { type: 'expense', amount: 500, occurredAt: '2026-05-09T00:00:00Z' },
@@ -39,7 +60,7 @@ describe('bucketByMonth — one-off rows', () => {
   })
 })
 
-describe('bucketByMonth — recurring rows', () => {
+describe('bucketSeries — recurring rows', () => {
   it('charges a monthly fee in every month from its start', () => {
     // The reported bug: a hosting fee entered once showed up in March alone.
     expect(expenseByLabel([hosting])).toEqual({
@@ -201,7 +222,7 @@ describe('expandRecurring', () => {
     expect(out.every((r) => r.category === 'Hosting' && r.amount === 20)).toBe(true)
   })
 
-  it('agrees with what bucketByMonth reports for the same charge', () => {
+  it('agrees with what bucketSeries reports for the same charge', () => {
     // The two must never disagree — that split was the original bug: the chart
     // counted six occurrences while every other figure counted one.
     const expandedTotal = expandRecurring([hosting], MAR, AUG_END)

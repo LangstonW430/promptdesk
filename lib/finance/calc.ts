@@ -2,7 +2,6 @@ import type {
   Period,
   RecurringFrequency,
   FinancialSummary,
-  MonthlyStat,
   CategoryStat,
   ClientIncomeStat,
 } from './types'
@@ -60,9 +59,6 @@ export function sumFinancials(
 
 // ─── Monthly bucketing ────────────────────────────────────────────────────────
 
-const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
 /** Months between two year/month pairs. Negative when `to` precedes `from`. */
 function monthsBetween(
   fromYear: number, fromMonth: number,
@@ -104,13 +100,16 @@ export interface BucketableRow extends RecurringRow {
  * cannot appear six times in one and once in another — which is exactly what
  * happened when only the chart knew about recurrence.
  *
- * Dates are clamped to the first of the month: a charge dated the 31st has no
- * 31st in February, and for monthly aggregation the day is noise anyway.
+ * Occurrences keep the day of the month they started on — a fee begun on the
+ * 15th recurs on the 15th — clamped down in months too short for it, so a
+ * charge dated the 31st falls on the 28th of February rather than sliding into
+ * March. The day matters as soon as anything buckets by day.
  */
 export function occurrenceDates(row: RecurringRow, from: Date, to: Date): Date[] {
   const start = new Date(row.occurredAt)
   const startYear = start.getUTCFullYear()
   const startMonth = start.getUTCMonth() // 0-indexed
+  const startDay = start.getUTCDate()
 
   if (!row.isRecurring) {
     return start >= from && start <= to ? [start] : []
@@ -141,7 +140,11 @@ export function occurrenceDates(row: RecurringRow, from: Date, to: Date): Date[]
   const dates: Date[] = []
   for (let i = startIndex; i <= endIndex; i++) {
     const total = startMonth + i * step
-    const d = new Date(Date.UTC(startYear + Math.floor(total / 12), total % 12, 1))
+    const y = startYear + Math.floor(total / 12)
+    const m = total % 12
+    // Day 0 of the next month is the last day of this one.
+    const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+    const d = new Date(Date.UTC(y, m, Math.min(startDay, daysInMonth)))
     if (d >= from && d <= to) dates.push(d)
   }
   return dates
@@ -174,68 +177,11 @@ export function expandRecurring<T extends RecurringRow>(
   return out
 }
 
-/**
- * Produces `months` consecutive monthly buckets ending in the current month,
- * summing income and expense for each. Transactions outside the window are
- * ignored.
- *
- * Recurring rows repeat. A monthly hosting fee entered once in March is charged
- * again every month after, so it belongs in every bucket from March onward —
- * previously it appeared in March alone and every later month understated the
- * real cost. Quarterly and annual rows land in the months they are actually
- * charged (March, June, September…) rather than being spread thinly across all
- * of them: this chart is cash in and out per month, so a $300 quarterly bill is
- * $300 in one month and nothing in the next two. MRR is where that same charge
- * gets normalised to a rate.
- *
- * A recurrence never starts before `occurredAt` and stops after
- * `recurrenceEndedAt`, so ending one leaves the months it did apply to intact.
- */
-export function bucketByMonth(
-  rows: ReadonlyArray<BucketableRow>,
-  months: number,
-  now: Date = new Date(),
-): MonthlyStat[] {
-  const endYear = now.getUTCFullYear()
-  const endMonth = now.getUTCMonth()  // 0-indexed
-
-  // Build bucket array oldest → newest
-  const buckets: MonthlyStat[] = []
-  for (let i = months - 1; i >= 0; i--) {
-    let m = endMonth - i
-    let y = endYear
-    while (m < 0) { m += 12; y -= 1 }
-    buckets.push({
-      year: y,
-      month: m + 1,  // 1-indexed
-      label: `${MONTH_LABELS[m]} ${y}`,
-      income: 0,
-      expense: 0,
-      net: 0,
-    })
-  }
-
-  // Index by "year-month" for O(1) lookup
-  const idx = new Map(buckets.map((b) => [`${b.year}-${b.month}`, b]))
-
-  const first = buckets[0]
-  const last = buckets[buckets.length - 1]
-  const windowFrom = new Date(Date.UTC(first.year, first.month - 1, 1))
-  // The last instant of the final month, not its first day — a one-off dated
-  // the 30th still belongs to the window that ends in that month.
-  const windowTo = new Date(Date.UTC(last.year, last.month, 0, 23, 59, 59, 999))
-
-  for (const r of expandRecurring(rows, windowFrom, windowTo)) {
-    const d = new Date(r.occurredAt)
-    const bucket = idx.get(`${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`)
-    if (!bucket) continue
-    if (r.type === 'income') bucket.income += r.amount
-    else bucket.expense += r.amount
-  }
-
-  for (const b of buckets) b.net = b.income - b.expense
-  return buckets
-}
+// bucketByMonth was removed. It built its own fixed-width month window, which
+// is what kept the chart on six months regardless of the period selector.
+// lib/finance/series.ts now builds buckets from the period and fills them with
+// bucketSeries; both read the same occurrenceDates/expandRecurring above, so
+// recurrence still behaves identically.
 
 // ─── Group by category ────────────────────────────────────────────────────────
 
@@ -396,7 +342,9 @@ export function foldCategoryTail(
  * as the running total of the monthly nets — so the three series remain
  * consistent with each other however the reader adds them up.
  */
-export function toCumulative(rows: ReadonlyArray<MonthlyStat>): MonthlyStat[] {
+export function toCumulative<T extends { income: number; expense: number; net: number }>(
+  rows: ReadonlyArray<T>,
+): T[] {
   let income = 0
   let expense = 0
   return rows.map((r) => {

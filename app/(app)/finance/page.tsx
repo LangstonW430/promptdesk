@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
 import { listTransactionsForPeriod, fetchClientsForPicker } from '@/lib/finance'
-import { getMonthlySeries } from '@/lib/finance/aggregates'
+import { getPeriodSeries } from '@/lib/finance/aggregates'
 import { sumFinancials, groupByCategory, groupByClient } from '@/lib/finance/calc'
 import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
 import { PeriodSelector } from '@/components/finance/period-selector'
@@ -31,10 +31,12 @@ export default async function FinancePage({
       ? (rawPeriod as Period)
       : 'thisMonth'
 
-  const [activeMRR, monthlySeries, transactions, clients, syncState] =
+  const [activeMRR, series, transactions, clients, syncState] =
     await Promise.all([
       getActiveMRR(ownerId),
-      getMonthlySeries(ownerId, 6),
+      // Follows the period selector, so the chart and the stat cards above it
+      // describe the same span. It used to be a fixed six months regardless.
+      getPeriodSeries(ownerId, period),
       // Standing charges are expanded into their actual occurrences here, so
       // the table, the stat cards and the category breakdown all count a
       // recurring fee in every month it applies — matching the chart, which
@@ -100,7 +102,7 @@ export default async function FinancePage({
 
       {/* ── Charts ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <MonthlyChart data={monthlySeries} />
+        <MonthlyChart data={series.points} unit={series.granularity} />
         <BreakdownCard views={breakdowns} />
       </div>
 

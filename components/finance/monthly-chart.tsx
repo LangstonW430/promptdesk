@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrendChart } from './trend-chart'
 import { toCumulative } from '@/lib/finance/calc'
 import { cn } from '@/lib/utils'
-import type { MonthlyStat } from '@/lib/finance/types'
+import type { SeriesPoint } from '@/lib/finance/series'
 
 function fmt(n: number) {
   if (n === 0) return '$0'
@@ -19,24 +19,27 @@ const INCOME = 'var(--chart-income)'
 const EXPENSE = 'var(--chart-expense)'
 
 interface MonthlyChartProps {
-  data: MonthlyStat[]
+  data: SeriesPoint[]
+  /** What one point represents, so the copy can name it. */
+  unit?: string
 }
 
 type View = 'bars' | 'trend' | 'cumulative'
 
 const VIEWS: { id: View; label: string }[] = [
-  { id: 'bars',       label: 'Monthly' },
+  { id: 'bars',       label: 'Bars' },
   { id: 'trend',      label: 'Trend' },
   { id: 'cumulative', label: 'Cumulative' },
 ]
 
-const TITLES: Record<View, string> = {
-  bars:       'Monthly Income vs Expenses',
-  trend:      'Income, Net & Expenses',
-  cumulative: 'Cumulative Income, Net & Expenses',
+function titleFor(view: View, unit: string): string {
+  const per = unit === 'day' ? 'Daily' : unit === 'quarter' ? 'Quarterly' : 'Monthly'
+  if (view === 'bars') return `${per} Income vs Expenses`
+  if (view === 'cumulative') return 'Cumulative Income, Net & Expenses'
+  return 'Income, Net & Expenses'
 }
 
-export function MonthlyChart({ data }: MonthlyChartProps) {
+export function MonthlyChart({ data, unit = 'month' }: MonthlyChartProps) {
   const [view, setView] = useState<View>('bars')
   const max = Math.max(...data.flatMap((d) => [d.income, d.expense]), 1)
   const hasData = data.some((d) => d.income > 0 || d.expense > 0)
@@ -48,7 +51,7 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle>{TITLES[view]}</CardTitle>
+        <CardTitle>{titleFor(view, unit)}</CardTitle>
 
         {/* Two readings of the same months: the columns compare each month on
             its own, the lines show which way the numbers are heading. A tab
@@ -85,7 +88,7 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
         ) : view !== 'bars' ? (
           <div className="flex flex-col gap-4">
             <TrendChart data={lineData} cumulative={view === 'cumulative'} />
-            <MonthlyTable data={lineData} cumulative={view === 'cumulative'} />
+            <MonthlyTable data={lineData} cumulative={view === 'cumulative'} unit={unit} />
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -94,7 +97,7 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
                 month was indistinguishable from a small one. */}
             <div className="flex h-36 items-end gap-1.5" aria-hidden="true">
               {data.map((d) => (
-                <div key={d.label} className="flex flex-1 flex-col items-center gap-1">
+                <div key={d.key} className="flex flex-1 flex-col items-center gap-1">
                   {/* gap-0.5 is the 2px surface gap between the paired columns:
                       the surface separates them, not a stroke. */}
                   <div className="flex h-28 w-full max-w-14 items-end justify-center gap-0.5">
@@ -102,7 +105,7 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
                     <Column value={d.expense} max={max} color={EXPENSE} />
                   </div>
                   <span className="whitespace-nowrap text-[10px] text-muted-foreground">
-                    {d.label.split(' ')[0]}
+                    {d.shortLabel}
                   </span>
                 </div>
               ))}
@@ -115,7 +118,7 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
               <LegendKey color={EXPENSE} label="Expenses" />
             </div>
 
-            <MonthlyTable data={data} />
+            <MonthlyTable data={data} unit={unit} />
           </div>
         )}
       </CardContent>
@@ -165,9 +168,11 @@ function Cell({ value }: { value: number }) {
 function MonthlyTable({
   data,
   cumulative = false,
+  unit = 'month',
 }: {
-  data: MonthlyStat[]
+  data: SeriesPoint[]
   cumulative?: boolean
+  unit?: string
 }) {
   return (
     <div className="overflow-x-auto">
@@ -179,7 +184,7 @@ function MonthlyTable({
         </caption>
         <thead>
           <tr className="border-b border-border text-muted-foreground">
-            <th scope="col" className="pb-1.5 text-left font-medium">Month</th>
+            <th scope="col" className="pb-1.5 text-left font-medium">{unit === 'day' ? 'Day' : unit === 'quarter' ? 'Quarter' : 'Month'}</th>
             <th scope="col" className="pb-1.5 text-right font-medium">Income</th>
             <th scope="col" className="pb-1.5 text-right font-medium">Expenses</th>
             <th scope="col" className="pb-1.5 text-right font-medium">Net</th>
@@ -189,7 +194,7 @@ function MonthlyTable({
           {data.map((d) => {
             const empty = d.income === 0 && d.expense === 0
             return (
-              <tr key={d.label} className="border-b border-border last:border-0">
+              <tr key={d.key} className="border-b border-border last:border-0">
                 <th scope="row" className="py-1.5 text-left font-normal">{d.label}</th>
                 <Cell value={d.income} />
                 <Cell value={d.expense} />

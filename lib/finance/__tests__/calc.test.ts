@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest'
 import {
   getPeriodBoundaries,
   sumFinancials,
-  bucketByMonth,
   groupByCategory,
   groupByClient,
   calculateMRR,
@@ -12,8 +11,6 @@ import {
 // ─── Fixtures ──────────────────────────────────────────────────────────────────
 
 const NOW = new Date('2026-06-15T12:00:00Z')  // mid-June 2026
-
-function iso(dateStr: string) { return dateStr }  // readability alias
 
 // ─── getPeriodBoundaries ──────────────────────────────────────────────────────
 
@@ -94,68 +91,8 @@ describe('sumFinancials', () => {
   })
 })
 
-// ─── bucketByMonth ─────────────────────────────────────────────────────────────
-
-describe('bucketByMonth', () => {
-  it('returns exactly `months` buckets', () => {
-    expect(bucketByMonth([], 6, NOW)).toHaveLength(6)
-    expect(bucketByMonth([], 1, NOW)).toHaveLength(1)
-  })
-
-  it('last bucket is the current month', () => {
-    const buckets = bucketByMonth([], 3, NOW)
-    const last = buckets[buckets.length - 1]
-    expect(last.year).toBe(2026)
-    expect(last.month).toBe(6)
-    expect(last.label).toBe('Jun 2026')
-  })
-
-  it('first bucket is `months - 1` months back', () => {
-    const buckets = bucketByMonth([], 3, NOW)
-    expect(buckets[0].year).toBe(2026)
-    expect(buckets[0].month).toBe(4)  // Apr
-  })
-
-  it('wraps correctly across year boundary', () => {
-    const jan = new Date('2026-01-15T00:00:00Z')
-    const buckets = bucketByMonth([], 3, jan)
-    expect(buckets[0]).toMatchObject({ year: 2025, month: 11, label: 'Nov 2025' })
-    expect(buckets[1]).toMatchObject({ year: 2025, month: 12, label: 'Dec 2025' })
-    expect(buckets[2]).toMatchObject({ year: 2026, month: 1,  label: 'Jan 2026' })
-  })
-
-  it('places transactions into the correct month bucket', () => {
-    const rows = [
-      { type: 'income',  amount: 1000, occurredAt: iso('2026-06-01') },
-      { type: 'expense', amount: 200,  occurredAt: iso('2026-06-30') },
-      { type: 'income',  amount: 500,  occurredAt: iso('2026-05-15') },
-    ]
-    const buckets = bucketByMonth(rows, 3, NOW)
-    const jun = buckets.find((b) => b.month === 6)!
-    const may = buckets.find((b) => b.month === 5)!
-    expect(jun.income).toBe(1000)
-    expect(jun.expense).toBe(200)
-    expect(jun.net).toBe(800)
-    expect(may.income).toBe(500)
-    expect(may.expense).toBe(0)
-  })
-
-  it('ignores transactions outside the window', () => {
-    const rows = [
-      { type: 'income', amount: 9999, occurredAt: iso('2025-01-01') },  // too old
-    ]
-    const buckets = bucketByMonth(rows, 3, NOW)
-    expect(buckets.every((b) => b.income === 0)).toBe(true)
-  })
-
-  it('all buckets start with zero values when no transactions', () => {
-    const buckets = bucketByMonth([], 6, NOW)
-    expect(buckets.every((b) => b.income === 0 && b.expense === 0 && b.net === 0)).toBe(true)
-  })
-})
-
-// ─── groupByCategory ──────────────────────────────────────────────────────────
-
+// bucketByMonth's own tests moved to series.test.ts, which covers the buckets
+// the period selector now builds.
 describe('groupByCategory', () => {
   it('returns empty array for no rows', () => {
     expect(groupByCategory([])).toEqual([])
