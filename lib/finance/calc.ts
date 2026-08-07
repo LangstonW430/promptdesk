@@ -2,7 +2,6 @@ import type {
   Period,
   RecurringFrequency,
   FinancialSummary,
-  MonthlyStat,
   CategoryStat,
   ClientIncomeStat,
 } from './types'
@@ -60,53 +59,129 @@ export function sumFinancials(
 
 // ─── Monthly bucketing ────────────────────────────────────────────────────────
 
-const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** Months between two year/month pairs. Negative when `to` precedes `from`. */
+function monthsBetween(
+  fromYear: number, fromMonth: number,
+  toYear: number, toMonth: number,
+): number {
+  return (toYear - fromYear) * 12 + (toMonth - fromMonth)
+}
+
+/** How many months apart two consecutive charges are, for a given cadence. */
+function monthsPerPeriod(frequency: string | null | undefined): number {
+  if (frequency === 'quarterly') return 3
+  if (frequency === 'annual') return 12
+  return 1
+}
+
+export interface RecurringRow {
+  /** ISO date string. */
+  occurredAt: string
+  /**
+   * A recurring row is a standing charge — it repeats from `occurredAt` at its
+   * cadence rather than landing in one month.
+   */
+  isRecurring?: boolean
+  frequency?: string | null
+  /** ISO date string. Null/absent means the charge is still running. */
+  recurrenceEndedAt?: string | null
+}
+
+export interface BucketableRow extends RecurringRow {
+  type: string
+  amount: number
+}
 
 /**
- * Produces `months` consecutive monthly buckets ending in the current month,
- * summing income and expense for each. Transactions outside the window are ignored.
- * `occurredAt` must be an ISO date string.
+ * Every date a charge falls on inside `[from, to]`, inclusive of both months.
+ *
+ * The single definition of when a standing charge applies. The monthly chart,
+ * the period totals and the transactions table all read it, so a hosting fee
+ * cannot appear six times in one and once in another — which is exactly what
+ * happened when only the chart knew about recurrence.
+ *
+ * Occurrences keep the day of the month they started on — a fee begun on the
+ * 15th recurs on the 15th — clamped down in months too short for it, so a
+ * charge dated the 31st falls on the 28th of February rather than sliding into
+ * March. The day matters as soon as anything buckets by day.
  */
-export function bucketByMonth(
-  rows: ReadonlyArray<{ type: string; amount: number; occurredAt: string }>,
-  months: number,
-  now: Date = new Date(),
-): MonthlyStat[] {
-  const endYear = now.getUTCFullYear()
-  const endMonth = now.getUTCMonth()  // 0-indexed
+export function occurrenceDates(row: RecurringRow, from: Date, to: Date): Date[] {
+  const start = new Date(row.occurredAt)
+  const startYear = start.getUTCFullYear()
+  const startMonth = start.getUTCMonth() // 0-indexed
+  const startDay = start.getUTCDate()
 
-  // Build bucket array oldest → newest
-  const buckets: MonthlyStat[] = []
-  for (let i = months - 1; i >= 0; i--) {
-    let m = endMonth - i
-    let y = endYear
-    while (m < 0) { m += 12; y -= 1 }
-    buckets.push({
-      year: y,
-      month: m + 1,  // 1-indexed
-      label: `${MONTH_LABELS[m]} ${y}`,
-      income: 0,
-      expense: 0,
-      net: 0,
-    })
+  if (!row.isRecurring) {
+    return start >= from && start <= to ? [start] : []
   }
 
-  // Index by "year-month" for O(1) lookup
-  const idx = new Map(buckets.map((b) => [`${b.year}-${b.month}`, b]))
+  const step = monthsPerPeriod(row.frequency)
 
-  for (const r of rows) {
-    const d = new Date(r.occurredAt)
-    const key = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`
-    const bucket = idx.get(key)
-    if (!bucket) continue
-    if (r.type === 'income') bucket.income += r.amount
-    else bucket.expense += r.amount
+  // Last month the charge applies: the window's end, or when it stopped —
+  // inclusive of that month, since a mid-month cancellation was still billed.
+  let endIndex = Math.floor(
+    monthsBetween(startYear, startMonth, to.getUTCFullYear(), to.getUTCMonth()) / step,
+  )
+  if (row.recurrenceEndedAt) {
+    const ended = new Date(row.recurrenceEndedAt)
+    endIndex = Math.min(
+      endIndex,
+      Math.floor(
+        monthsBetween(startYear, startMonth, ended.getUTCFullYear(), ended.getUTCMonth()) / step,
+      ),
+    )
   }
 
-  for (const b of buckets) b.net = b.income - b.expense
-  return buckets
+  // Start at the first occurrence inside the window rather than walking every
+  // month since the charge began — one running since 2024 costs a few steps.
+  const offset = monthsBetween(startYear, startMonth, from.getUTCFullYear(), from.getUTCMonth())
+  const startIndex = Math.max(0, offset <= 0 ? 0 : Math.ceil(offset / step))
+
+  const dates: Date[] = []
+  for (let i = startIndex; i <= endIndex; i++) {
+    const total = startMonth + i * step
+    const y = startYear + Math.floor(total / 12)
+    const m = total % 12
+    // Day 0 of the next month is the last day of this one.
+    const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
+    const d = new Date(Date.UTC(y, m, Math.min(startDay, daysInMonth)))
+    if (d >= from && d <= to) dates.push(d)
+  }
+  return dates
 }
+
+/**
+ * Expands standing charges into one entry per occurrence within the window,
+ * leaving one-off rows untouched.
+ *
+ * `isProjected` marks the repeats — they are derived, not rows in the database,
+ * so nothing may offer to edit or delete them.
+ */
+export function expandRecurring<T extends RecurringRow>(
+  rows: ReadonlyArray<T>,
+  from: Date,
+  to: Date,
+): Array<T & { occurredAt: string; isProjected: boolean }> {
+  const out: Array<T & { occurredAt: string; isProjected: boolean }> = []
+  for (const row of rows) {
+    for (const date of occurrenceDates(row, from, to)) {
+      const iso = date.toISOString()
+      out.push({
+        ...row,
+        occurredAt: row.isRecurring ? iso : row.occurredAt,
+        // The charge on its original date is the real row; the repeats are not.
+        isProjected: row.isRecurring === true && iso.slice(0, 7) !== row.occurredAt.slice(0, 7),
+      })
+    }
+  }
+  return out
+}
+
+// bucketByMonth was removed. It built its own fixed-width month window, which
+// is what kept the chart on six months regardless of the period selector.
+// lib/finance/series.ts now builds buckets from the period and fills them with
+// bucketSeries; both read the same occurrenceDates/expandRecurring above, so
+// recurrence still behaves identically.
 
 // ─── Group by category ────────────────────────────────────────────────────────
 
@@ -198,4 +273,83 @@ export function groupByClient(
     }
   }
   return Array.from(map.values()).sort((a, b) => b.total - a.total)
+}
+
+// ─── Category tail folding ────────────────────────────────────────────────────
+
+/** Label used for the folded remainder. Not a real category. */
+export const OTHER_CATEGORY = 'Other'
+
+/**
+ * Caps a category breakdown at `limit` coloured slices, folding everything past
+ * that into a single "Other" bucket.
+ *
+ * The chart palette has a fixed number of slots assigned in order. Wrapping back
+ * round to slot 1 for the ninth category would give two categories the same
+ * colour in the same chart, which is exactly the confusion the palette ordering
+ * exists to prevent. Folding keeps the total honest — the bucket carries the sum
+ * of everything it absorbed — while capping how many colours have to stay
+ * distinguishable.
+ *
+ * Assumes `stats` is sorted descending by total, which `groupByCategory`
+ * guarantees. A pre-existing "Other" category merges into the bucket rather than
+ * producing two rows with the same label.
+ */
+export function foldCategoryTail(
+  stats: ReadonlyArray<CategoryStat>,
+  limit: number,
+): CategoryStat[] {
+  if (limit < 1) return []
+  // Nothing to fold, and no pre-existing "Other" that would collide.
+  if (stats.length <= limit && !stats.some((s) => s.category === OTHER_CATEGORY)) {
+    return stats.slice()
+  }
+
+  const head: CategoryStat[] = []
+  let otherTotal = 0
+  let otherCount = 0
+
+  for (const stat of stats) {
+    // "Other" always folds, wherever it sorted, so the label is never duplicated.
+    if (head.length < limit && stat.category !== OTHER_CATEGORY) {
+      head.push({ ...stat })
+    } else {
+      otherTotal += stat.total
+      otherCount += stat.count
+    }
+  }
+
+  if (otherCount === 0) return head
+  return [...head, { category: OTHER_CATEGORY, total: otherTotal, count: otherCount }]
+}
+
+// ─── Cumulative view ─────────────────────────────────────────────────────────
+
+/**
+ * Turns per-month figures into running totals across the charted window.
+ *
+ * Each month reports everything earned or spent up to and including it, rather
+ * than that month alone. It answers a different question from the per-month
+ * series — "am I ahead over this stretch" instead of "how did March go" — and
+ * a rising-then-flattening cumulative net is far easier to read off a running
+ * total than off six separate bars.
+ *
+ * The running total starts at the beginning of the window, not at the beginning
+ * of time: the chart shows a fixed span, so the figures are cumulative *within
+ * the period on screen*.
+ *
+ * Net stays the difference of the two running totals, which is the same thing
+ * as the running total of the monthly nets — so the three series remain
+ * consistent with each other however the reader adds them up.
+ */
+export function toCumulative<T extends { income: number; expense: number; net: number }>(
+  rows: ReadonlyArray<T>,
+): T[] {
+  let income = 0
+  let expense = 0
+  return rows.map((r) => {
+    income += r.income
+    expense += r.expense
+    return { ...r, income, expense, net: income - expense }
+  })
 }

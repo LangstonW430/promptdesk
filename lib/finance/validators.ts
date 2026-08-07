@@ -16,6 +16,7 @@ export const createTransactionSchema = z.object({
   clientId: z.string().uuid().optional(),
   isRecurring: z.boolean().default(false),
   frequency: z.enum(FREQUENCIES).optional(),
+  recurrenceEndedAt: z.string().date().nullable().optional(),
 })
 
 // For updates, financial fields (type/amount/currency) are only editable on manual rows.
@@ -33,6 +34,7 @@ export const updateTransactionSchema = z.object({
   clientId: z.string().uuid().nullable().optional(),
   isRecurring: z.boolean().optional(),
   frequency: z.enum(FREQUENCIES).nullable().optional(),
+  recurrenceEndedAt: z.string().date().nullable().optional(),
 })
 
 // Form schema — all HTML inputs are strings; numeric/UUID fields are refined strings.
@@ -49,6 +51,7 @@ export const transactionFormSchema = z.object({
   clientId: z.string(),  // '' means no client
   isRecurring: z.boolean(),
   frequency: z.string(),  // '' | 'monthly' | 'quarterly' | 'annual'
+  recurrenceEndedAt: z.string(),  // '' | YYYY-MM-DD
 })
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>
@@ -64,4 +67,5 @@ export const transactionFormDefaultValues: TransactionFormValues = {
   clientId: '',
   isRecurring: false,
   frequency: 'monthly',
+  recurrenceEndedAt: '',
 }

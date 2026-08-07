@@ -22,7 +22,6 @@ export async function loadSampleData(ownerId: string): Promise<void> {
           email: def.email,
           industry: def.industry,
           status: def.status,
-          estimatedValue: def.estimatedValue,
           lastContactDate,
           nextFollowupDate,
           painPoints: def.painPoints,

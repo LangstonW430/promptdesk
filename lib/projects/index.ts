@@ -1,7 +1,13 @@
 import { prisma } from '@/lib/db/client'
 import type { Project } from '@/lib/generated/prisma/client'
 
-export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled'
+/**
+ * `proposed` is work that has been quoted but not won. It exists so an
+ * opportunity can carry a budget before there is anything to deliver, which is
+ * what pipeline value is summed from now that clients hold no estimate of
+ * their own. See lib/clients/pipeline-value.ts.
+ */
+export type ProjectStatus = 'proposed' | 'active' | 'completed' | 'on_hold' | 'cancelled'
 
 export interface ProjectWithStats extends Omit<Project, 'budget'> {
   budget: number | null

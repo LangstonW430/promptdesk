@@ -24,7 +24,7 @@ export interface SampleProjectTimeEntry {
 
 export interface SampleProject {
   title:        string
-  status:       'active' | 'completed' | 'on_hold' | 'cancelled'
+  status:       'proposed' | 'active' | 'completed' | 'on_hold' | 'cancelled'
   startDaysAgo: number
   endDaysAgo:   number | null
   budget:       number | null
@@ -39,7 +39,6 @@ export interface SampleClientDef {
   email:                    string
   industry:                 string
   status:                   string
-  estimatedValue:           number
   lastContactDaysAgo:       number
   nextFollowupDaysFromNow:  number
   painPoints:               string
@@ -56,7 +55,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     email: 'dana@hartwelldigital.com',
     industry: 'Digital Marketing',
     status: 'won',
-    estimatedValue: 14000,
     lastContactDaysAgo: 2,
     nextFollowupDaysFromNow: 14,
     painPoints: 'Needed a complete rebrand and SEO overhaul to compete in a crowded market.',
@@ -139,7 +137,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     email: 'priya@meridiancreative.com',
     industry: 'Design & Branding',
     status: 'contacted',
-    estimatedValue: 8500,
     lastContactDaysAgo: 12,
     nextFollowupDaysFromNow: -3,
     painPoints: 'Needs a new brand identity and website overhaul before a product launch.',
@@ -159,6 +156,22 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 8,
       },
     ],
+    projects: [
+      {
+        title:        'Website & content refresh',
+        status:       'proposed',
+        startDaysAgo: 0,
+        endDaysAgo:   null,
+        budget:       8500,
+        deliverables: [
+          'Site audit',
+          'Content plan',
+          'Homepage rebuild',
+        ],
+        timeEntries:  [],
+        tasks:        [],
+      },
+    ],
   },
   {
     companyName: 'Peaks & Partners LLC',
@@ -166,7 +179,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     email: 'j.callahan@peakspartners.com',
     industry: 'Management Consulting',
     status: 'proposal_sent',
-    estimatedValue: 22000,
     lastContactDaysAgo: 5,
     nextFollowupDaysFromNow: 7,
     painPoints: 'Looking for an operations consultant to streamline onboarding and reduce churn.',
@@ -183,6 +195,23 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 5,
       },
     ],
+    projects: [
+      {
+        title:        'Full brand identity',
+        status:       'proposed',
+        startDaysAgo: 0,
+        endDaysAgo:   null,
+        budget:       22000,
+        deliverables: [
+          'Discovery workshop',
+          'Logo suite',
+          'Brand guidelines',
+          'Collateral pack',
+        ],
+        timeEntries:  [],
+        tasks:        [],
+      },
+    ],
   },
   {
     companyName: 'Brightleaf Marketing',
@@ -190,7 +219,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     email: 'sofia@brightleafmktg.com',
     industry: 'Digital Marketing',
     status: 'negotiating',
-    estimatedValue: 5000,
     lastContactDaysAgo: 35,
     nextFollowupDaysFromNow: -5,
     painPoints: 'Wants help setting up an email nurture sequence and lead scoring in HubSpot.',
@@ -204,6 +232,21 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 40,
       },
     ],
+    projects: [
+      {
+        title:        'Campaign landing pages',
+        status:       'proposed',
+        startDaysAgo: 0,
+        endDaysAgo:   null,
+        budget:       5000,
+        deliverables: [
+          '3 landing pages',
+          'A/B test setup',
+        ],
+        timeEntries:  [],
+        tasks:        [],
+      },
+    ],
   },
   {
     companyName: 'Tomlin & Reyes Architects',
@@ -211,7 +254,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     email: 'marcus@tomlinreyes.com',
     industry: 'Architecture & Real Estate',
     status: 'lead',
-    estimatedValue: 15000,
     lastContactDaysAgo: 3,
     nextFollowupDaysFromNow: 2,
     painPoints: 'Growing firm needs a custom project management portal and client-facing dashboard.',
@@ -226,6 +268,22 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 3,
       },
     ],
+    projects: [
+      {
+        title:        'Portfolio site build',
+        status:       'proposed',
+        startDaysAgo: 0,
+        endDaysAgo:   null,
+        budget:       15000,
+        deliverables: [
+          'Project gallery',
+          'Case study templates',
+          'CMS setup',
+        ],
+        timeEntries:  [],
+        tasks:        [],
+      },
+    ],
   },
   {
     companyName: 'Sunriver Spa Group',
@@ -233,7 +291,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     email: 'lena@sunriverspa.com',
     industry: 'Wellness & Hospitality',
     status: 'contacted',
-    estimatedValue: 3200,
     lastContactDaysAgo: 40,
     nextFollowupDaysFromNow: -10,
     painPoints: 'Small spa group wants a booking and membership site, simple and affordable.',
@@ -243,6 +300,21 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         body: 'Lena reached out about building a booking site for 3 spa locations. Wants online memberships too. Budget is tight at ~$3–4k. Sent a ballpark quote.',
         noteType: 'note',
         daysAgo: 40,
+      },
+    ],
+    projects: [
+      {
+        title:        'Booking flow redesign',
+        status:       'proposed',
+        startDaysAgo: 0,
+        endDaysAgo:   null,
+        budget:       3200,
+        deliverables: [
+          'Booking UX audit',
+          'Checkout redesign',
+        ],
+        timeEntries:  [],
+        tasks:        [],
       },
     ],
   },

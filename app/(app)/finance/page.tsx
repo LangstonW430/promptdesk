@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
-import { listTransactions, fetchClientsForPicker } from '@/lib/finance'
-import { getMonthlySeries } from '@/lib/finance/aggregates'
-import { sumFinancials, groupByCategory } from '@/lib/finance/calc'
+import { listTransactionsForPeriod, fetchClientsForPicker } from '@/lib/finance'
+import { getPeriodSeries } from '@/lib/finance/aggregates'
+import { sumFinancials, groupByCategory, groupByClient } from '@/lib/finance/calc'
 import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
 import { PeriodSelector } from '@/components/finance/period-selector'
 import { MonthlyChart } from '@/components/finance/monthly-chart'
-import { CategoryChart } from '@/components/finance/category-chart'
+import { BreakdownCard, type BreakdownView } from '@/components/finance/breakdown-card'
 import { TransactionsTable } from '@/components/finance/transactions-table'
 import { FinanceStatCards } from '@/components/finance/finance-stat-cards'
 import type { Period } from '@/lib/finance/types'
@@ -31,13 +31,17 @@ export default async function FinancePage({
       ? (rawPeriod as Period)
       : 'thisMonth'
 
-  const [activeMRR, monthlySeries, transactions, clients, syncState] =
+  const [activeMRR, series, transactions, clients, syncState] =
     await Promise.all([
       getActiveMRR(ownerId),
-      getMonthlySeries(ownerId, 6),
-      // Scoped to the displayed period — the stat cards filter to this range
-      // (and to `thisMonth`, which is always a subset of it) client-side.
-      listTransactions(ownerId, { period }),
+      // Follows the period selector, so the chart and the stat cards above it
+      // describe the same span. It used to be a fixed six months regardless.
+      getPeriodSeries(ownerId, period),
+      // Standing charges are expanded into their actual occurrences here, so
+      // the table, the stat cards and the category breakdown all count a
+      // recurring fee in every month it applies — matching the chart, which
+      // was previously the only thing that did.
+      listTransactionsForPeriod(ownerId, period),
       fetchClientsForPicker(ownerId),
       getSyncState(ownerId),
     ])
@@ -49,9 +53,30 @@ export default async function FinancePage({
   // per load. `sumFinancials` and `groupByCategory` are the pure reducers from
   // lib/finance/calc — same inputs, same outputs, no round-trip.
   const summary = sumFinancials(transactions)
-  const expensesByCategory = groupByCategory(
-    transactions.filter((t) => t.type === 'expense'),
-  )
+
+  // Both breakdowns come off the same expanded rows, so the tabs cannot report
+  // different totals for the same period. groupByClient already existed and had
+  // no caller — the data for "who pays me" was being loaded and thrown away.
+  const breakdowns: BreakdownView[] = [
+    {
+      id: 'expense-category',
+      label: 'Expenses',
+      title: 'Expenses by Category',
+      data: groupByCategory(transactions.filter((t) => t.type === 'expense')),
+      empty: 'No expenses in this period.',
+    },
+    {
+      id: 'income-client',
+      label: 'Income',
+      title: 'Income by Client',
+      data: groupByClient(transactions).map((c) => ({
+        category: c.clientName ?? 'Unattributed',
+        total: c.total,
+        count: 0,
+      })),
+      empty: 'No income in this period.',
+    },
+  ]
 
   return (
     <div className="flex flex-col gap-6">
@@ -77,8 +102,8 @@ export default async function FinancePage({
 
       {/* ── Charts ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <MonthlyChart data={monthlySeries} />
-        <CategoryChart data={expensesByCategory} />
+        <MonthlyChart data={series.points} unit={series.granularity} />
+        <BreakdownCard views={breakdowns} />
       </div>
 
       {/* ── Transactions ───────────────────────────────────────── */}

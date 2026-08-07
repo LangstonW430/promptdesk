@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, DollarSign, CalendarDays, AlertCircle, Archive, ArchiveRestore } from 'lucide-react'
+import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, CalendarDays, AlertCircle, Archive, ArchiveRestore } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { ProjectStatusBadge } from './project-status-badge'
 import { TimerWidget } from '@/components/time-tracking/timer-widget'
@@ -145,13 +145,12 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
                 </span>
               </>
             )}
+            {/* No DollarSign icon — formatCurrency already emits "$", and the
+                two together read as "$ $8,500 budget". */}
             {project.budget != null && (
               <>
                 <span>·</span>
-                <span className="flex items-center gap-1">
-                  <DollarSign className="size-3.5" />
-                  {formatCurrency(project.budget)} budget
-                </span>
+                <span className="tabular-nums">{formatCurrency(project.budget)} budget</span>
               </>
             )}
           </div>

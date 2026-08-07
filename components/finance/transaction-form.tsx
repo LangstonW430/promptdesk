@@ -42,6 +42,9 @@ function toActionPayload(values: TransactionFormValues) {
     occurredAt: values.occurredAt,
     clientId: values.clientId || undefined,
     isRecurring: values.isRecurring,
+    recurrenceEndedAt: values.isRecurring
+      ? (values.recurrenceEndedAt || null)
+      : null,
     frequency: values.isRecurring && values.frequency
       ? (values.frequency as 'monthly' | 'quarterly' | 'annual')
       : undefined,
@@ -250,6 +253,27 @@ export function TransactionForm({
                 </FormControl>
                 <p className="text-xs text-muted-foreground pl-0">
                   Used to normalize this payment to a monthly MRR figure.
+                </p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
+        {/* Ended — only meaningful for a recurring charge */}
+        {watchedRecurring && (
+          <FormField
+            control={form.control}
+            name="recurrenceEndedAt"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Stopped on (optional)</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
+                <p className="text-xs text-muted-foreground pl-0">
+                  Set this when the charge ends instead of deleting it — the
+                  months it did apply to keep counting it.
                 </p>
                 <FormMessage />
               </FormItem>

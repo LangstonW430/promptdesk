@@ -8,6 +8,8 @@ export type SerializedTimeEntry = {
   rate:         number | null
   description:  string | null
   isBillable:   boolean
+  /** Set once the entry has been rolled into an invoice. */
+  invoiceId:    string | null
   createdAt:    string  // ISO 8601
 }
 
@@ -27,6 +29,7 @@ type TimeEntryRow = {
   rate:        DecimalLike
   description: string | null
   isBillable:  boolean
+  invoiceId?:  string | null
   createdAt:   Date | string
   project: {
     title:  string
@@ -50,6 +53,7 @@ export function serializeTimeEntry(row: TimeEntryRow): SerializedTimeEntry {
     rate:         toNum(row.rate),
     description:  row.description,
     isBillable:   row.isBillable,
+    invoiceId:    row.invoiceId ?? null,
     createdAt:
       row.createdAt instanceof Date
         ? row.createdAt.toISOString()

@@ -25,10 +25,6 @@ function normalizeDate(s: string): string | undefined {
 }
 
 /** Strip non-numeric characters except decimal point from a currency/number string. */
-function normalizeNumber(s: string): number | undefined {
-  const n = Number(s.replace(/[^0-9.]/g, ''))
-  return isNaN(n) || s.trim() === '' ? undefined : n
-}
 
 /**
  * Imports a batch of pre-mapped rows into the clients table.
@@ -83,11 +79,9 @@ export async function importClientsAction(rows: ImportRow[]): Promise<ImportResu
       data.status = row.status.trim().toLowerCase().replace(/[\s-]+/g, '_')
     }
 
-    // Numeric field
-    if (str(row.estimatedValue)) {
-      const n = normalizeNumber(row.estimatedValue)
-      if (n !== undefined) data.estimatedValue = n
-    }
+    // Value is no longer a client field — it lives on projects, so an
+    // "estimated value" column in an imported CSV has nowhere to land. The
+    // mapping was removed from the importer's column list to match.
 
     // Date fields — accept YYYY-MM-DD or MM/DD/YYYY
     if (str(row.lastContactDate)) {

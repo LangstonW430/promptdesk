@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react'
 import { Pencil, Trash2, Check, X, Plus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { TAG_COLORS, type TagColor } from '@/lib/tags/validators'
 import { TAG_COLOR_CLASSES, TAG_DOT_CLASSES } from '@/lib/tags/colors'
@@ -31,6 +32,7 @@ export function TagManager({ initialTags }: TagManagerProps) {
   const [tags, setTags] = useState<SerializedTag[]>(initialTags)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showNewForm, setShowNewForm] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<SerializedTag | null>(null)
   const [isPending, startTransition] = useTransition()
 
   function handleCreated(tag: SerializedTag) {
@@ -47,11 +49,17 @@ export function TagManager({ initialTags }: TagManagerProps) {
     setEditingId(null)
   }
 
-  function handleDelete(id: string) {
+  // Deleting a tag detaches it from every client carrying it, which is not
+  // recoverable and not visible from this screen — so it confirms first
+  // rather than firing straight off the icon.
+  function handleDeleteConfirmed() {
+    const tag = pendingDelete
+    if (!tag) return
+    setPendingDelete(null)
     startTransition(async () => {
-      const result = await deleteTagAction(id)
+      const result = await deleteTagAction(tag.id)
       if (!('error' in result)) {
-        setTags((prev) => prev.filter((t) => t.id !== id))
+        setTags((prev) => prev.filter((t) => t.id !== tag.id))
       }
     })
   }
@@ -128,16 +136,16 @@ export function TagManager({ initialTags }: TagManagerProps) {
                     size="icon-sm"
                     onClick={() => setEditingId(tag.id)}
                     disabled={isPending}
-                    aria-label="Edit tag"
+                    aria-label={`Edit tag ${tag.label}`}
                   >
                     <Pencil />
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    onClick={() => handleDelete(tag.id)}
+                    onClick={() => setPendingDelete(tag)}
                     disabled={isPending}
-                    aria-label="Delete tag"
+                    aria-label={`Delete tag ${tag.label}`}
                     className="text-muted-foreground hover:text-destructive"
                   >
                     {isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
@@ -148,6 +156,21 @@ export function TagManager({ initialTags }: TagManagerProps) {
           )}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null) }}
+        title="Delete this tag?"
+        description={
+          pendingDelete
+            ? `"${pendingDelete.label}" will be removed from every client it is attached to. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete tag"
+        variant="destructive"
+        onConfirm={handleDeleteConfirmed}
+        isPending={isPending}
+      />
     </div>
   )
 }

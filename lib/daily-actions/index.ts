@@ -1,4 +1,8 @@
 import { prisma } from '@/lib/db/client'
+import {
+  PIPELINE_PROJECT_STATUSES,
+  pipelineValueByClient,
+} from '@/lib/clients/pipeline-value'
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -6,7 +10,11 @@ export interface ActionClient {
   id: string
   displayName: string
   status: string
-  estimatedValue: number | null
+  /**
+   * Sum of the client's open project budgets. Null when they have no open
+   * projects — distinct from 0, which would claim someone quoted them nothing.
+   */
+  pipelineValue: number | null
   /** ISO date string YYYY-MM-DD or null */
   nextFollowupDate: string | null
   /** ISO date string YYYY-MM-DD or null */
@@ -58,7 +66,6 @@ const CLIENT_SELECT = {
   companyName: true,
   contactName: true,
   status: true,
-  estimatedValue: true,
   nextFollowupDate: true,
   lastContactDate: true,
 } as const
@@ -77,11 +84,13 @@ export async function getOverdueFollowUps(ownerId: string): Promise<ActionClient
     take: 20,
   })
 
+  const values = await pipelineValueByClient(ownerId, rows.map((c) => c.id))
+
   return rows.map((c) => ({
     id: c.id,
     displayName: resolveDisplayName(c),
     status: c.status,
-    estimatedValue: c.estimatedValue ? Number(c.estimatedValue) : null,
+    pipelineValue: values.get(c.id) ?? null,
     nextFollowupDate: c.nextFollowupDate ? toDateStr(c.nextFollowupDate) : null,
     lastContactDate: c.lastContactDate ? toDateStr(c.lastContactDate) : null,
     daysOverdue: c.nextFollowupDate ? daysAgo(c.nextFollowupDate) : null,
@@ -90,32 +99,55 @@ export async function getOverdueFollowUps(ownerId: string): Promise<ActionClient
 }
 
 /**
- * Lead/contacted clients with estimatedValue > 0, ordered by value descending.
- * "High" is relative — all valued leads surface so the user can prioritise.
+ * Lead/contacted clients carrying open project value, ranked by that value.
+ *
+ * This queue used to be defined by `clients.estimatedValue > 0`. Value now
+ * lives on projects, so "hot" means the client has at least one proposed or
+ * active project with a budget — i.e. someone has actually quoted them. A lead
+ * nobody has put a number against is not hot yet, which is the same bar the old
+ * `> 0` filter set, just recorded against the work instead of the person.
+ *
+ * Ranking happens in the grouped query so only the top clients are fetched,
+ * rather than loading every lead to sort them in memory.
  */
 export async function getHotLeads(ownerId: string): Promise<ActionClient[]> {
-  const rows = await prisma.client.findMany({
+  const ranked = await prisma.project.groupBy({
+    by: ['clientId'],
     where: {
       ownerId,
       isArchived: false,
-      status: { in: ['lead', 'contacted'] },
-      estimatedValue: { gt: 0 },
+      status: { in: [...PIPELINE_PROJECT_STATUSES] },
+      budget: { gt: 0 },
+      client: { isArchived: false, status: { in: ['lead', 'contacted'] } },
     },
-    select: CLIENT_SELECT,
-    orderBy: { estimatedValue: 'desc' },
+    _sum: { budget: true },
+    orderBy: { _sum: { budget: 'desc' } },
     take: 10,
   })
+  if (ranked.length === 0) return []
 
-  return rows.map((c) => ({
-    id: c.id,
-    displayName: resolveDisplayName(c),
-    status: c.status,
-    estimatedValue: c.estimatedValue ? Number(c.estimatedValue) : null,
-    nextFollowupDate: c.nextFollowupDate ? toDateStr(c.nextFollowupDate) : null,
-    lastContactDate: c.lastContactDate ? toDateStr(c.lastContactDate) : null,
-    daysOverdue: null,
-    daysSinceContact: c.lastContactDate ? daysAgo(c.lastContactDate) : null,
-  }))
+  const rows = await prisma.client.findMany({
+    where: { ownerId, id: { in: ranked.map((r) => r.clientId) } },
+    select: CLIENT_SELECT,
+  })
+
+  // groupBy carries the ordering; findMany does not preserve `in` order.
+  const byId = new Map(rows.map((c) => [c.id, c]))
+
+  return ranked.flatMap((r) => {
+    const c = byId.get(r.clientId)
+    if (!c) return []
+    return [{
+      id: c.id,
+      displayName: resolveDisplayName(c),
+      status: c.status,
+      pipelineValue: Number(r._sum.budget ?? 0),
+      nextFollowupDate: c.nextFollowupDate ? toDateStr(c.nextFollowupDate) : null,
+      lastContactDate: c.lastContactDate ? toDateStr(c.lastContactDate) : null,
+      daysOverdue: null,
+      daysSinceContact: c.lastContactDate ? daysAgo(c.lastContactDate) : null,
+    }]
+  })
 }
 
 /**
@@ -143,13 +175,15 @@ export async function getGoingCold(ownerId: string): Promise<ActionClient[]> {
     take: 20,
   })
 
+  const values = await pipelineValueByClient(ownerId, rows.map((c) => c.id))
+
   return rows.map((c) => {
     const contactRef = c.lastContactDate ?? c.createdAt
     return {
       id: c.id,
       displayName: resolveDisplayName(c),
       status: c.status,
-      estimatedValue: c.estimatedValue ? Number(c.estimatedValue) : null,
+      pipelineValue: values.get(c.id) ?? null,
       nextFollowupDate: c.nextFollowupDate ? toDateStr(c.nextFollowupDate) : null,
       lastContactDate: c.lastContactDate ? toDateStr(c.lastContactDate) : null,
       daysOverdue: null,
@@ -300,8 +334,8 @@ export async function getRecommendedActions(ownerId: string): Promise<Recommende
       type: 'hot_lead',
       clientId: c.id,
       clientName: c.displayName,
-      context: c.estimatedValue
-        ? `$${c.estimatedValue.toLocaleString('en-US')} opportunity`
+      context: c.pipelineValue
+        ? `$${c.pipelineValue.toLocaleString('en-US')} opportunity`
         : 'Hot lead',
     })
   }

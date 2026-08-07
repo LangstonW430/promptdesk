@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const clientFindMany = vi.fn()
+const projectGroupBy = vi.fn()
 
 vi.mock('@/lib/db/client', () => ({
   prisma: {
     client: {
       get findMany() {
         return clientFindMany
+      },
+    },
+    project: {
+      get groupBy() {
+        return projectGroupBy
       },
     },
   },
@@ -29,7 +35,6 @@ const TABLE_COLUMNS = [
   'email',
   'industry',
   'status',
-  'estimatedValue',
   'lastContactDate',
   'nextFollowupDate',
 ]
@@ -42,12 +47,17 @@ const HEAVY_COLUMNS = [
   'opportunityNotes',
   'relationshipSummary',
   'customFields',
+  // Superseded by the derived pipeline value — selecting it again would
+  // reintroduce the per-client estimate this table stopped rendering.
+  'estimatedValue',
 ]
 
 describe('listClientsForTable projection', () => {
   beforeEach(() => {
     clientFindMany.mockReset()
+    projectGroupBy.mockReset()
     clientFindMany.mockResolvedValue([])
+    projectGroupBy.mockResolvedValue([])
   })
 
   it('projects columns explicitly instead of selecting whole rows', async () => {
@@ -90,6 +100,30 @@ describe('listClientsForTable projection', () => {
     expect(where.AND).toEqual(
       expect.arrayContaining([{ ownerId: OWNER }, { status: 'won' }]),
     )
+  })
+
+  it('attaches pipeline value summed from each client\'s open projects', async () => {
+    clientFindMany.mockResolvedValue([{ id: 'c1' }, { id: 'c2' }])
+    projectGroupBy.mockResolvedValue([{ clientId: 'c1', _sum: { budget: 9000 } }])
+
+    const rows = await listClientsForTable(OWNER)
+
+    // c2 has no open projects, so it reports null rather than 0 — "nobody has
+    // quoted them" is not the same claim as "they are worth nothing".
+    expect(rows).toEqual([
+      { id: 'c1', pipelineValue: 9000 },
+      { id: 'c2', pipelineValue: null },
+    ])
+  })
+
+  it('scopes the value aggregate to the owner and to open project statuses', async () => {
+    clientFindMany.mockResolvedValue([{ id: 'c1' }])
+    await listClientsForTable(OWNER)
+
+    const where = projectGroupBy.mock.calls[0][0].where
+    expect(where.ownerId).toBe(OWNER)
+    expect(where.isArchived).toBe(false)
+    expect(where.status).toEqual({ in: ['proposed', 'active'] })
   })
 })
 

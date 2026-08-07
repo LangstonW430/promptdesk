@@ -13,7 +13,7 @@ import {
 const createProjectSchema = z.object({
   clientId:     z.string().uuid(),
   title:        z.string().min(1, 'Title is required').max(200),
-  status:       z.enum(['active', 'completed', 'on_hold', 'cancelled']).default('active'),
+  status:       z.enum(['proposed', 'active', 'completed', 'on_hold', 'cancelled']).default('active'),
   startDate:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   endDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   budget:       z.number().positive().nullable().optional(),
@@ -22,7 +22,7 @@ const createProjectSchema = z.object({
 
 const updateProjectSchema = z.object({
   title:        z.string().min(1).max(200).optional(),
-  status:       z.enum(['active', 'completed', 'on_hold', 'cancelled']).optional(),
+  status:       z.enum(['proposed', 'active', 'completed', 'on_hold', 'cancelled']).optional(),
   startDate:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   endDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   budget:       z.number().positive().nullable().optional(),

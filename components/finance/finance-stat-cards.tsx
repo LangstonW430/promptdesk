@@ -70,17 +70,36 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
       amount: t.amount,
     }))
 
-  const grossMRRItems: BreakdownItem[] = activeMRR.subscriptions.map((sub) => ({
-    label: sub.customerName ?? sub.subscriptionId,
-    sublabel: [sub.priceName, sub.interval].filter(Boolean).join(' · ') || undefined,
-    amount: sub.monthlyAmount,
-  }))
+  const freqLabel = (f: string) =>
+    f === 'quarterly' ? 'quarterly' : f === 'annual' ? 'annual' : 'monthly'
+
+  const grossMRRItems: BreakdownItem[] = [
+    ...activeMRR.subscriptions.map((sub) => ({
+      label: sub.customerName ?? sub.subscriptionId,
+      sublabel: [sub.priceName, sub.interval].filter(Boolean).join(' · ') || undefined,
+      amount: sub.monthlyAmount,
+    })),
+    // Recurring income entered by hand counts toward MRR too — it used to be
+    // missing entirely, so anyone without Stripe saw a gross of zero. Listed
+    // one per charge: a breakdown exists to say what the total is made of.
+    ...activeMRR.recurringLines
+      .filter((l) => l.type === 'income')
+      .map((l, i) => ({
+        ...(i === 0 ? { separator: 'Entered manually' } : {}),
+        label: l.label,
+        sublabel: l.frequency === 'monthly'
+          ? l.category
+          : `${l.category} · ${formatCurrency(l.amount)} ${freqLabel(l.frequency)}`,
+        amount: l.monthlyAmount,
+      })),
+  ]
 
   const monthlyExpenseItems: BreakdownItem[] = [
     ...transactions
       .filter(
         (t) =>
           t.type === 'expense' &&
+          !t.isRecurring &&
           inRange(t.occurredAt, mFrom, mTo) &&
           t.externalType !== 'fee',
       )
@@ -89,6 +108,20 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
         label: t.description || t.category,
         sublabel: t.category,
         amount: t.amount,
+      })),
+    // Standing charges apply every month, so they are listed at their monthly
+    // rate rather than only in the month they happen to be dated — and named
+    // individually, since collapsing them into one "Recurring expenses" row
+    // told you nothing about what you are actually paying for.
+    ...activeMRR.recurringLines
+      .filter((l) => l.type === 'expense')
+      .map((l, i) => ({
+        ...(i === 0 ? { separator: 'Recurring' } : {}),
+        label: l.label,
+        sublabel: l.frequency === 'monthly'
+          ? `${l.category} · monthly`
+          : `${l.category} · ${formatCurrency(l.amount)} ${freqLabel(l.frequency)}`,
+        amount: l.monthlyAmount,
       })),
     ...(activeMRR.configured && activeMRR.estimatedFees > 0
       ? [{
@@ -101,11 +134,13 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
       : []),
   ]
 
-  const netMRRItems: BreakdownItem[] = activeMRR.configured
+  const netMRRItems: BreakdownItem[] = activeMRR.hasData
     ? [
         {
           label: 'Gross MRR',
-          sublabel: `${activeMRR.subscriptionCount} active subscription${activeMRR.subscriptionCount !== 1 ? 's' : ''}`,
+          sublabel: activeMRR.configured
+            ? `${activeMRR.subscriptionCount} active subscription${activeMRR.subscriptionCount !== 1 ? 's' : ''}`
+            : 'recurring income entered manually',
           amount: activeMRR.gross,
         },
         {
@@ -171,15 +206,19 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           Monthly Recurring Revenue
         </h2>
-        {!activeMRR.configured ? (
+        {/* Previously this whole section was replaced by the Stripe prompt
+            whenever no key was configured, which hid manually entered recurring
+            income and costs — the figures most users have. The prompt now only
+            stands in when there is genuinely nothing to show. */}
+        {!activeMRR.hasData ? (
           <p className="rounded-xl border border-border bg-card px-4 py-5 text-sm text-muted-foreground">
-            Connect your Stripe account in{' '}
+            Mark a transaction as recurring to track it here, or connect Stripe in{' '}
             <a href="/settings" className="underline underline-offset-2 hover:text-foreground">
               Settings
             </a>{' '}
-            to see your live MRR from active subscriptions.
+            to pull MRR from active subscriptions.
           </p>
-        ) : activeMRR.permissionError ? (
+        ) : activeMRR.configured && activeMRR.permissionError ? (
           <p className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-5 text-sm text-destructive">
             Your Stripe key is missing <strong>Subscriptions: Read</strong> permission. Update it in{' '}
             <a
@@ -207,7 +246,11 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
                 icon={Repeat2}
                 label="Gross MRR"
                 value={formatCurrency(activeMRR.gross)}
-                subtext={`${activeMRR.subscriptionCount} active subscription${activeMRR.subscriptionCount !== 1 ? 's' : ''}`}
+                subtext={
+                  activeMRR.subscriptionCount > 0
+                    ? `${activeMRR.subscriptionCount} active subscription${activeMRR.subscriptionCount !== 1 ? 's' : ''}`
+                    : 'recurring income entered manually'
+                }
                 highlight
               />
             </button>

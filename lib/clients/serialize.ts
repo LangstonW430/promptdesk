@@ -1,4 +1,5 @@
 import type { SerializedClientDetail } from '@/components/clients/client-detail'
+import { PIPELINE_PROJECT_STATUSES } from './pipeline-value'
 
 type DecimalLike = { toNumber(): number } | number | null | undefined
 
@@ -19,7 +20,6 @@ type ClientWithRelations = {
   companySize: string | null
   leadSource: string | null
   status: string
-  estimatedValue: DecimalLike
   defaultRate: DecimalLike
   projectType: string | null
   painPoints: string | null
@@ -45,7 +45,7 @@ type ClientWithRelations = {
     detail: unknown
     createdAt: Date
   }>
-  projects: Array<{ id: string; title: string; status: string }>
+  projects: Array<{ id: string; title: string; status: string; budget?: DecimalLike }>
   customFields: unknown
 }
 
@@ -61,7 +61,6 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
     companySize: client.companySize,
     leadSource: client.leadSource,
     status: client.status,
-    estimatedValue: toNum(client.estimatedValue),
     defaultRate: toNum(client.defaultRate),
     projectType: client.projectType,
     painPoints: client.painPoints,
@@ -98,7 +97,17 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
       id: p.id,
       title: p.title,
       status: p.status,
+      budget: toNum(p.budget),
     })),
+    // Summed here rather than carried on the client row: value lives on
+    // projects now, and the detail page already has them loaded.
+    pipelineValue: client.projects.reduce(
+      (sum, p) =>
+        PIPELINE_PROJECT_STATUSES.includes(p.status as 'proposed' | 'active')
+          ? sum + (toNum(p.budget) ?? 0)
+          : sum,
+      0,
+    ),
     customFields: (client.customFields ?? {}) as Record<string, string>,
   }
 }

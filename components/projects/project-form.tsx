@@ -27,6 +27,7 @@ interface ProjectFormProps {
 }
 
 const STATUS_OPTIONS = [
+  { value: 'proposed',  label: 'Proposed' },
   { value: 'active',    label: 'Active' },
   { value: 'on_hold',   label: 'On Hold' },
   { value: 'completed', label: 'Completed' },

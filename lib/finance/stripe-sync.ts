@@ -15,6 +15,7 @@ import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
 import { getStripeForOwner } from './stripe-client'
 import { getPeriodBoundaries } from './calc'
+import type { RecurringFrequency } from './types'
 import {
   chargeToTransaction,
   chargeFeeToTransaction,
@@ -151,15 +152,94 @@ export interface SubscriptionLine {
   monthlyAmount: number
 }
 
+export interface RecurringLine {
+  id: string
+  type: 'income' | 'expense'
+  label: string
+  category: string
+  frequency: RecurringFrequency
+  /** The amount as entered, at its own cadence. */
+  amount: number
+  /** That amount normalised to a monthly rate. */
+  monthlyAmount: number
+}
+
 export interface ActiveMRRResult {
   configured: boolean       // false when no Stripe key is saved
   permissionError: boolean  // true when key lacks Subscriptions: Read
-  gross: number             // sum of active subscription amounts (monthly, in dollars)
+  gross: number             // Stripe subscriptions + manual recurring income, monthly
   estimatedFees: number     // 2.9% + $0.30 per sub (exposed for breakdown display)
-  monthlyExpenses: number   // non-fee DB expenses this month + estimatedFees
+  monthlyExpenses: number   // one-off expenses this month + recurring + estimatedFees
   net: number               // gross - monthlyExpenses
   subscriptionCount: number
   subscriptions: SubscriptionLine[]
+  /** Manually entered recurring income, normalised to a monthly rate. */
+  manualRecurringIncome: number
+  /** Manually entered recurring expense, normalised to a monthly rate. */
+  manualRecurringExpense: number
+  /** Each standing charge individually, so the breakdown can name them. */
+  recurringLines: RecurringLine[]
+  /** True when there is anything to show at all — Stripe or manual recurring. */
+  hasData: boolean
+}
+
+/**
+ * Manually entered standing charges, normalised to monthly rates.
+ *
+ * These were invisible to MRR, which only ever asked Stripe. A hosting fee
+ * entered by hand is a recurring cost whether or not Stripe knows about it, and
+ * a retainer invoiced manually is recurring income — the panel reported neither.
+ * A recurrence that has ended no longer counts toward the current rate.
+ */
+async function getManualRecurringRates(
+  ownerId: string,
+  now: Date,
+): Promise<{ income: number; expense: number; lines: RecurringLine[] }> {
+  const rows = await prisma.transaction.findMany({
+    where: {
+      ownerId,
+      source: 'manual',
+      isRecurring: true,
+      OR: [{ recurrenceEndedAt: null }, { recurrenceEndedAt: { gte: now } }],
+    },
+    select: {
+      id: true, type: true, amount: true, frequency: true,
+      description: true, category: true,
+    },
+    orderBy: { amount: 'desc' },
+  })
+
+  let income = 0
+  let expense = 0
+  const lines: RecurringLine[] = []
+
+  for (const r of rows) {
+    // Quarterly and annual charges are divided down, so the panel reads as a
+    // rate per month rather than mixing cadences.
+    const divisor = r.frequency === 'quarterly' ? 3 : r.frequency === 'annual' ? 12 : 1
+    const monthly = Math.round((Number(r.amount) / divisor) * 100) / 100
+    if (r.type === 'income') income += monthly
+    else expense += monthly
+
+    lines.push({
+      id: r.id,
+      type: r.type as 'income' | 'expense',
+      // Named individually rather than summed into one "Recurring expenses"
+      // row: a breakdown whose whole point is itemising what makes up a total
+      // is useless if it collapses everything into a single line.
+      label: r.description || r.category,
+      category: r.category,
+      frequency: (r.frequency as RecurringFrequency | null) ?? 'monthly',
+      amount: Number(r.amount),
+      monthlyAmount: monthly,
+    })
+  }
+
+  return {
+    income: Math.round(income * 100) / 100,
+    expense: Math.round(expense * 100) / 100,
+    lines,
+  }
 }
 
 function normalizeToMonthly(
@@ -188,26 +268,40 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
   // Exclude Stripe fee rows (externalType = 'fee') — those are per-charge and dated
   // when the charge occurred, which may be outside the current month. Estimated
   // subscription fees are added separately below so they stay in sync with gross MRR.
-  const expenseAgg = await prisma.transaction.aggregate({
-    where: {
-      ownerId,
-      type: 'expense',
-      occurredAt: { gte: expFrom!, lt: expTo! },
-      OR: [{ externalType: null }, { externalType: { not: 'fee' } }],
-    },
-    _sum: { amount: true },
-  })
-  const otherExpenses = Math.round(Number(expenseAgg._sum.amount ?? 0) * 100) / 100
+  // Recurring rows are excluded here and counted at their monthly rate instead:
+  // a standing charge applies every month regardless of the one date it carries,
+  // so matching it by `occurredAt` would count it in its first month only.
+  const [expenseAgg, manualRecurring] = await Promise.all([
+    prisma.transaction.aggregate({
+      where: {
+        ownerId,
+        type: 'expense',
+        isRecurring: false,
+        occurredAt: { gte: expFrom!, lt: expTo! },
+        OR: [{ externalType: null }, { externalType: { not: 'fee' } }],
+      },
+      _sum: { amount: true },
+    }),
+    getManualRecurringRates(ownerId, new Date()),
+  ])
+  const oneOffExpenses = Math.round(Number(expenseAgg._sum.amount ?? 0) * 100) / 100
+  const otherExpenses = Math.round((oneOffExpenses + manualRecurring.expense) * 100) / 100
 
+  // With no Stripe key the panel is not empty any more — manually entered
+  // standing charges are real recurring figures and are all this returns.
   const empty: ActiveMRRResult = {
     configured: false,
     permissionError: false,
-    gross: 0,
+    gross: manualRecurring.income,
     estimatedFees: 0,
     monthlyExpenses: otherExpenses,
-    net: -otherExpenses,
+    net: Math.round((manualRecurring.income - otherExpenses) * 100) / 100,
     subscriptionCount: 0,
     subscriptions: [],
+    manualRecurringIncome: manualRecurring.income,
+    manualRecurringExpense: manualRecurring.expense,
+    recurringLines: manualRecurring.lines,
+    hasData: manualRecurring.income > 0 || manualRecurring.expense > 0 || otherExpenses > 0,
   }
 
   let stripeClient: Awaited<ReturnType<typeof getStripeForOwner>>
@@ -254,19 +348,25 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
     return { ...empty, configured: true, permissionError: isPermErr }
   }
 
-  // Stripe standard rate: 2.9% + $0.30 per subscription per month
+  // Stripe standard rate: 2.9% + $0.30 per subscription per month. Charged on
+  // Stripe's gross only, so it is computed before manual income is added in.
   const estimatedFees = Math.round((gross * 0.029 + count * 0.3) * 100) / 100
   const monthlyExpenses = Math.round((otherExpenses + estimatedFees) * 100) / 100
+  const totalGross = Math.round((gross + manualRecurring.income) * 100) / 100
 
   return {
     configured: true,
     permissionError: false,
-    gross: Math.round(gross * 100) / 100,
+    gross: totalGross,
     estimatedFees,
     monthlyExpenses,
-    net: Math.round((gross - monthlyExpenses) * 100) / 100,
+    net: Math.round((totalGross - monthlyExpenses) * 100) / 100,
     subscriptionCount: count,
     subscriptions: lines,
+    manualRecurringIncome: manualRecurring.income,
+    manualRecurringExpense: manualRecurring.expense,
+    recurringLines: manualRecurring.lines,
+    hasData: true,
   }
 }
 

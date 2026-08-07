@@ -32,7 +32,7 @@ function contextString(client: ActionClient, queue: QueueType): string {
   }
   if (queue === 'hot') {
     const parts: string[] = []
-    if (client.estimatedValue) parts.push(formatValue(client.estimatedValue))
+    if (client.pipelineValue) parts.push(formatValue(client.pipelineValue))
     if (client.daysSinceContact != null) {
       parts.push(
         client.daysSinceContact === 0
@@ -100,9 +100,9 @@ export function ActionRow({ client, queueType, defaultAi, isLast }: ActionRowPro
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium">{client.displayName}</span>
             <StatusBadge status={client.status} />
-            {client.estimatedValue != null && queueType !== 'hot' && (
+            {client.pipelineValue != null && queueType !== 'hot' && (
               <span className="text-xs text-muted-foreground">
-                {formatValue(client.estimatedValue)}
+                {formatValue(client.pipelineValue)}
               </span>
             )}
           </div>

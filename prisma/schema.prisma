@@ -53,6 +53,9 @@ model Client {
   companySize      String?                  @map("company_size")
   leadSource       String?                  @map("lead_source")
   status           String                   @default("lead")
+  /// Superseded by projects.budget — a client's pipeline value is now the sum
+  /// of their open projects' budgets (see lib/clients/pipeline-value.ts).
+  /// Retained so the 20260806100000 migration loses no data; nothing reads it.
   estimatedValue   Decimal?                 @map("estimated_value") @db.Decimal(12, 2)
   projectType      String?                  @map("project_type")
   painPoints       String?                  @map("pain_points")
@@ -152,7 +155,10 @@ model Project {
   ownerId      String    @map("owner_id") @db.Uuid
   clientId     String    @map("client_id") @db.Uuid
   title        String
-  status       String    @default("active")  // active | completed | on_hold | cancelled
+  // proposed = quoted but not yet won. It is what lets an opportunity carry a
+  // budget before there is any work to do, which is how pipeline value is
+  // derived now that clients no longer hold an estimate of their own.
+  status       String    @default("active")  // proposed | active | completed | on_hold | cancelled
   startDate    DateTime? @map("start_date") @db.Date
   endDate      DateTime? @map("end_date") @db.Date
   budget       Decimal?  @db.Decimal(12, 2)
@@ -309,8 +315,15 @@ model Transaction {
   clientId     String?             @map("client_id") @db.Uuid
   externalId   String?             @map("external_id")      // Stripe object id (ch_..., in_..., etc.)
   externalType String?             @map("external_type")    // "charge" | "refund" | "invoice" | "fee"
+  // A recurring transaction is a standing charge, not a payment record: it is
+  // entered once and counts in every period from occurredAt onward. Do not also
+  // log each period's payment, or that period counts twice.
   isRecurring  Boolean             @default(false) @map("is_recurring") // true = part of MRR
   frequency    RecurringFrequency? // billing cadence for recurring transactions
+  /// When the standing charge stopped. Null means still running. Set this
+  /// rather than deleting or un-ticking `isRecurring` when something is
+  /// cancelled — those erase the charge from the months it did apply to.
+  recurrenceEndedAt DateTime?      @map("recurrence_ended_at") @db.Date
   metadata     Json                @default("{}") @db.JsonB  // counterparty, Stripe ids, fee details
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

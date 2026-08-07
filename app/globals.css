@@ -18,11 +18,17 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+  --color-chart-8: var(--chart-8);
+  --color-chart-7: var(--chart-7);
+  --color-chart-6: var(--chart-6);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  --color-chart-other: var(--chart-other);
+  --color-chart-income: var(--chart-income);
+  --color-chart-expense: var(--chart-expense);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -68,11 +74,42 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.511 0.262 276.966);          /* indigo ring  */
-  --chart-1: oklch(0.511 0.262 276.966);
-  --chart-2: oklch(0.623 0.214 259.815);
-  --chart-3: oklch(0.702 0.183 293.541);
-  --chart-4: oklch(0.556 0 0);
-  --chart-5: oklch(0.439 0 0);
+  /* ── Chart palette ──────────────────────────────────────────
+     Categorical slots, assigned in fixed order and never cycled: a
+     colour identifies a category, so it cannot depend on how many
+     categories happen to be on screen. The previous --chart-1..5 were
+     three near-neighbour indigos plus two greys; the greys sat under
+     the chroma floor and the indigos were indistinguishable under
+     deuteranopia, so nothing that used them was readable.
+
+     Validated against this app's own card surfaces (#ffffff light,
+     #171717 dark), not against a generic default: worst adjacent CVD
+     ΔE 9.1 light / 8.4 dark, worst normal-vision ΔE 19.6 / 19.3.
+     Aqua, yellow and magenta fall under 3:1 on the light surface —
+     every chart using them ships visible text labels, which is the
+     documented relief. Re-run the validator before changing a step. */
+  --chart-1: #2a78d6;   /* blue    */
+  --chart-2: #eb6834;   /* orange  */
+  --chart-3: #1baf7a;   /* aqua    */
+  --chart-4: #eda100;   /* yellow  */
+  --chart-5: #e87ba4;   /* magenta */
+  --chart-6: #008300;   /* green   */
+  --chart-7: #4a3aa7;   /* violet  */
+  --chart-8: #e34948;   /* red     */
+  /* The tail past the named slots folds into one neutral bucket
+     rather than wrapping back round to slot 1. */
+  --chart-other: oklch(0.556 0 0);
+
+  /* Income vs expense is a polarity, not two arbitrary categories, so
+     it keeps the green/red convention finance readers already carry.
+     The old emerald-400/rose-400 pair measured ΔE 4.6 under
+     deuteranopia — indistinguishable. These steps measure 7.2 light /
+     8.6 dark, which sits in the band that is only legal alongside
+     secondary encoding, so both charts using them carry a legend, a
+     value table, and a surface gap between the paired bars. */
+  --chart-income: #008300;
+  --chart-expense: #e34948;
+
   --radius: 0.625rem;
   /* ── Sidebar ───────────────────────────────────────────── */
   --sidebar: oklch(0.985 0 0);
@@ -105,11 +142,21 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.623 0.214 259.815);
-  --chart-1: oklch(0.623 0.214 259.815);
-  --chart-2: oklch(0.702 0.183 293.541);
-  --chart-3: oklch(0.87 0 0);
-  --chart-4: oklch(0.556 0 0);
-  --chart-5: oklch(0.371 0 0);
+  /* The same eight hues re-stepped for the dark surface — a selected
+     dark palette, not an automatic flip of the light one. All eight
+     clear 3:1 on #171717. */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
+  --chart-other: oklch(0.708 0 0);
+
+  --chart-income: #008300;
+  --chart-expense: #e66767;
   /* ── Sidebar ───────────────────────────────────────────── */
   --sidebar: oklch(0.178 0 0);
   --sidebar-foreground: oklch(0.985 0 0);

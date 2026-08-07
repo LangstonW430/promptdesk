@@ -1,4 +1,8 @@
 import { prisma } from '@/lib/db/client'
+import {
+  pipelineValueByClient,
+  pipelineValueForClient,
+} from '@/lib/clients/pipeline-value'
 import type { RetrievalSpec } from '@/lib/prompt-engine/template-types'
 import type {
   RawClient,
@@ -124,6 +128,15 @@ export async function fetchContext(
       take: spec.maxClients ?? 50,
     })
 
+    // Value is derived from the client's open projects now that clients no
+    // longer carry an estimate of their own. The engine's contract is
+    // unchanged — it still receives one number per client — so only this
+    // boundary had to move.
+    const globalValues = await pipelineValueByClient(
+      ownerId,
+      rawClients.map((c) => c.id),
+    )
+
     for (const c of rawClients) {
       clients.push({
         id: c.id,
@@ -136,7 +149,7 @@ export async function fetchContext(
         companySize: c.companySize,
         leadSource: c.leadSource,
         status: c.status,
-        estimatedValue: c.estimatedValue,
+        estimatedValue: globalValues.get(c.id) ?? null,
         projectType: c.projectType,
         painPoints: c.painPoints,
         requirements: c.requirements,
@@ -215,6 +228,7 @@ export async function fetchContext(
       include: { clientTags: { include: { tag: true } } },
     })
     if (c) {
+      const value = await pipelineValueForClient(ownerId, c.id)
       clients.push({
         id: c.id,
         companyName: c.companyName,
@@ -226,7 +240,7 @@ export async function fetchContext(
         companySize: c.companySize,
         leadSource: c.leadSource,
         status: c.status,
-        estimatedValue: c.estimatedValue,
+        estimatedValue: value,
         projectType: c.projectType,
         painPoints: c.painPoints,
         requirements: c.requirements,

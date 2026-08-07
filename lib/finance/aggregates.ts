@@ -1,23 +1,9 @@
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/client'
 import { financeTag } from '@/lib/cache-tags'
-import {
-  getPeriodBoundaries,
-  bucketByMonth,
-  groupByClient,
-  calculateMRRSummary,
-} from './calc'
-import type { Period, MonthlyStat, ClientIncomeStat, MRRSummary } from './types'
-
-function dateFilter(from: Date | null, to: Date | null) {
-  if (!from && !to) return {}
-  return {
-    occurredAt: {
-      ...(from && { gte: from }),
-      ...(to && { lt: to }),
-    },
-  }
-}
+import { buildBuckets, bucketSeries, type SeriesPoint, type Granularity } from './series'
+import { getPeriodBoundaries } from './calc'
+import type { Period } from './types'
 
 /**
  * Wraps an owner-scoped query in `unstable_cache` with a per-owner key and a
@@ -47,78 +33,81 @@ function ownerCache<A extends unknown[], R>(
 // that used to live here re-ran the same owner+period scan to produce those
 // two values, so they were removed rather than left as unused exports.
 
-// ─── Monthly series ───────────────────────────────────────────────────────────
+// ─── Period series ───────────────────────────────────────────────────────────
 
-export const getMonthlySeries = ownerCache(
-  'finance-monthly',
-  async (ownerId: string, months: number): Promise<MonthlyStat[]> => {
-    // Fetch enough history to fill all buckets
-    const windowStart = new Date()
-    windowStart.setUTCMonth(windowStart.getUTCMonth() - (months - 1))
-    windowStart.setUTCDate(1)
-    windowStart.setUTCHours(0, 0, 0, 0)
+export interface PeriodSeries {
+  points: SeriesPoint[]
+  granularity: Granularity
+}
 
+/**
+ * The charted series for the selected period.
+ *
+ * This replaced a fixed six-month window that ignored the period selector
+ * entirely, so the chart described a different span from the stat cards
+ * directly above it. Granularity is chosen by `buildBuckets`; see there for
+ * why "this month" is plotted by day.
+ */
+export const getPeriodSeries = ownerCache(
+  'finance-series',
+  async (ownerId: string, period: Period): Promise<PeriodSeries> => {
+    const { from } = getPeriodBoundaries(period)
+
+    // allTime anchors its buckets to the first transaction, so it has to be
+    // asked for. Every other period has fixed bounds and skips the query.
+    let earliest: Date | null = null
+    if (period === 'allTime') {
+      const first = await prisma.transaction.findFirst({
+        where: { ownerId },
+        orderBy: { occurredAt: 'asc' },
+        select: { occurredAt: true },
+      })
+      earliest = first?.occurredAt ?? null
+    }
+
+    const { granularity, buckets } = buildBuckets(period, new Date(), earliest)
+    if (buckets.length === 0) return { points: [], granularity }
+
+    const windowStart = buckets[0].start
+
+    // A standing charge that began before the window still applies inside it,
+    // so recurring rows cannot be excluded by date the way one-off rows can.
     const rows = await prisma.transaction.findMany({
-      where: { ownerId, occurredAt: { gte: windowStart } },
-      select: { type: true, amount: true, occurredAt: true },
-    })
-
-    return bucketByMonth(
-      rows.map((r) => ({
-        type: r.type,
-        amount: Number(r.amount),
-        occurredAt: r.occurredAt.toISOString(),
-      })),
-      months,
-    )
-  },
-)
-
-// ─── MRR summary ─────────────────────────────────────────────────────────────
-
-export const getMRRSummary = ownerCache(
-  'finance-mrr',
-  async (ownerId: string): Promise<MRRSummary> => {
-    const { from, to } = getPeriodBoundaries('thisMonth')
-    const rows = await prisma.transaction.findMany({
-      where: { ownerId, ...dateFilter(from, to) },
-      select: { type: true, amount: true, isRecurring: true, frequency: true },
-    })
-    return calculateMRRSummary(
-      rows.map((r) => ({
-        type: r.type,
-        amount: Number(r.amount),
-        isRecurring: r.isRecurring,
-        frequency: r.frequency,
-      })),
-    )
-  },
-)
-
-// ─── Income by client ─────────────────────────────────────────────────────────
-
-export const getIncomeByClient = ownerCache(
-  'finance-income-client',
-  async (ownerId: string, period: Period): Promise<ClientIncomeStat[]> => {
-    const { from, to } = getPeriodBoundaries(period)
-    const rows = await prisma.transaction.findMany({
-      where: { ownerId, type: 'income', ...dateFilter(from, to) },
+      where: {
+        OR: [
+          { ownerId, occurredAt: { gte: from ?? windowStart } },
+          { ownerId, isRecurring: true },
+        ],
+      },
       select: {
         type: true,
         amount: true,
-        clientId: true,
-        client: { select: { companyName: true, contactName: true } },
+        occurredAt: true,
+        isRecurring: true,
+        frequency: true,
+        recurrenceEndedAt: true,
       },
     })
-    return groupByClient(
-      rows.map((r) => ({
-        type: r.type,
-        amount: Number(r.amount),
-        clientId: r.clientId,
-        clientName: r.client
-          ? (r.client.companyName ?? r.client.contactName ?? 'Unknown')
-          : null,
-      })),
-    )
+
+    return {
+      points: bucketSeries(
+        rows.map((r) => ({
+          type: r.type,
+          amount: Number(r.amount),
+          occurredAt: r.occurredAt.toISOString(),
+          isRecurring: r.isRecurring,
+          frequency: r.frequency,
+          recurrenceEndedAt: r.recurrenceEndedAt?.toISOString() ?? null,
+        })),
+        buckets,
+      ),
+      granularity,
+    }
   },
 )
+
+// getMRRSummary and getIncomeByClient were removed. Both were cached wrappers
+// with no callers: MRR is served by getActiveMRR, which now counts manually
+// entered standing charges as well as Stripe subscriptions, and the finance
+// page derives its income-by-client breakdown from the rows it already loads.
+// Their reducers (calculateMRR, groupByClient) are still in lib/finance/calc.

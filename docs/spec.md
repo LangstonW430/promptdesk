@@ -37,7 +37,7 @@ No team permissions, departments, hierarchies, approval workflows, sales-team ma
 | ----------------- | -------------------------------------------------------------------------- |
 | Client management | Create / edit / archive / delete, full standard field set, status pipeline |
 | Custom data       | Notes, custom fields, tags, attachments, structured client intelligence    |
-| Pipeline          | Kanban + list views, drag-to-change status, estimated value tracking       |
+| Pipeline          | Kanban + list views, drag-to-change status, value tracked on projects      |
 | Follow-ups        | Per-client next-action dates surfaced in a Daily Action Center             |
 | Prompt generation | Business Advisor, Business Action Plan, Client Insight, Note Analysis      |
 | Prompt engine     | Reusable templates, token budgeting, context prioritization, history       |
@@ -57,7 +57,7 @@ Written from the perspective of **Sam**, a solo freelance web developer, and gro
 
 ### Epic B — Client management
 
-- As Sam, I can add a client in one short form and immediately set their status and estimated value.
+- As Sam, I can add a client in one short form and immediately set their status; the value of the work lives on a project so one client can carry several opportunities.
 - As Sam, I can move a client through the pipeline by dragging their card from _Lead_ to _Won_.
 - As Sam, I can archive a dead lead without losing its history, and restore it later.
 - As Sam, I can search and filter clients by name, status, industry, tag, or "not contacted in 30 days."
@@ -121,7 +121,7 @@ clients (
   company_size       text,
   lead_source        text,
   status             text NOT NULL DEFAULT 'lead',     -- lead|contacted|proposal_sent|negotiating|won|lost
-  estimated_value    numeric(12,2),
+  estimated_value    numeric(12,2),  -- superseded: value lives on projects.budget
   project_type       text,
   pain_points        text,
   requirements       text,
@@ -252,11 +252,11 @@ Single-page client list with toggle between **Kanban** (columns per status, drag
 
 ### 5.2 Daily Action Center
 
-The default landing module. Three rule-driven queues: **Overdue follow-ups** (`next_followup_date < today`), **Hot leads** (status in lead/contacted with high estimated value), and **Going cold** (no contact in 30+ days, not won/lost). Each row has a "Generate outreach prompt" shortcut.
+The default landing module. Three rule-driven queues: **Overdue follow-ups** (`next_followup_date < today`), **Hot leads** (status in lead/contacted, ranked by the value of their open projects), and **Going cold** (no contact in 30+ days, not won/lost). Each row has a "Generate outreach prompt" shortcut.
 
 ### 5.3 Dashboard
 
-Cards for total leads, active clients, weighted pipeline value, and a revenue forecast. The forecast is a transparent rules-based calculation — `Σ (estimated_value × stage_probability)` — with default probabilities (lead 10%, contacted 25%, proposal 50%, negotiating 70%) the user can adjust in settings. No black-box ML; the math stays explainable. Panels also show recent activity, recommended actions, conversion rate, recently generated prompts, and saved templates.
+Cards for total leads, active clients, weighted pipeline value, and a revenue forecast. The forecast is a transparent rules-based calculation — `Σ (open project budgets × stage_probability)`, where open means a proposed or active project — with default probabilities (lead 10%, contacted 25%, proposal 50%, negotiating 70%) the user can adjust in settings. No black-box ML; the math stays explainable. Panels also show recent activity, recommended actions, conversion rate, recently generated prompts, and saved templates.
 
 ### 5.4 Prompt generation features
 
@@ -309,7 +309,7 @@ Because prompts must fit a token budget, the engine scores every candidate conte
 
 ```
 score = w1 * recency        (newer activity ranks higher)
-      + w2 * deal_value      (higher estimated_value ranks higher)
+      + w2 * deal_value      (higher open-project value ranks higher)
       + w3 * stage_urgency   (negotiating/proposal > lead)
       + w4 * staleness_risk  (overdue follow-ups get a boost)
       + w5 * relevance        (keyword match to the chosen objective)

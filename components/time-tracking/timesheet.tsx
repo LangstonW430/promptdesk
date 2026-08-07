@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Receipt, Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { deleteTimeEntryAction } from '@/lib/actions/time-entries'
 import type { SerializedTimeEntry } from '@/lib/time-entries/serialize'
@@ -68,6 +69,7 @@ interface WeeklyTimesheetProps {
 export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
   const router = useRouter()
   const [selected,     setSelected]    = useState<Set<string>>(new Set())
+  const [pendingDelete, setPendingDelete] = useState<SerializedTimeEntry | null>(null)
   const [isPending,    startTransition] = useTransition()
 
   const groups = groupEntries(entries)
@@ -93,7 +95,13 @@ export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
     }
   }
 
-  function handleDelete(id: string) {
+  // Deleting logged hours is unrecoverable and the entry may already be
+  // invoiced, so it now confirms first — it used to fire straight from a
+  // hover-revealed icon with no prompt at all.
+  function handleDeleteConfirmed() {
+    const id = pendingDelete?.id
+    if (!id) return
+    setPendingDelete(null)
     setSelected((prev) => { const n = new Set(prev); n.delete(id); return n })
     startTransition(async () => {
       const result = await deleteTimeEntryAction(id)
@@ -257,12 +265,15 @@ export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
                             : '—'}
                       </span>
 
-                      {/* Delete */}
+                      {/* Delete. Revealed with opacity rather than
+                          `invisible`: visibility:hidden takes the button out of
+                          the tab order, so there was no way to reach it without
+                          a mouse. */}
                       <button
-                        onClick={() => handleDelete(entry.id)}
+                        onClick={() => setPendingDelete(entry)}
                         disabled={isPending}
-                        aria-label="Delete entry"
-                        className="invisible shrink-0 group-hover:visible text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                        aria-label={`Delete ${formatHours(entry.hours)} entry on ${formatDate(entry.date)}`}
+                        className="shrink-0 rounded text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100 disabled:opacity-50"
                       >
                         <Trash2 className="size-3.5" />
                       </button>
@@ -274,6 +285,25 @@ export function WeeklyTimesheet({ entries, weekStart }: WeeklyTimesheetProps) {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null) }}
+        title="Delete this time entry?"
+        description={
+          pendingDelete
+            ? `${formatHours(pendingDelete.hours)} on ${formatDate(pendingDelete.date)}${
+                pendingDelete.invoiceId
+                  ? ' — this entry is already on an invoice, which will not be adjusted.'
+                  : '. This cannot be undone.'
+              }`
+            : ''
+        }
+        confirmLabel="Delete entry"
+        variant="destructive"
+        onConfirm={handleDeleteConfirmed}
+        isPending={isPending}
+      />
     </div>
   )
 }
