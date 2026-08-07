@@ -6,7 +6,6 @@ import {
   THEME_INIT_SCRIPT,
   isTheme,
   resolveTheme,
-  nextTheme,
 } from '@/lib/theme'
 
 describe('isTheme', () => {
@@ -40,27 +39,9 @@ describe('resolveTheme', () => {
   })
 })
 
-describe('nextTheme', () => {
-  it('cycles light → dark → system → light', () => {
-    expect(nextTheme('light')).toBe('dark')
-    expect(nextTheme('dark')).toBe('system')
-    expect(nextTheme('system')).toBe('light')
-  })
-
-  it('reaches every theme, so none is unreachable from the button', () => {
-    const seen = new Set<string>()
-    let t = DEFAULT_THEME
-    for (let i = 0; i < THEMES.length; i++) {
-      seen.add(t)
-      t = nextTheme(t)
-    }
-    expect(seen).toEqual(new Set(THEMES))
-    // and returns to where it started
-    expect(t).toBe(DEFAULT_THEME)
-  })
-
-  it('recovers from an invalid current value', () => {
-    expect(THEMES).toContain(nextTheme('nonsense'))
+describe('THEMES', () => {
+  it('is the full set the account menu offers, in display order', () => {
+    expect([...THEMES]).toEqual(['light', 'dark', 'system'])
   })
 })
 

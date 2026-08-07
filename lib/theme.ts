@@ -35,16 +35,6 @@ export function resolveTheme(preference: unknown, prefersDark: boolean): 'light'
   return theme
 }
 
-/**
- * Next preference in the cycle, for the single-button toggle.
- * light → dark → system → light.
- */
-export function nextTheme(current: unknown): Theme {
-  const theme = isTheme(current) ? current : DEFAULT_THEME
-  const i = THEMES.indexOf(theme)
-  return THEMES[(i + 1) % THEMES.length]
-}
-
 /** Reads the stored preference. Returns the default when absent or corrupt. */
 export function readStoredTheme(): Theme {
   try {
