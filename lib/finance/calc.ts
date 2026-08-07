@@ -376,3 +376,32 @@ export function foldCategoryTail(
   if (otherCount === 0) return head
   return [...head, { category: OTHER_CATEGORY, total: otherTotal, count: otherCount }]
 }
+
+// ─── Cumulative view ─────────────────────────────────────────────────────────
+
+/**
+ * Turns per-month figures into running totals across the charted window.
+ *
+ * Each month reports everything earned or spent up to and including it, rather
+ * than that month alone. It answers a different question from the per-month
+ * series — "am I ahead over this stretch" instead of "how did March go" — and
+ * a rising-then-flattening cumulative net is far easier to read off a running
+ * total than off six separate bars.
+ *
+ * The running total starts at the beginning of the window, not at the beginning
+ * of time: the chart shows a fixed span, so the figures are cumulative *within
+ * the period on screen*.
+ *
+ * Net stays the difference of the two running totals, which is the same thing
+ * as the running total of the monthly nets — so the three series remain
+ * consistent with each other however the reader adds them up.
+ */
+export function toCumulative(rows: ReadonlyArray<MonthlyStat>): MonthlyStat[] {
+  let income = 0
+  let expense = 0
+  return rows.map((r) => {
+    income += r.income
+    expense += r.expense
+    return { ...r, income, expense, net: income - expense }
+  })
+}

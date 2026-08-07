@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { TrendChart } from './trend-chart'
+import { toCumulative } from '@/lib/finance/calc'
 import { cn } from '@/lib/utils'
 import type { MonthlyStat } from '@/lib/finance/types'
 
@@ -21,24 +22,33 @@ interface MonthlyChartProps {
   data: MonthlyStat[]
 }
 
-type View = 'bars' | 'trend'
+type View = 'bars' | 'trend' | 'cumulative'
 
 const VIEWS: { id: View; label: string }[] = [
-  { id: 'bars',  label: 'Monthly' },
-  { id: 'trend', label: 'Trend' },
+  { id: 'bars',       label: 'Monthly' },
+  { id: 'trend',      label: 'Trend' },
+  { id: 'cumulative', label: 'Cumulative' },
 ]
+
+const TITLES: Record<View, string> = {
+  bars:       'Monthly Income vs Expenses',
+  trend:      'Income, Net & Expenses',
+  cumulative: 'Cumulative Income, Net & Expenses',
+}
 
 export function MonthlyChart({ data }: MonthlyChartProps) {
   const [view, setView] = useState<View>('bars')
   const max = Math.max(...data.flatMap((d) => [d.income, d.expense]), 1)
   const hasData = data.some((d) => d.income > 0 || d.expense > 0)
 
+  // Running totals across the charted window. The table is fed the same rows
+  // as the chart so the two can never report different numbers for a month.
+  const lineData = view === 'cumulative' ? toCumulative(data) : data
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <CardTitle>
-          {view === 'bars' ? 'Monthly Income vs Expenses' : 'Income, Net & Expenses'}
-        </CardTitle>
+        <CardTitle>{TITLES[view]}</CardTitle>
 
         {/* Two readings of the same months: the columns compare each month on
             its own, the lines show which way the numbers are heading. A tab
@@ -72,10 +82,10 @@ export function MonthlyChart({ data }: MonthlyChartProps) {
           <p className="py-6 text-center text-sm text-muted-foreground">
             No transactions recorded yet.
           </p>
-        ) : view === 'trend' ? (
+        ) : view !== 'bars' ? (
           <div className="flex flex-col gap-4">
-            <TrendChart data={data} />
-            <MonthlyTable data={data} />
+            <TrendChart data={lineData} cumulative={view === 'cumulative'} />
+            <MonthlyTable data={lineData} cumulative={view === 'cumulative'} />
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -152,11 +162,21 @@ function Cell({ value }: { value: number }) {
  * The table view, shared by both charts. Every value either one plots is
  * readable here, so neither is the only way to reach a number.
  */
-function MonthlyTable({ data }: { data: MonthlyStat[] }) {
+function MonthlyTable({
+  data,
+  cumulative = false,
+}: {
+  data: MonthlyStat[]
+  cumulative?: boolean
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
-        <caption className="sr-only">Monthly income, expenses and net</caption>
+        <caption className="sr-only">
+          {cumulative
+            ? 'Income, expenses and net, accumulated month by month'
+            : 'Monthly income, expenses and net'}
+        </caption>
         <thead>
           <tr className="border-b border-border text-muted-foreground">
             <th scope="col" className="pb-1.5 text-left font-medium">Month</th>

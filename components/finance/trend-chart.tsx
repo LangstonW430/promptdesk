@@ -55,7 +55,14 @@ function niceTicks(min: number, max: number, count = 4): number[] {
  * every line is labelled at its end, the legend is always present, and the
  * table below the chart carries every value.
  */
-export function TrendChart({ data }: { data: MonthlyStat[] }) {
+export function TrendChart({
+  data,
+  cumulative = false,
+}: {
+  data: MonthlyStat[]
+  /** Values are running totals across the window rather than per-month. */
+  cumulative?: boolean
+}) {
   const [hover, setHover] = useState<number | null>(null)
 
   if (data.length < 2) {
@@ -98,7 +105,11 @@ export function TrendChart({ data }: { data: MonthlyStat[] }) {
           viewBox={`0 0 ${W} ${H}`}
           className="h-auto w-full"
           role="img"
-          aria-label="Income, net and expenses by month. The same values are listed in the table below."
+          aria-label={
+            cumulative
+              ? 'Income, net and expenses accumulated month by month across the charted window. The same values are listed in the table below.'
+              : 'Income, net and expenses by month. The same values are listed in the table below.'
+          }
           onPointerLeave={() => setHover(null)}
           onPointerMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect()
@@ -187,7 +198,11 @@ export function TrendChart({ data }: { data: MonthlyStat[] }) {
         role="status"
         aria-live="polite"
       >
-        <span className="font-medium">{active ? active.label : 'Hover a month'}</span>
+        <span className="font-medium">
+          {active
+            ? `${active.label}${cumulative ? ' · to date' : ''}`
+            : 'Hover a month'}
+        </span>
         {SERIES.map((s) => (
           <span key={s.key} className="flex items-center gap-1.5">
             {/* A line key, not a filled box — at this density a box is
