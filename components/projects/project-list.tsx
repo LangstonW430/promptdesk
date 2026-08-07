@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTransition, useState } from 'react'
-import { Clock, DollarSign, Trash2, Archive, ArchiveRestore } from 'lucide-react'
+import { Clock, Trash2, Archive, ArchiveRestore } from 'lucide-react'
 import { projectStatusConfig } from './project-status-badge'
 import { ProjectStatusSelect } from './project-status-select'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -184,11 +184,12 @@ export function ProjectList({ projects, archived = false }: ProjectListProps) {
                     {formatHours(project.totalHours)}
                   </span>
                 )}
+                {/* No icon: formatCurrency already emits the currency symbol,
+                    so a DollarSign beside it rendered "$ $8,500". The hours
+                    above keep their clock because "42.5h" carries no glyph of
+                    its own. */}
                 {project.budget != null && (
-                  <span className="flex items-center gap-1">
-                    <DollarSign className="size-3" />
-                    {formatCurrency(project.budget)}
-                  </span>
+                  <span className="tabular-nums">{formatCurrency(project.budget)}</span>
                 )}
               </div>
 
