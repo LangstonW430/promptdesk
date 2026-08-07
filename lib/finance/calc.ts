@@ -78,9 +78,7 @@ function monthsPerPeriod(frequency: string | null | undefined): number {
   return 1
 }
 
-export interface BucketableRow {
-  type: string
-  amount: number
+export interface RecurringRow {
   /** ISO date string. */
   occurredAt: string
   /**
@@ -91,6 +89,89 @@ export interface BucketableRow {
   frequency?: string | null
   /** ISO date string. Null/absent means the charge is still running. */
   recurrenceEndedAt?: string | null
+}
+
+export interface BucketableRow extends RecurringRow {
+  type: string
+  amount: number
+}
+
+/**
+ * Every date a charge falls on inside `[from, to]`, inclusive of both months.
+ *
+ * The single definition of when a standing charge applies. The monthly chart,
+ * the period totals and the transactions table all read it, so a hosting fee
+ * cannot appear six times in one and once in another — which is exactly what
+ * happened when only the chart knew about recurrence.
+ *
+ * Dates are clamped to the first of the month: a charge dated the 31st has no
+ * 31st in February, and for monthly aggregation the day is noise anyway.
+ */
+export function occurrenceDates(row: RecurringRow, from: Date, to: Date): Date[] {
+  const start = new Date(row.occurredAt)
+  const startYear = start.getUTCFullYear()
+  const startMonth = start.getUTCMonth() // 0-indexed
+
+  if (!row.isRecurring) {
+    return start >= from && start <= to ? [start] : []
+  }
+
+  const step = monthsPerPeriod(row.frequency)
+
+  // Last month the charge applies: the window's end, or when it stopped —
+  // inclusive of that month, since a mid-month cancellation was still billed.
+  let endIndex = Math.floor(
+    monthsBetween(startYear, startMonth, to.getUTCFullYear(), to.getUTCMonth()) / step,
+  )
+  if (row.recurrenceEndedAt) {
+    const ended = new Date(row.recurrenceEndedAt)
+    endIndex = Math.min(
+      endIndex,
+      Math.floor(
+        monthsBetween(startYear, startMonth, ended.getUTCFullYear(), ended.getUTCMonth()) / step,
+      ),
+    )
+  }
+
+  // Start at the first occurrence inside the window rather than walking every
+  // month since the charge began — one running since 2024 costs a few steps.
+  const offset = monthsBetween(startYear, startMonth, from.getUTCFullYear(), from.getUTCMonth())
+  const startIndex = Math.max(0, offset <= 0 ? 0 : Math.ceil(offset / step))
+
+  const dates: Date[] = []
+  for (let i = startIndex; i <= endIndex; i++) {
+    const total = startMonth + i * step
+    const d = new Date(Date.UTC(startYear + Math.floor(total / 12), total % 12, 1))
+    if (d >= from && d <= to) dates.push(d)
+  }
+  return dates
+}
+
+/**
+ * Expands standing charges into one entry per occurrence within the window,
+ * leaving one-off rows untouched.
+ *
+ * `isProjected` marks the repeats — they are derived, not rows in the database,
+ * so nothing may offer to edit or delete them.
+ */
+export function expandRecurring<T extends RecurringRow>(
+  rows: ReadonlyArray<T>,
+  from: Date,
+  to: Date,
+): Array<T & { occurredAt: string; isProjected: boolean }> {
+  const out: Array<T & { occurredAt: string; isProjected: boolean }> = []
+  for (const row of rows) {
+    for (const date of occurrenceDates(row, from, to)) {
+      const iso = date.toISOString()
+      out.push({
+        ...row,
+        occurredAt: row.isRecurring ? iso : row.occurredAt,
+        // The charge on its original date is the real row; the repeats are not.
+        isProjected: row.isRecurring === true && iso.slice(0, 7) !== row.occurredAt.slice(0, 7),
+      })
+    }
+  }
+  return out
 }
 
 /**
@@ -139,49 +220,17 @@ export function bucketByMonth(
 
   const first = buckets[0]
   const last = buckets[buckets.length - 1]
+  const windowFrom = new Date(Date.UTC(first.year, first.month - 1, 1))
+  // The last instant of the final month, not its first day — a one-off dated
+  // the 30th still belongs to the window that ends in that month.
+  const windowTo = new Date(Date.UTC(last.year, last.month, 0, 23, 59, 59, 999))
 
-  function add(bucket: MonthlyStat | undefined, row: BucketableRow) {
-    if (!bucket) return
-    if (row.type === 'income') bucket.income += row.amount
-    else bucket.expense += row.amount
-  }
-
-  for (const r of rows) {
+  for (const r of expandRecurring(rows, windowFrom, windowTo)) {
     const d = new Date(r.occurredAt)
-    const startYear = d.getUTCFullYear()
-    const startMonth = d.getUTCMonth() + 1
-
-    if (!r.isRecurring) {
-      add(idx.get(`${startYear}-${startMonth}`), r)
-      continue
-    }
-
-    const step = monthsPerPeriod(r.frequency)
-
-    // Walk the charge dates that fall inside the window. Start at the first
-    // occurrence on or after the window opens, so a charge running for years
-    // costs a handful of iterations rather than one per month since it began.
-    const offsetToWindow = monthsBetween(startYear, startMonth, first.year, first.month)
-    const firstIndex = offsetToWindow <= 0 ? 0 : Math.ceil(offsetToWindow / step)
-
-    // ...and stop at the window's end, or when the recurrence ended.
-    let lastIndex = Math.floor(
-      monthsBetween(startYear, startMonth, last.year, last.month) / step,
-    )
-    if (r.recurrenceEndedAt) {
-      const e = new Date(r.recurrenceEndedAt)
-      // Inclusive of the month it ended in — a charge cancelled mid-month was
-      // still charged that month.
-      const endIndex = Math.floor(
-        monthsBetween(startYear, startMonth, e.getUTCFullYear(), e.getUTCMonth() + 1) / step,
-      )
-      lastIndex = Math.min(lastIndex, endIndex)
-    }
-
-    for (let i = Math.max(firstIndex, 0); i <= lastIndex; i++) {
-      const total = (startMonth - 1) + i * step
-      add(idx.get(`${startYear + Math.floor(total / 12)}-${(total % 12) + 1}`), r)
-    }
+    const bucket = idx.get(`${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`)
+    if (!bucket) continue
+    if (r.type === 'income') bucket.income += r.amount
+    else bucket.expense += r.amount
   }
 
   for (const b of buckets) b.net = b.income - b.expense

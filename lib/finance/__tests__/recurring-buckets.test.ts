@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bucketByMonth } from '../calc'
+import { bucketByMonth, expandRecurring } from '../calc'
 
 // Fixed "now" so the six-month window is Mar–Aug 2026.
 const NOW = new Date('2026-08-15T12:00:00Z')
@@ -132,5 +132,81 @@ describe('bucketByMonth — recurring rows', () => {
       { type: 'expense', amount: 5, occurredAt: '2026-07-04T00:00:00Z' },
     ])
     expect(byLabel['Jul 2026']).toBe(25)
+  })
+})
+
+// ── expandRecurring ─────────────────────────────────────────────────────────
+// The shared definition the chart, the period totals and the transaction feed
+// all read, so a charge cannot be counted six times in one and once in another.
+
+const MAR = new Date('2026-03-01T00:00:00Z')
+const AUG_END = new Date('2026-08-31T23:59:59Z')
+
+describe('expandRecurring', () => {
+  it('emits one occurrence per month for a monthly charge', () => {
+    const out = expandRecurring([hosting], MAR, AUG_END)
+    expect(out.map((r) => r.occurredAt.slice(0, 7))).toEqual([
+      '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08',
+    ])
+  })
+
+  it('marks repeats as projected but not the original entry', () => {
+    const out = expandRecurring([hosting], MAR, AUG_END)
+    // The original is a real database row and stays editable; the repeats are
+    // derived and must not offer edit or delete.
+    expect(out[0].isProjected).toBe(false)
+    expect(out.slice(1).every((r) => r.isProjected)).toBe(true)
+  })
+
+  it('emits every third month for a quarterly charge', () => {
+    const out = expandRecurring([{ ...hosting, frequency: 'quarterly' }], MAR, AUG_END)
+    expect(out.map((r) => r.occurredAt.slice(0, 7))).toEqual(['2026-03', '2026-06'])
+  })
+
+  it('emits an annual charge once', () => {
+    const out = expandRecurring([{ ...hosting, frequency: 'annual' }], MAR, AUG_END)
+    expect(out.map((r) => r.occurredAt.slice(0, 7))).toEqual(['2026-03'])
+  })
+
+  it('leaves one-off rows alone and never marks them projected', () => {
+    const oneOff = { type: 'expense', amount: 5, occurredAt: '2026-04-09T00:00:00Z' }
+    const out = expandRecurring([oneOff], MAR, AUG_END)
+    expect(out).toHaveLength(1)
+    expect(out[0].isProjected).toBe(false)
+    expect(out[0].occurredAt).toBe(oneOff.occurredAt)
+  })
+
+  it('drops one-off rows outside the window', () => {
+    expect(expandRecurring(
+      [{ type: 'expense', amount: 5, occurredAt: '2025-01-09T00:00:00Z' }],
+      MAR, AUG_END,
+    )).toHaveLength(0)
+  })
+
+  it('stops emitting after the recurrence ended', () => {
+    const out = expandRecurring([{ ...hosting, recurrenceEndedAt: '2026-05-20' }], MAR, AUG_END)
+    expect(out.map((r) => r.occurredAt.slice(0, 7))).toEqual(['2026-03', '2026-04', '2026-05'])
+  })
+
+  it('emits nothing before the charge started', () => {
+    const out = expandRecurring([{ ...hosting, occurredAt: '2026-07-01T00:00:00Z' }], MAR, AUG_END)
+    expect(out.map((r) => r.occurredAt.slice(0, 7))).toEqual(['2026-07', '2026-08'])
+  })
+
+  it('carries the row\'s other fields onto every occurrence', () => {
+    const out = expandRecurring(
+      [{ ...hosting, category: 'Hosting', description: 'DigitalOcean' }],
+      MAR, AUG_END,
+    )
+    expect(out.every((r) => r.category === 'Hosting' && r.amount === 20)).toBe(true)
+  })
+
+  it('agrees with what bucketByMonth reports for the same charge', () => {
+    // The two must never disagree — that split was the original bug: the chart
+    // counted six occurrences while every other figure counted one.
+    const expandedTotal = expandRecurring([hosting], MAR, AUG_END)
+      .reduce((s, r) => s + r.amount, 0)
+    const bucketedTotal = months([hosting]).reduce((s, b) => s + b.expense, 0)
+    expect(expandedTotal).toBe(bucketedTotal)
   })
 })

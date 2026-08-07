@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/db/client'
-import { getPeriodBoundaries } from './calc'
+import { getPeriodBoundaries, expandRecurring } from './calc'
 import { serializeTransaction } from './serialize'
-import type { TransactionFilters } from './types'
+import type { SerializedTransaction } from './serialize'
+import type { Period, TransactionFilters } from './types'
 import type { CreateTransactionInput, UpdateTransactionInput } from './validators'
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
@@ -46,6 +47,65 @@ export async function listTransactions(
   })
 
   return rows.map(serializeTransaction)
+}
+
+/**
+ * A period's transactions with standing charges expanded into their actual
+ * occurrences.
+ *
+ * `listTransactions` returns rows as stored: a hosting fee entered once in March
+ * is one row dated March, so August's totals never saw it and the transactions
+ * table never listed it. Everything the finance page reports — the stat cards,
+ * the category breakdown, the table — now reads this instead, so they agree with
+ * the monthly chart rather than each showing a different number for the same
+ * money.
+ *
+ * Occurrences are never projected past the current month: a charge that has not
+ * been billed yet is not spending that happened.
+ */
+export async function listTransactionsForPeriod(
+  ownerId: string,
+  period?: Period,
+): Promise<Array<SerializedTransaction & { isProjected: boolean }>> {
+  const { from, to } = period
+    ? getPeriodBoundaries(period)
+    : { from: null, to: null }
+
+  const rows = await prisma.transaction.findMany({
+    where: {
+      ownerId,
+      ...((from || to) && {
+        // A standing charge that began before the window still applies inside
+        // it, so it cannot be excluded by date the way a one-off can.
+        OR: [
+          {
+            occurredAt: {
+              ...(from && { gte: from }),
+              ...(to && { lt: to }),
+            },
+          },
+          { isRecurring: true },
+        ],
+      }),
+    },
+    include: { client: { select: { companyName: true, contactName: true } } },
+    orderBy: { occurredAt: 'desc' },
+  })
+
+  const now = new Date()
+  const endOfThisMonth = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+  )
+  const windowFrom = from ?? new Date(0)
+  const windowTo = to && to < endOfThisMonth ? to : endOfThisMonth
+
+  const expanded = expandRecurring(
+    rows.map(serializeTransaction),
+    windowFrom,
+    windowTo,
+  )
+
+  return expanded.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
 }
 
 // Re-exported from lib/clients so the finance and invoice pickers cannot drift

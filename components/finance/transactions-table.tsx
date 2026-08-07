@@ -51,7 +51,7 @@ type TypeFilter = 'all' | 'income' | 'expense'
 type SourceFilter = 'all' | 'manual' | 'stripe'
 
 interface TransactionsTableProps {
-  transactions: SerializedTransaction[]
+  transactions: Array<SerializedTransaction & { isProjected?: boolean }>
   clients: ClientOption[]
 }
 
@@ -173,7 +173,7 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
                 </thead>
                 <tbody>
                   {filtered.map((t) => (
-                    <tr key={t.id} className="border-b border-border last:border-0 hover:bg-muted/30">
+                    <tr key={`${t.id}-${t.occurredAt}`} className="border-b border-border last:border-0 hover:bg-muted/30">
                       <td className="px-4 py-3 text-muted-foreground tabular-nums whitespace-nowrap">
                         {formatDate(t.occurredAt)}
                       </td>
@@ -196,8 +196,18 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
                             </span>
                           )}
                           {t.isRecurring && (
-                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
-                              MRR
+                            <span
+                              className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              title={
+                                t.isProjected
+                                  ? 'A repeat of a standing charge. Edit the original entry to change it.'
+                                  : 'Standing charge — repeats every period'
+                              }
+                            >
+                              {t.frequency === 'quarterly' ? 'Quarterly'
+                                : t.frequency === 'annual' ? 'Annual'
+                                : 'Monthly'}
+                              {t.isProjected && ' · repeat'}
                             </span>
                           )}
                         </div>
@@ -213,7 +223,14 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
                         {formatAmount(t.amount, t.type)}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {t.source === 'stripe' ? (
+                        {/* A repeat has no row of its own to act on; the
+                            original entry is where it is edited or removed. */}
+                        {t.isProjected ? (
+                          <Lock
+                            className="ml-auto size-3.5 text-muted-foreground/40"
+                            aria-label="Repeat of a standing charge — edit the original entry"
+                          />
+                        ) : t.source === 'stripe' ? (
                           <Lock className="ml-auto size-3.5 text-muted-foreground/40" aria-label="Stripe row — locked" />
                         ) : (
                           <div className="flex justify-end gap-1">

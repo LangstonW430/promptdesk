@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
-import { listTransactions, fetchClientsForPicker } from '@/lib/finance'
+import { listTransactionsForPeriod, fetchClientsForPicker } from '@/lib/finance'
 import { getMonthlySeries } from '@/lib/finance/aggregates'
 import { sumFinancials, groupByCategory } from '@/lib/finance/calc'
 import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
@@ -35,9 +35,11 @@ export default async function FinancePage({
     await Promise.all([
       getActiveMRR(ownerId),
       getMonthlySeries(ownerId, 6),
-      // Scoped to the displayed period — the stat cards filter to this range
-      // (and to `thisMonth`, which is always a subset of it) client-side.
-      listTransactions(ownerId, { period }),
+      // Standing charges are expanded into their actual occurrences here, so
+      // the table, the stat cards and the category breakdown all count a
+      // recurring fee in every month it applies — matching the chart, which
+      // was previously the only thing that did.
+      listTransactionsForPeriod(ownerId, period),
       fetchClientsForPicker(ownerId),
       getSyncState(ownerId),
     ])

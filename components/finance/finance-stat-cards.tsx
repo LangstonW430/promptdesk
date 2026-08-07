@@ -70,6 +70,9 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
       amount: t.amount,
     }))
 
+  const freqLabel = (f: string) =>
+    f === 'quarterly' ? 'quarterly' : f === 'annual' ? 'annual' : 'monthly'
+
   const grossMRRItems: BreakdownItem[] = [
     ...activeMRR.subscriptions.map((sub) => ({
       label: sub.customerName ?? sub.subscriptionId,
@@ -77,15 +80,18 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
       amount: sub.monthlyAmount,
     })),
     // Recurring income entered by hand counts toward MRR too — it used to be
-    // missing entirely, so anyone without Stripe saw a gross of zero.
-    ...(activeMRR.manualRecurringIncome > 0
-      ? [{
-          separator: 'Entered manually',
-          label: 'Recurring income',
-          sublabel: 'standing charges, normalised to a monthly rate',
-          amount: activeMRR.manualRecurringIncome,
-        }]
-      : []),
+    // missing entirely, so anyone without Stripe saw a gross of zero. Listed
+    // one per charge: a breakdown exists to say what the total is made of.
+    ...activeMRR.recurringLines
+      .filter((l) => l.type === 'income')
+      .map((l, i) => ({
+        ...(i === 0 ? { separator: 'Entered manually' } : {}),
+        label: l.label,
+        sublabel: l.frequency === 'monthly'
+          ? l.category
+          : `${l.category} · ${formatCurrency(l.amount)} ${freqLabel(l.frequency)}`,
+        amount: l.monthlyAmount,
+      })),
   ]
 
   const monthlyExpenseItems: BreakdownItem[] = [
@@ -104,15 +110,19 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
         amount: t.amount,
       })),
     // Standing charges apply every month, so they are listed at their monthly
-    // rate rather than only in the month they happen to be dated.
-    ...(activeMRR.manualRecurringExpense > 0
-      ? [{
-          separator: 'Recurring',
-          label: 'Recurring expenses',
-          sublabel: 'standing charges, normalised to a monthly rate',
-          amount: activeMRR.manualRecurringExpense,
-        }]
-      : []),
+    // rate rather than only in the month they happen to be dated — and named
+    // individually, since collapsing them into one "Recurring expenses" row
+    // told you nothing about what you are actually paying for.
+    ...activeMRR.recurringLines
+      .filter((l) => l.type === 'expense')
+      .map((l, i) => ({
+        ...(i === 0 ? { separator: 'Recurring' } : {}),
+        label: l.label,
+        sublabel: l.frequency === 'monthly'
+          ? `${l.category} · monthly`
+          : `${l.category} · ${formatCurrency(l.amount)} ${freqLabel(l.frequency)}`,
+        amount: l.monthlyAmount,
+      })),
     ...(activeMRR.configured && activeMRR.estimatedFees > 0
       ? [{
           separator: 'Stripe Processing',

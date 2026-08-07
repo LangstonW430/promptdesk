@@ -15,6 +15,7 @@ import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
 import { getStripeForOwner } from './stripe-client'
 import { getPeriodBoundaries } from './calc'
+import type { RecurringFrequency } from './types'
 import {
   chargeToTransaction,
   chargeFeeToTransaction,
@@ -151,6 +152,18 @@ export interface SubscriptionLine {
   monthlyAmount: number
 }
 
+export interface RecurringLine {
+  id: string
+  type: 'income' | 'expense'
+  label: string
+  category: string
+  frequency: RecurringFrequency
+  /** The amount as entered, at its own cadence. */
+  amount: number
+  /** That amount normalised to a monthly rate. */
+  monthlyAmount: number
+}
+
 export interface ActiveMRRResult {
   configured: boolean       // false when no Stripe key is saved
   permissionError: boolean  // true when key lacks Subscriptions: Read
@@ -164,6 +177,8 @@ export interface ActiveMRRResult {
   manualRecurringIncome: number
   /** Manually entered recurring expense, normalised to a monthly rate. */
   manualRecurringExpense: number
+  /** Each standing charge individually, so the breakdown can name them. */
+  recurringLines: RecurringLine[]
   /** True when there is anything to show at all — Stripe or manual recurring. */
   hasData: boolean
 }
@@ -179,7 +194,7 @@ export interface ActiveMRRResult {
 async function getManualRecurringRates(
   ownerId: string,
   now: Date,
-): Promise<{ income: number; expense: number }> {
+): Promise<{ income: number; expense: number; lines: RecurringLine[] }> {
   const rows = await prisma.transaction.findMany({
     where: {
       ownerId,
@@ -187,23 +202,43 @@ async function getManualRecurringRates(
       isRecurring: true,
       OR: [{ recurrenceEndedAt: null }, { recurrenceEndedAt: { gte: now } }],
     },
-    select: { type: true, amount: true, frequency: true },
+    select: {
+      id: true, type: true, amount: true, frequency: true,
+      description: true, category: true,
+    },
+    orderBy: { amount: 'desc' },
   })
 
   let income = 0
   let expense = 0
+  const lines: RecurringLine[] = []
+
   for (const r of rows) {
     // Quarterly and annual charges are divided down, so the panel reads as a
     // rate per month rather than mixing cadences.
     const divisor = r.frequency === 'quarterly' ? 3 : r.frequency === 'annual' ? 12 : 1
-    const monthly = Number(r.amount) / divisor
+    const monthly = Math.round((Number(r.amount) / divisor) * 100) / 100
     if (r.type === 'income') income += monthly
     else expense += monthly
+
+    lines.push({
+      id: r.id,
+      type: r.type as 'income' | 'expense',
+      // Named individually rather than summed into one "Recurring expenses"
+      // row: a breakdown whose whole point is itemising what makes up a total
+      // is useless if it collapses everything into a single line.
+      label: r.description || r.category,
+      category: r.category,
+      frequency: (r.frequency as RecurringFrequency | null) ?? 'monthly',
+      amount: Number(r.amount),
+      monthlyAmount: monthly,
+    })
   }
 
   return {
     income: Math.round(income * 100) / 100,
     expense: Math.round(expense * 100) / 100,
+    lines,
   }
 }
 
@@ -265,6 +300,7 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
     subscriptions: [],
     manualRecurringIncome: manualRecurring.income,
     manualRecurringExpense: manualRecurring.expense,
+    recurringLines: manualRecurring.lines,
     hasData: manualRecurring.income > 0 || manualRecurring.expense > 0 || otherExpenses > 0,
   }
 
@@ -329,6 +365,7 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
     subscriptions: lines,
     manualRecurringIncome: manualRecurring.income,
     manualRecurringExpense: manualRecurring.expense,
+    recurringLines: manualRecurring.lines,
     hasData: true,
   }
 }
