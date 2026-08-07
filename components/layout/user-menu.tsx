@@ -86,13 +86,17 @@ export function UserMenu({ email }: UserMenuProps) {
 
             <Menu.Separator className="-mx-1 my-1 h-px bg-border" />
 
-            <Menu.GroupLabel className="px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-              Theme
-            </Menu.GroupLabel>
             <Menu.RadioGroup
               value={theme}
               onValueChange={(next) => setTheme(next as Theme)}
             >
+              {/* Inside the RadioGroup, not beside it: GroupLabel reads the
+                  group context to wire up aria-labelledby, and throws outright
+                  when there is none. It also belongs here semantically — the
+                  label names this group of options. */}
+              <Menu.GroupLabel className="px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                Theme
+              </Menu.GroupLabel>
               {THEMES.map((t) => {
                 const { label, icon: Icon } = THEME_META[t]
                 return (
