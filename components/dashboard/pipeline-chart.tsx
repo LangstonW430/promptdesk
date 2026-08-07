@@ -1,27 +1,27 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import type { StageBreakdown, OpenStage } from '@/lib/dashboard'
+import type { StageBreakdown } from '@/lib/dashboard'
+import { CLIENT_STAGE_LABELS, type ClientStage } from '@/lib/clients/stage'
 import { formatCurrency } from '@/lib/dashboard/format'
 
-const STAGE_LABELS: Record<OpenStage, string> = {
-  lead: 'Lead',
-  contacted: 'Contacted',
-  proposal_sent: 'Proposal',
-  negotiating: 'Negotiating',
-}
-
-const BAR_COLORS: Record<OpenStage, string> = {
+// Only the open stages reach this chart, but the maps cover every stage so a
+// new one cannot render as an unstyled gap.
+const BAR_COLORS: Record<ClientStage, string> = {
   lead: 'bg-slate-300 dark:bg-slate-600',
   contacted: 'bg-sky-300 dark:bg-sky-600',
-  proposal_sent: 'bg-violet-400 dark:bg-violet-600',
-  negotiating: 'bg-amber-400 dark:bg-amber-500',
+  proposal_out: 'bg-violet-400 dark:bg-violet-600',
+  active: 'bg-green-400 dark:bg-green-600',
+  past: 'bg-amber-400 dark:bg-amber-500',
+  lost: 'bg-red-400 dark:bg-red-500',
 }
 
-const DOT_COLORS: Record<OpenStage, string> = {
+const DOT_COLORS: Record<ClientStage, string> = {
   lead: 'bg-slate-400 dark:bg-slate-500',
   contacted: 'bg-sky-500',
-  proposal_sent: 'bg-violet-500',
-  negotiating: 'bg-amber-500',
+  proposal_out: 'bg-violet-500',
+  active: 'bg-green-500',
+  past: 'bg-amber-500',
+  lost: 'bg-red-500',
 }
 
 interface PipelineChartProps {
@@ -50,7 +50,7 @@ export function PipelineChart({ stages, totalPipelineValue }: PipelineChartProps
                 <div
                   key={s.stage}
                   style={{ width: `${pct}%` }}
-                  title={`${STAGE_LABELS[s.stage]}: ${formatCurrency(s.totalValue)}`}
+                  title={`${CLIENT_STAGE_LABELS[s.stage]}: ${formatCurrency(s.totalValue)}`}
                   className={cn('h-full transition-all', BAR_COLORS[s.stage])}
                 />
               )
@@ -65,7 +65,7 @@ export function PipelineChart({ stages, totalPipelineValue }: PipelineChartProps
           {stages.map((s) => (
             <div key={s.stage} className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className={cn('size-2 rounded-full', DOT_COLORS[s.stage])} />
-              {STAGE_LABELS[s.stage]}
+              {CLIENT_STAGE_LABELS[s.stage]}
             </div>
           ))}
         </div>
@@ -87,7 +87,7 @@ export function PipelineChart({ stages, totalPipelineValue }: PipelineChartProps
                   <th scope="row" className="py-2 pr-3 text-left font-normal">
                     <div className="flex items-center gap-2">
                       <span className={cn('size-2 shrink-0 rounded-full', DOT_COLORS[s.stage])} aria-hidden="true" />
-                      {STAGE_LABELS[s.stage]}
+                      {CLIENT_STAGE_LABELS[s.stage]}
                     </div>
                   </th>
                   <td className="py-2 pr-0 text-right tabular-nums text-muted-foreground">

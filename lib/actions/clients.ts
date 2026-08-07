@@ -8,14 +8,12 @@ import {
   updateClient,
   setClientArchived,
   deleteClient,
-  changeClientStatus,
 } from '@/lib/clients'
 import {
   createClientSchema,
   updateClientSchema,
   archiveClientSchema,
 } from '@/lib/clients/validators'
-import type { ClientStatus } from '@/lib/clients/types'
 
 export async function createClientAction(data: unknown) {
   const ownerId = await getOwnerId()
@@ -73,11 +71,6 @@ export async function deleteClientAction(id: string) {
   return { success: true }
 }
 
-export async function changeClientStatusAction(id: string, newStatus: string) {
-  const ownerId = await getOwnerId()
-  const result = await changeClientStatus(ownerId, id, newStatus as ClientStatus)
-  if (!result) return { error: 'Not found or status unchanged' }
-  revalidatePath('/clients')
-  updateTag(dashboardTag(ownerId))
-  return { success: true }
-}
+// changeClientStatusAction was removed with the column it wrote. A client's
+// stage is now read off their projects (lib/clients/stage.ts), so it moves when
+// the work does — quote them, start it, finish it, or archive them.

@@ -52,6 +52,10 @@ model Client {
   industry         String?
   companySize      String?                  @map("company_size")
   leadSource       String?                  @map("lead_source")
+  /// Superseded by the derived client stage — where a client sits is now read
+  /// off their projects and contact history (see lib/clients/stage.ts) rather
+  /// than stored, so it cannot disagree with the work.
+  /// Retained so the 20260807000000 migration loses no data; nothing reads it.
   status           String                   @default("lead")
   /// Superseded by projects.budget — a client's pipeline value is now the sum
   /// of their open projects' budgets (see lib/clients/pipeline-value.ts).
@@ -86,7 +90,6 @@ model Client {
   transactions Transaction[]
   invoices     Invoice[]
 
-  @@index([ownerId, status], map: "clients_owner_status_idx")
   @@index([ownerId, nextFollowupDate], map: "clients_owner_next_followup_idx")
   @@index([ownerId, isArchived, updatedAt(sort: Desc)], map: "clients_owner_archived_updated_idx")
   @@index([ownerId, stripeCustomerId], map: "clients_owner_stripe_customer_idx")

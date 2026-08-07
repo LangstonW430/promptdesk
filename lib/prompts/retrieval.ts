@@ -3,6 +3,7 @@ import {
   pipelineValueByClient,
   pipelineValueForClient,
 } from '@/lib/clients/pipeline-value'
+import { clientStagesFor } from '@/lib/clients/stage-query'
 import type { RetrievalSpec } from '@/lib/prompt-engine/template-types'
 import type {
   RawClient,
@@ -115,14 +116,28 @@ export async function fetchContext(
   const activities: RawActivity[] = []
 
   if (spec.scope === 'global') {
-    const statusFilter = spec.clientStatusFilter?.length
-      ? { status: { in: spec.clientStatusFilter } }
+    // A stage is a rule over projects and notes, not a column, so it cannot go
+    // in the WHERE clause. Deriving every stage first (one aggregate query) and
+    // narrowing by id keeps the filter exact — filtering after the `take` would
+    // silently return fewer clients than asked for.
+    const allStages = await clientStagesFor(ownerId)
+
+    const stageFilter = spec.clientStageFilter?.length
+      ? {
+          id: {
+            in: [...allStages]
+              .filter(([, stage]) => spec.clientStageFilter!.includes(stage))
+              .map(([id]) => id),
+          },
+        }
       : {}
 
     const clientIdFilter = clientIds?.length ? { id: { in: clientIds } } : {}
 
     const rawClients = await prisma.client.findMany({
-      where: { ownerId, isArchived: false, ...statusFilter, ...clientIdFilter },
+      // clientIdFilter is applied last on purpose: an explicit selection of
+      // clients wins over the template's stage filter.
+      where: { ownerId, isArchived: false, ...stageFilter, ...clientIdFilter },
       include: { clientTags: { include: { tag: true } } },
       orderBy: { updatedAt: 'desc' },
       take: spec.maxClients ?? 50,
@@ -148,7 +163,7 @@ export async function fetchContext(
         industry: c.industry,
         companySize: c.companySize,
         leadSource: c.leadSource,
-        status: c.status,
+        stage: allStages.get(c.id) ?? 'lead',
         estimatedValue: globalValues.get(c.id) ?? null,
         projectType: c.projectType,
         painPoints: c.painPoints,
@@ -228,7 +243,10 @@ export async function fetchContext(
       include: { clientTags: { include: { tag: true } } },
     })
     if (c) {
-      const value = await pipelineValueForClient(ownerId, c.id)
+      const [value, stages] = await Promise.all([
+        pipelineValueForClient(ownerId, c.id),
+        clientStagesFor(ownerId, [c.id]),
+      ])
       clients.push({
         id: c.id,
         companyName: c.companyName,
@@ -239,7 +257,7 @@ export async function fetchContext(
         industry: c.industry,
         companySize: c.companySize,
         leadSource: c.leadSource,
-        status: c.status,
+        stage: stages.get(c.id) ?? 'lead',
         estimatedValue: value,
         projectType: c.projectType,
         painPoints: c.painPoints,

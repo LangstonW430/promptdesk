@@ -14,7 +14,7 @@ const daysAgo = (n: number): Date =>
 describe('buildRelationshipSummary', () => {
   it('handles zero notes gracefully', () => {
     const input: SummaryInput = {
-      client: { status: 'lead', createdAt: daysAgo(30) },
+      client: { stage: 'lead', createdAt: daysAgo(30) },
       notes: [],
       statusHistory: [],
     }
@@ -23,8 +23,8 @@ describe('buildRelationshipSummary', () => {
     expect(result).toContain('=== RELATIONSHIP SUMMARY ===')
     expect(result).toContain('=== END RELATIONSHIP SUMMARY ===')
     expect(result).toContain('0 notes')
-    expect(result).toContain('Current status: lead')
-    expect(result).toContain('Status path: lead')
+    expect(result).toContain('Current stage: Lead')
+    expect(result).toContain('Stage path: Lead')
     // No sections that need data
     expect(result).not.toContain('KEY FACTS')
     expect(result).not.toContain('RECENT')
@@ -32,7 +32,7 @@ describe('buildRelationshipSummary', () => {
 
   it('computes age correctly — months for older clients', () => {
     const input: SummaryInput = {
-      client: { status: 'negotiating', createdAt: daysAgo(14 * 30) },
+      client: { stage: 'proposal_out', createdAt: daysAgo(14 * 30) },
       notes: [],
       statusHistory: [],
     }
@@ -42,7 +42,7 @@ describe('buildRelationshipSummary', () => {
 
   it('computes age correctly — days for brand-new clients', () => {
     const input: SummaryInput = {
-      client: { status: 'lead', createdAt: daysAgo(3) },
+      client: { stage: 'lead', createdAt: daysAgo(3) },
       notes: [],
       statusHistory: [],
     }
@@ -57,18 +57,21 @@ describe('buildRelationshipSummary', () => {
       { from: 'proposal_sent', to: 'negotiating', occurredAt: daysAgo(20) },
     ]
     const input: SummaryInput = {
-      client: { status: 'negotiating', createdAt: daysAgo(180) },
+      client: { stage: 'proposal_out', createdAt: daysAgo(180) },
       notes: [],
       statusHistory: history,
     }
     const result = buildRelationshipSummary(input, NOW)
-    expect(result).toContain('Status path:')
+    expect(result).toContain('Stage path:')
     expect(result).toContain('lead →')
     expect(result).toContain('contacted')
+    // Transitions recorded before clients stopped carrying a status keep the
+    // vocabulary they were written with; only the current stage is relabelled.
     expect(result).toContain('negotiating')
+    expect(result).toContain('Proposal out')
   })
 
-  it('caps status path at 5 path nodes (4 transitions)', () => {
+  it('caps stage path at 5 path nodes (4 transitions)', () => {
     // 5 transitions — should keep only last 4
     const history: StatusTransition[] = [
       { from: 'lead', to: 'contacted', occurredAt: daysAgo(200) },
@@ -78,7 +81,7 @@ describe('buildRelationshipSummary', () => {
       { from: 'won', to: 'lead', occurredAt: daysAgo(40) },
     ]
     const input: SummaryInput = {
-      client: { status: 'lead', createdAt: daysAgo(210) },
+      client: { stage: 'lead', createdAt: daysAgo(210) },
       notes: [],
       statusHistory: history,
     }
@@ -105,7 +108,7 @@ describe('buildRelationshipSummary', () => {
       },
     ]
     const input: SummaryInput = {
-      client: { status: 'proposal_sent', createdAt: daysAgo(60) },
+      client: { stage: 'proposal_out', createdAt: daysAgo(60) },
       notes,
       statusHistory: [],
     }
@@ -130,7 +133,7 @@ describe('buildRelationshipSummary', () => {
       },
     ]
     const input: SummaryInput = {
-      client: { status: 'negotiating', createdAt: daysAgo(30) },
+      client: { stage: 'proposal_out', createdAt: daysAgo(30) },
       notes,
       statusHistory: [],
     }
@@ -148,7 +151,7 @@ describe('buildRelationshipSummary', () => {
       { body: 'Recent call summary.', noteType: 'call', occurredAt: daysAgo(15) },
     ]
     const input: SummaryInput = {
-      client: { status: 'contacted', createdAt: daysAgo(200) },
+      client: { stage: 'contacted', createdAt: daysAgo(200) },
       notes,
       statusHistory: [],
     }
@@ -164,7 +167,7 @@ describe('buildRelationshipSummary', () => {
       { body: 'Even older note.', noteType: 'note', occurredAt: daysAgo(150) },
     ]
     const input: SummaryInput = {
-      client: { status: 'lead', createdAt: daysAgo(200) },
+      client: { stage: 'lead', createdAt: daysAgo(200) },
       notes,
       statusHistory: [],
     }
@@ -174,7 +177,7 @@ describe('buildRelationshipSummary', () => {
 
   it('shows open tasks line with overdue count', () => {
     const input: SummaryInput = {
-      client: { status: 'negotiating', createdAt: daysAgo(60) },
+      client: { stage: 'proposal_out', createdAt: daysAgo(60) },
       notes: [],
       statusHistory: [],
       openTaskCount: 3,
@@ -187,7 +190,7 @@ describe('buildRelationshipSummary', () => {
 
   it('omits tasks line when there are no open tasks', () => {
     const input: SummaryInput = {
-      client: { status: 'won', createdAt: daysAgo(60) },
+      client: { stage: 'active', createdAt: daysAgo(60) },
       notes: [],
       statusHistory: [],
       openTaskCount: 0,
@@ -214,7 +217,7 @@ describe('buildRelationshipSummary', () => {
     ]
 
     const input: SummaryInput = {
-      client: { status: 'negotiating', createdAt: daysAgo(120) },
+      client: { stage: 'proposal_out', createdAt: daysAgo(120) },
       notes,
       statusHistory: history,
       openTaskCount: 4,
@@ -234,7 +237,7 @@ describe('buildRelationshipSummary', () => {
       occurredAt: daysAgo(i + 1),
     }))
     const input: SummaryInput = {
-      client: { status: 'contacted', createdAt: daysAgo(30) },
+      client: { stage: 'contacted', createdAt: daysAgo(30) },
       notes,
       statusHistory: [],
     }

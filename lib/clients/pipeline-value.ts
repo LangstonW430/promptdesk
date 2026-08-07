@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/db/client'
+import { clientStagesFor } from './stage-query'
+import type { ClientStage } from './stage'
 
 /**
  * Client-level opportunity value, derived from projects.
@@ -74,26 +76,26 @@ export async function pipelineValueForClient(
 }
 
 /**
- * Open project budgets summed per *client status*, for the pipeline breakdown
- * on the dashboard.
+ * Open project budgets summed per derived *client stage*, for the dashboard's
+ * pipeline breakdown.
  *
- * Expressed as one grouped query over projects joined to their client rather
- * than a client-side reduce, so the dashboard does not have to load every
- * project to add up two numbers. Archived clients are excluded to match every
- * other dashboard figure.
+ * Grouped in the application rather than in SQL: the stage is a rule about a
+ * client's projects and contact history, not a column, so it cannot be a
+ * GROUP BY key. Both halves are one query each, and they are joined here.
  */
-export async function pipelineValueByClientStatus(
+export async function pipelineValueByStage(
   ownerId: string,
-): Promise<Map<string, number>> {
-  const rows = await prisma.$queryRaw<{ status: string; total: number | null }[]>`
-    SELECT c.status AS status, (SUM(p.budget))::float8 AS total
-    FROM projects p
-    JOIN clients c ON c.id = p.client_id
-    WHERE p.owner_id = ${ownerId}::uuid
-      AND p.is_archived = false
-      AND p.status IN ('proposed', 'active')
-      AND c.is_archived = false
-    GROUP BY c.status
-  `
-  return new Map(rows.map((r) => [r.status, r.total ?? 0]))
+): Promise<Map<ClientStage, number>> {
+  const [byClient, stages] = await Promise.all([
+    pipelineValueByClient(ownerId),
+    clientStagesFor(ownerId),
+  ])
+
+  const totals = new Map<ClientStage, number>()
+  for (const [clientId, value] of byClient) {
+    const stage = stages.get(clientId)
+    if (!stage) continue
+    totals.set(stage, (totals.get(stage) ?? 0) + value)
+  }
+  return totals
 }

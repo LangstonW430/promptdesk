@@ -1,4 +1,4 @@
-import type { ClientStatus, NoteType } from './types'
+import type { ClientStage, NoteType } from './types'
 
 export type TemplateScope = 'global' | 'client' | 'notes' | 'project'
 
@@ -12,7 +12,7 @@ export interface RetrievalSpec {
   // ── Global scope ─────────────────────────────────────────────────────────
   includeClients?: boolean
   /** Undefined = all non-archived clients. */
-  clientStatusFilter?: ClientStatus[]
+  clientStageFilter?: ClientStage[]
   includeOpenTasks?: boolean
   includeRecentActivities?: boolean
   includePipelineAggregate?: boolean

@@ -1,5 +1,8 @@
+import type { ClientStage } from '@/lib/clients/stage'
+
 export interface DashboardAggregates {
   totalLeads: number
+  /** Clients with work in flight — an active project. */
   activeClients: number
   /**
    * Sum of open project budgets (proposed + active) across all open-stage,
@@ -7,19 +10,18 @@ export interface DashboardAggregates {
    * value of their own.
    */
   totalPipelineValue: number
-  /** won / (won + lost). null when no closed deals exist yet. */
+  /** won / (won + lost). null when nothing has closed either way yet. */
   conversionRate: number | null
+  /** Clients who became real work: an active or completed project. */
   wonCount: number
+  /** Clients archived without work ever starting. */
   lostCount: number
-  /** Per-stage breakdown for the four open stages (zero-count stages included). */
+  /** Per-stage breakdown of the open stages (zero-count stages included). */
   pipelineByStage: StageBreakdown[]
 }
 
-export const OPEN_STAGES = ['lead', 'contacted', 'proposal_sent', 'negotiating'] as const
-export type OpenStage = (typeof OPEN_STAGES)[number]
-
 export interface StageBreakdown {
-  stage: OpenStage
+  stage: ClientStage
   count: number
   totalValue: number
 }

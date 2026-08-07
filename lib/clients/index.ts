@@ -1,9 +1,10 @@
 import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
-import { refreshClientSummary } from '@/lib/relationship-summary/refresh'
 import { buildClientWhere } from './filters'
 import { pipelineValueByClient } from './pipeline-value'
-import type { ClientFilters, ClientStatus } from './types'
+import { clientStagesFor } from './stage-query'
+import { OPEN_STAGES } from './stage'
+import type { ClientFilters } from './types'
 import type { CreateClientInput, UpdateClientInput } from './validators'
 
 // Child collections are capped so a long-lived client's detail page does not
@@ -65,7 +66,6 @@ const CLIENT_TABLE_SELECT = {
   contactName: true,
   email: true,
   industry: true,
-  status: true,
   lastContactDate: true,
   nextFollowupDate: true,
   clientTags: { select: { tag: { select: { id: true, label: true } } } },
@@ -90,9 +90,31 @@ export async function listClientsForTable(
     orderBy: { updatedAt: 'desc' },
   })
 
-  const values = await pipelineValueByClient(ownerId, rows.map((r) => r.id))
+  const ids = rows.map((r) => r.id)
+  const [values, stages] = await Promise.all([
+    pipelineValueByClient(ownerId, ids),
+    clientStagesFor(ownerId, ids),
+  ])
 
-  return rows.map((r) => ({ ...r, pipelineValue: values.get(r.id) ?? null }))
+  const withStage = rows.map((r) => ({
+    ...r,
+    pipelineValue: values.get(r.id) ?? null,
+    stage: stages.get(r.id) ?? ('lead' as const),
+  }))
+
+  // Filtered here rather than in the query: a stage is a rule over projects and
+  // notes, not a column, so it cannot be a WHERE clause.
+  let result = withStage
+  if (filters.stage) {
+    result = result.filter((r) => r.stage === filters.stage)
+  }
+  // "Going cold" is about relationships still worth chasing. A client whose
+  // work is finished has not gone cold — there is nothing outstanding to have
+  // gone quiet on. (Archived clients are already excluded by the query.)
+  if (filters.stale != null && filters.stale > 0) {
+    result = result.filter((r) => OPEN_STAGES.includes(r.stage))
+  }
+  return result
 }
 
 /**
@@ -122,51 +144,26 @@ export async function updateClient(
   id: string,
   input: UpdateClientInput,
 ) {
-  const current = await prisma.client.findFirst({
-    where: { id, ownerId },
-    select: { status: true },
+  const exists = await prisma.client.count({ where: { id, ownerId } })
+  if (!exists) return null
+
+  const { customFields, lastContactDate, nextFollowupDate, ...rest } = input
+
+  const updated = await prisma.client.update({
+    where: { id },
+    data: {
+      ...rest,
+      ...(lastContactDate !== undefined && {
+        lastContactDate: lastContactDate ? new Date(lastContactDate) : null,
+      }),
+      ...(nextFollowupDate !== undefined && {
+        nextFollowupDate: nextFollowupDate ? new Date(nextFollowupDate) : null,
+      }),
+      ...(customFields !== undefined && {
+        customFields: customFields as unknown as Prisma.InputJsonValue,
+      }),
+    },
   })
-  if (!current) return null
-
-  // Extract status so it never silently lands in ...rest and bypasses logging.
-  const { customFields, lastContactDate, nextFollowupDate, status, ...rest } = input
-  const statusChanging = status !== undefined && status !== current.status
-
-  const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.client.update({
-      where: { id },
-      data: {
-        ...rest,
-        ...(statusChanging && { status }),
-        ...(lastContactDate !== undefined && {
-          lastContactDate: lastContactDate ? new Date(lastContactDate) : null,
-        }),
-        ...(nextFollowupDate !== undefined && {
-          nextFollowupDate: nextFollowupDate ? new Date(nextFollowupDate) : null,
-        }),
-        ...(customFields !== undefined && {
-          customFields: customFields as unknown as Prisma.InputJsonValue,
-        }),
-      },
-    })
-
-    if (statusChanging) {
-      await tx.activity.create({
-        data: {
-          ownerId,
-          clientId: id,
-          type: 'status_changed',
-          detail: { from: current.status, to: status } as unknown as Prisma.InputJsonValue,
-        },
-      })
-    }
-
-    return result
-  })
-
-  if (statusChanging) {
-    await refreshClientSummary(ownerId, id)
-  }
 
   return updated
 }
@@ -190,34 +187,6 @@ export async function deleteClient(ownerId: string, id: string): Promise<boolean
   return result.count > 0
 }
 
-export async function changeClientStatus(
-  ownerId: string,
-  id: string,
-  newStatus: ClientStatus,
-) {
-  const current = await prisma.client.findFirst({
-    where: { id, ownerId },
-    select: { status: true },
-  })
-  if (!current) return null
-  if (current.status === newStatus) return null
-
-  const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.client.update({
-      where: { id },
-      data: { status: newStatus },
-    })
-    await tx.activity.create({
-      data: {
-        ownerId,
-        clientId: id,
-        type: 'status_changed',
-        detail: { from: current.status, to: newStatus } as unknown as Prisma.InputJsonValue,
-      },
-    })
-    return result
-  })
-
-  await refreshClientSummary(ownerId, id)
-  return updated
-}
+// changeClientStatus was removed along with the column. Moving a client along
+// is now a consequence of the work: quote them (a proposed project), start it
+// (active), finish it (completed), or archive them. See lib/clients/stage.ts.

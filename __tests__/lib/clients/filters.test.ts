@@ -21,21 +21,18 @@ describe('buildClientWhere', () => {
     )
   })
 
-  describe('status filter', () => {
-    it('adds status condition when provided', () => {
-      const where = buildClientWhere(OWNER, { status: 'lead' })
-      expect(where.AND).toEqual(expect.arrayContaining([{ status: 'lead' }]))
-    })
-
-    it('does not add status condition when omitted', () => {
-      const where = buildClientWhere(OWNER, {})
-      const conditions = where.AND as unknown[]
-      const hasStatus = conditions.some(
-        (c) =>
-          typeof c === 'object' && c !== null && 'status' in (c as object),
-      )
-      expect(hasStatus).toBe(false)
-    })
+  // A stage is a rule over projects and notes, not a column, so it must never
+  // reach the WHERE clause — listClientsForTable applies it after deriving.
+  it('never emits a status or stage condition', () => {
+    const where = buildClientWhere(OWNER, { stage: 'lead', q: 'acme', tag: 'hot' })
+    const conditions = where.AND as unknown[]
+    const leaked = conditions.some(
+      (c) =>
+        typeof c === 'object' &&
+        c !== null &&
+        ('status' in (c as object) || 'stage' in (c as object)),
+    )
+    expect(leaked).toBe(false)
   })
 
   describe('search query filter', () => {
@@ -100,11 +97,19 @@ describe('buildClientWhere', () => {
       vi.useRealTimers()
     })
 
-    it('excludes won and lost statuses', () => {
+    // Closed-out relationships used to be excluded here with a
+    // `status: { notIn: [...] }` clause. There is no status to exclude on now —
+    // listClientsForTable drops non-open stages after deriving them.
+    it('does not try to exclude closed clients in SQL', () => {
       const where = buildClientWhere(OWNER, { stale: 30 })
-      expect(where.AND).toEqual(
-        expect.arrayContaining([{ status: { notIn: ['won', 'lost'] } }]),
+      const conditions = where.AND as unknown[]
+      const hasNotIn = conditions.some(
+        (c) =>
+          typeof c === 'object' &&
+          c !== null &&
+          typeof (c as { status?: unknown }).status === 'object',
       )
+      expect(hasNotIn).toBe(false)
     })
 
     it('filters on lastContactDate less than threshold', () => {
@@ -156,17 +161,16 @@ describe('buildClientWhere', () => {
   describe('combined filters', () => {
     it('applies multiple filters simultaneously', () => {
       const where = buildClientWhere(OWNER, {
-        status: 'contacted',
+        stage: 'contacted',
         q: 'smith',
         tag: 'hot',
       })
       const conditions = where.AND as unknown[]
-      expect(conditions.length).toBeGreaterThanOrEqual(5) // ownerId + isArchived + status + OR(q) + clientTags
+      expect(conditions.length).toBeGreaterThanOrEqual(4) // ownerId + isArchived + OR(q) + clientTags
       expect(where.AND).toEqual(
         expect.arrayContaining([
           { ownerId: OWNER },
           { isArchived: false },
-          { status: 'contacted' },
         ]),
       )
     })

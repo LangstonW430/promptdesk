@@ -1,15 +1,12 @@
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/client'
 import { dashboardTag } from '@/lib/cache-tags'
-import { pipelineValueByClientStatus } from '@/lib/clients/pipeline-value'
-import {
-  OPEN_STAGES,
-  type DashboardAggregates,
-  type StageBreakdown,
-} from './types'
+import { pipelineValueByStage } from '@/lib/clients/pipeline-value'
+import { clientStageCounts } from '@/lib/clients/stage-query'
+import { OPEN_STAGES, type ClientStage } from '@/lib/clients/stage'
+import type { DashboardAggregates, StageBreakdown } from './types'
 
-export { OPEN_STAGES } from './types'
-export type { DashboardAggregates, StageBreakdown, OpenStage } from './types'
+export type { DashboardAggregates, StageBreakdown } from './types'
 
 // ─── Aggregates ───────────────────────────────────────────────────────────────
 
@@ -25,44 +22,36 @@ export const getDashboardAggregates = (
 const computeDashboardAggregates = async (
   ownerId: string,
 ): Promise<DashboardAggregates> => {
-  // Counts are still per client — a lead is one lead regardless of how many
-  // projects it carries — but value now comes from those projects' budgets, so
-  // the two are aggregated separately and joined by status here. Summing them
-  // in one grouped join would have multiplied each client by its project count.
-  const [rawGroups, valueByStatus] = await Promise.all([
-    prisma.client.groupBy({
-      by: ['status'],
-      where: { ownerId, isArchived: false },
-      _count: { id: true },
-    }),
-    pipelineValueByClientStatus(ownerId),
+  // Counts and value are aggregated separately and joined by stage here.
+  // Summing them together would multiply each client by its project count, and
+  // a client is one client however much work they carry.
+  const [counts, valueByStage] = await Promise.all([
+    clientStageCounts(ownerId),
+    pipelineValueByStage(ownerId),
   ])
 
-  const groups = rawGroups.map((g) => ({
-    status: g.status,
-    count: g._count.id,
-    sumValue: valueByStatus.get(g.status) ?? 0,
-  }))
-
-  const byStatus = Object.fromEntries(groups.map((g) => [g.status, g]))
-  const count = (s: string) => byStatus[s]?.count ?? 0
+  const count = (s: ClientStage) => counts.get(s) ?? 0
 
   const totalLeads = count('lead')
-  const activeClients = count('contacted') + count('proposal_sent') + count('negotiating')
-  const wonCount = count('won')
+  const activeClients = count('active')
+
+  // "Won" is now a client who produced real work rather than one someone
+  // remembered to mark won: an active project, or a finished one. "Lost" is a
+  // client archived before any work started — archiving is the explicit signal
+  // that a relationship is over.
+  const wonCount = count('active') + count('past')
   const lostCount = count('lost')
 
-  const openGroups = groups.filter((g) => (OPEN_STAGES as readonly string[]).includes(g.status))
-  const totalPipelineValue = openGroups.reduce((sum, g) => sum + g.sumValue, 0)
+  const totalPipelineValue = OPEN_STAGES.reduce(
+    (sum, stage) => sum + (valueByStage.get(stage) ?? 0),
+    0,
+  )
 
-  const pipelineByStage: StageBreakdown[] = OPEN_STAGES.map((stage) => {
-    const g = byStatus[stage]
-    return {
-      stage,
-      count: g?.count ?? 0,
-      totalValue: g?.sumValue ?? 0,
-    }
-  })
+  const pipelineByStage: StageBreakdown[] = OPEN_STAGES.map((stage) => ({
+    stage,
+    count: count(stage),
+    totalValue: valueByStage.get(stage) ?? 0,
+  }))
 
   const closed = wonCount + lostCount
   const conversionRate = closed === 0 ? null : wonCount / closed

@@ -1,20 +1,22 @@
 import { prisma } from '@/lib/db/client'
+import { clientStagesFor } from '@/lib/clients/stage-query'
 import { buildRelationshipSummary } from './index'
 
 /**
  * Re-derive and persist the relationship summary for a single client.
- * Called after note create/delete and status changes.
+ * Called after note create/delete and project changes.
  * Fast: pure computation + one DB write; safe to await inline.
  */
 export async function refreshClientSummary(
   ownerId: string,
   clientId: string,
 ): Promise<void> {
-  const [client, notes, activities, tasks] = await Promise.all([
+  const [client, stages, notes, activities, tasks] = await Promise.all([
     prisma.client.findFirst({
       where: { id: clientId, ownerId },
-      select: { status: true, createdAt: true },
+      select: { createdAt: true },
     }),
+    clientStagesFor(ownerId, [clientId]),
     prisma.note.findMany({
       where: { clientId, ownerId },
       select: { body: true, noteType: true, occurredAt: true },
@@ -52,7 +54,7 @@ export async function refreshClientSummary(
 
   const summary = buildRelationshipSummary(
     {
-      client: { status: client.status, createdAt: client.createdAt },
+      client: { stage: stages.get(clientId) ?? 'lead', createdAt: client.createdAt },
       notes: notes.map((n) => ({
         body: n.body,
         noteType: n.noteType,

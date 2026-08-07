@@ -25,7 +25,6 @@ const MULTI_CLIENT_TEMPLATES = [
 export interface ClientOption {
   id: string
   name: string
-  status?: string
 }
 
 interface ClientFilteredGeneratorProps {
@@ -243,11 +242,6 @@ export function ClientFilteredGenerator({ clients, defaultAi }: ClientFilteredGe
                       {selected && <Check className="size-3" />}
                     </span>
                     <span className="flex-1 truncate font-medium">{client.name}</span>
-                    {client.status && (
-                      <span className="shrink-0 text-xs text-muted-foreground capitalize">
-                        {client.status.replace(/_/g, ' ')}
-                      </span>
-                    )}
                   </button>
                 )
               })

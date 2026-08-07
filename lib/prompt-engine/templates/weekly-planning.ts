@@ -50,7 +50,7 @@ One clear, measurable outcome the operator should aim for by Friday — name the
 
 === REASONING INSTRUCTIONS ===
 Before writing, scan the data for:
-1. Deals at proposal_sent or negotiating stage — these have the highest near-term revenue impact.
+1. Clients with a proposal out — a quote awaiting an answer has the highest near-term revenue impact.
 2. Tasks that are overdue or due within 7 days.
 3. Clients with no contact in 14+ days who are still active.
 Build the week around those items first, then fill lower-priority work around them.

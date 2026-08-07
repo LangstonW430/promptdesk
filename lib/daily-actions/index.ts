@@ -3,13 +3,16 @@ import {
   PIPELINE_PROJECT_STATUSES,
   pipelineValueByClient,
 } from '@/lib/clients/pipeline-value'
+import { clientStagesFor } from '@/lib/clients/stage-query'
+import { OPEN_STAGES, type ClientStage } from '@/lib/clients/stage'
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
 export interface ActionClient {
   id: string
   displayName: string
-  status: string
+  /** Derived from the client's projects and contact history. */
+  stage: ClientStage
   /**
    * Sum of the client's open project budgets. Null when they have no open
    * projects — distinct from 0, which would claim someone quoted them nothing.
@@ -65,7 +68,6 @@ const CLIENT_SELECT = {
   id: true,
   companyName: true,
   contactName: true,
-  status: true,
   nextFollowupDate: true,
   lastContactDate: true,
 } as const
@@ -84,12 +86,16 @@ export async function getOverdueFollowUps(ownerId: string): Promise<ActionClient
     take: 20,
   })
 
-  const values = await pipelineValueByClient(ownerId, rows.map((c) => c.id))
+  const ids = rows.map((c) => c.id)
+  const [values, stages] = await Promise.all([
+    pipelineValueByClient(ownerId, ids),
+    clientStagesFor(ownerId, ids),
+  ])
 
   return rows.map((c) => ({
     id: c.id,
     displayName: resolveDisplayName(c),
-    status: c.status,
+    stage: stages.get(c.id) ?? 'lead',
     pipelineValue: values.get(c.id) ?? null,
     nextFollowupDate: c.nextFollowupDate ? toDateStr(c.nextFollowupDate) : null,
     lastContactDate: c.lastContactDate ? toDateStr(c.lastContactDate) : null,
@@ -118,7 +124,10 @@ export async function getHotLeads(ownerId: string): Promise<ActionClient[]> {
       isArchived: false,
       status: { in: [...PIPELINE_PROJECT_STATUSES] },
       budget: { gt: 0 },
-      client: { isArchived: false, status: { in: ['lead', 'contacted'] } },
+      // A quoted proposal with a budget is itself the "hot" signal — it used
+      // to also require a client status of lead/contacted, which said the same
+      // thing a second time and could contradict it.
+      client: { isArchived: false },
     },
     _sum: { budget: true },
     orderBy: { _sum: { budget: 'desc' } },
@@ -131,6 +140,8 @@ export async function getHotLeads(ownerId: string): Promise<ActionClient[]> {
     select: CLIENT_SELECT,
   })
 
+  const stages = await clientStagesFor(ownerId, rows.map((c) => c.id))
+
   // groupBy carries the ordering; findMany does not preserve `in` order.
   const byId = new Map(rows.map((c) => [c.id, c]))
 
@@ -140,7 +151,7 @@ export async function getHotLeads(ownerId: string): Promise<ActionClient[]> {
     return [{
       id: c.id,
       displayName: resolveDisplayName(c),
-      status: c.status,
+      stage: stages.get(c.id) ?? 'lead',
       pipelineValue: Number(r._sum.budget ?? 0),
       nextFollowupDate: c.nextFollowupDate ? toDateStr(c.nextFollowupDate) : null,
       lastContactDate: c.lastContactDate ? toDateStr(c.lastContactDate) : null,
@@ -151,9 +162,14 @@ export async function getHotLeads(ownerId: string): Promise<ActionClient[]> {
 }
 
 /**
- * Non-won/lost clients with no contact in 30+ days.
+ * Clients still in play with no contact in 30+ days.
  * Uses lastContactDate; falls back to createdAt for clients never contacted.
  * Ordered by most-stale first.
+ *
+ * "Still in play" used to be `status notIn (won, lost)`. It is now a stage in
+ * the open set, which means the same thing without anyone having to remember
+ * to mark it: a client with live work is not going cold, and a finished or
+ * archived one is not worth chasing.
  */
 export async function getGoingCold(ownerId: string): Promise<ActionClient[]> {
   const threshold = new Date()
@@ -164,7 +180,6 @@ export async function getGoingCold(ownerId: string): Promise<ActionClient[]> {
     where: {
       ownerId,
       isArchived: false,
-      status: { notIn: ['won', 'lost'] },
       OR: [
         { lastContactDate: { lt: threshold } },
         { AND: [{ lastContactDate: null }, { createdAt: { lt: threshold } }] },
@@ -175,20 +190,27 @@ export async function getGoingCold(ownerId: string): Promise<ActionClient[]> {
     take: 20,
   })
 
-  const values = await pipelineValueByClient(ownerId, rows.map((c) => c.id))
+  const ids = rows.map((c) => c.id)
+  const [values, stages] = await Promise.all([
+    pipelineValueByClient(ownerId, ids),
+    clientStagesFor(ownerId, ids),
+  ])
 
-  return rows.map((c) => {
+  return rows.flatMap((c) => {
+    const stage = stages.get(c.id) ?? 'lead'
+    if (!OPEN_STAGES.includes(stage)) return []
+
     const contactRef = c.lastContactDate ?? c.createdAt
-    return {
+    return [{
       id: c.id,
       displayName: resolveDisplayName(c),
-      status: c.status,
+      stage,
       pipelineValue: values.get(c.id) ?? null,
       nextFollowupDate: c.nextFollowupDate ? toDateStr(c.nextFollowupDate) : null,
       lastContactDate: c.lastContactDate ? toDateStr(c.lastContactDate) : null,
       daysOverdue: null,
       daysSinceContact: daysAgo(contactRef),
-    }
+    }]
   })
 }
 

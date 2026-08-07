@@ -19,10 +19,10 @@ import {
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { StatusBadge } from '@/components/clients/status-badge'
+import { StageBadge } from '@/components/clients/stage-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { CLIENT_STATUSES } from '@/lib/clients/types'
+import { CLIENT_STAGES, CLIENT_STAGE_LABELS } from '@/lib/clients/stage'
 import { setClientArchivedAction } from '@/lib/actions/clients'
 
 // Loaded on demand: the kanban view pulls in @dnd-kit, and list is the default
@@ -50,7 +50,8 @@ export type SerializedClient = {
   contactName: string | null
   email: string | null
   industry: string | null
-  status: string
+  /** Derived from projects and contact history; never set directly. */
+  stage: string
   /** Sum of the client's open project budgets; null when they have none. */
   pipelineValue: number | null
   lastContactDate: string | null
@@ -59,15 +60,6 @@ export type SerializedClient = {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-const STATUS_LABELS: Record<string, string> = {
-  lead: 'Lead',
-  contacted: 'Contacted',
-  proposal_sent: 'Proposal sent',
-  negotiating: 'Negotiating',
-  won: 'Won',
-  lost: 'Lost',
-}
 
 function formatCurrency(value: number | null): string {
   if (value == null) return '—'
@@ -102,7 +94,7 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
   const [isPending, startTransition] = useTransition()
 
   const currentQ = searchParams.get('q') ?? ''
-  const currentStatus = searchParams.get('status') ?? ''
+  const currentStage = searchParams.get('stage') ?? ''
   const currentTag = searchParams.get('tag') ?? ''
   const isGoingCold = searchParams.get('stale') === '30'
   const isArchived = searchParams.get('archived') === 'true'
@@ -127,7 +119,7 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
   const visibleClients = clients.filter((c) => !removedIds.has(c.id))
 
   const hasActiveFilters =
-    currentQ !== '' || currentStatus !== '' || currentTag !== '' || isGoingCold || isArchived
+    currentQ !== '' || currentStage !== '' || currentTag !== '' || isGoingCold || isArchived
 
   function handleArchiveToggle(client: SerializedClient) {
     // In the Archived view the same control restores instead.
@@ -218,18 +210,18 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
           />
         </div>
 
-        {/* Status filter (hidden in Kanban — columns already separate by status) */}
+        {/* Stage filter (hidden in Kanban — columns already separate by stage) */}
         {currentView === 'table' && (
           <select
-            value={currentStatus}
-            onChange={(e) => pushFilters({ status: e.target.value || null })}
-            aria-label="Filter by status"
+            value={currentStage}
+            onChange={(e) => pushFilters({ stage: e.target.value || null })}
+            aria-label="Filter by stage"
             className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            <option value="">All statuses</option>
-            {CLIENT_STATUSES.map((s) => (
+            <option value="">All stages</option>
+            {CLIENT_STAGES.map((s) => (
               <option key={s} value={s}>
-                {STATUS_LABELS[s]}
+                {CLIENT_STAGE_LABELS[s]}
               </option>
             ))}
           </select>
@@ -346,7 +338,7 @@ export function ClientTable({ clients }: { clients: SerializedClient[] }) {
                     <tr className="border-b border-border">
                       {[
                         'Company / Contact',
-                        'Status',
+                        'Stage',
                         'Industry',
                         'Pipeline',
                         'Last Contact',
@@ -439,9 +431,9 @@ function ClientRow({
         )}
       </td>
 
-      {/* Status */}
+      {/* Stage */}
       <td className="px-4 py-3">
-        <StatusBadge status={client.status} />
+        <StageBadge stage={client.stage} />
       </td>
 
       {/* Industry */}

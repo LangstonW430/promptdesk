@@ -11,44 +11,42 @@ import type {
   ScoredItem,
   IncludedItem,
   PipelineAggregate,
-  ClientStatus,
+  ClientStage,
 } from './types'
 import type { ScoreBreakdown } from './types'
 import { estimateTokens } from './renderer'
+import { CLIENT_STAGES, CLIENT_STAGE_LABELS, STAGE_PROBABILITY } from '@/lib/clients/stage'
 
 // ─── Pipeline aggregate ───────────────────────────────────────────────────────
 
-const STAGE_PROBABILITIES: Record<ClientStatus, number> = {
-  lead: 0.10,
-  contacted: 0.25,
-  proposal_sent: 0.50,
-  negotiating: 0.75,
-  won: 1.0,
-  lost: 0.0,
-}
+// Probability of the relationship turning into revenue, shared with the rest of
+// the app so the weighted pipeline here and the one on the dashboard cannot
+// disagree.
+const STAGE_PROBABILITIES = STAGE_PROBABILITY
 
-const INACTIVE = new Set<ClientStatus>(['won', 'lost'])
+// Nothing left to chase: the work is done, or the client is archived.
+const INACTIVE = new Set<ClientStage>(['past', 'lost'])
 
 export function computePipelineAggregate(
   clients: EngineClient[],
   now: Date,
   currency = 'USD',
 ): PipelineAggregate {
-  const statusCounts: Record<ClientStatus, number> = {
-    lead: 0, contacted: 0, proposal_sent: 0, negotiating: 0, won: 0, lost: 0,
-  }
+  const stageCounts = Object.fromEntries(
+    CLIENT_STAGES.map((s) => [s, 0]),
+  ) as Record<ClientStage, number>
 
   let weightedValue = 0
   let staleCount = 0
   let overdueCount = 0
 
   for (const c of clients) {
-    statusCounts[c.status] = (statusCounts[c.status] ?? 0) + 1
+    stageCounts[c.stage] = (stageCounts[c.stage] ?? 0) + 1
 
     const value = c.estimatedValue ?? 0
-    weightedValue += value * (STAGE_PROBABILITIES[c.status] ?? 0)
+    weightedValue += value * (STAGE_PROBABILITIES[c.stage] ?? 0)
 
-    if (!INACTIVE.has(c.status)) {
+    if (!INACTIVE.has(c.stage)) {
       const lastContact = c.updatedAt ? new Date(c.updatedAt) : null
       const daysSince = lastContact
         ? (now.getTime() - lastContact.getTime()) / 86_400_000
@@ -61,7 +59,7 @@ export function computePipelineAggregate(
     }
   }
 
-  const totalActive = clients.filter((c) => !INACTIVE.has(c.status)).length
+  const totalActive = clients.filter((c) => !INACTIVE.has(c.stage)).length
 
   const formatted = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -71,7 +69,7 @@ export function computePipelineAggregate(
 
   return {
     totalActive,
-    statusCounts,
+    stageCounts,
     weightedPipelineValue: weightedValue,
     weightedPipelineValueFormatted: formatted,
     staleClientCount: staleCount,
@@ -95,7 +93,7 @@ export function toScorableClient(c: EngineClient): ScorableClient {
   return {
     kind: 'client',
     id: c.id,
-    status: c.status,
+    stage: c.stage,
     estimatedValue: c.estimatedValue,
     lastContactDate: c.updatedAt,   // use updatedAt as proxy when lastContactDate is a string
     nextFollowupDate: c.nextFollowupDate
@@ -114,7 +112,7 @@ export function toScorableNote(
   return {
     kind: 'note',
     id: n.id,
-    clientStatus: client?.status,
+    clientStage: client?.stage,
     clientEstimatedValue: client?.estimatedValue ?? null,
     occurredAt: n.occurredAt,
     searchText: n.body,
@@ -129,7 +127,7 @@ export function toScorableTask(
   return {
     kind: 'task',
     id: t.id,
-    clientStatus: client?.status,
+    clientStage: client?.stage,
     clientEstimatedValue: client?.estimatedValue ?? null,
     dueDate: t.dueDate ? new Date(t.dueDate).toISOString() : null,
     isDone: t.isDone,
@@ -145,7 +143,7 @@ export function toScorableActivity(
   return {
     kind: 'activity',
     id: a.id,
-    clientStatus: client?.status,
+    clientStage: client?.stage,
     clientEstimatedValue: client?.estimatedValue ?? null,
     occurredAt: a.occurredAt,
     searchText: `${a.type} ${JSON.stringify(a.detail)}`,
@@ -169,7 +167,7 @@ function clientFullContent(c: EngineClient): string {
       .join(' ') || c.id
 
   const row1 = [
-    c.status,
+    CLIENT_STAGE_LABELS[c.stage],
     c.estimatedValueFormatted ? `Value: ${c.estimatedValueFormatted}` : null,
     c.industry ? `Industry: ${c.industry}` : null,
   ]
@@ -192,7 +190,7 @@ function clientFullContent(c: EngineClient): string {
     line('Requirements', c.requirements),
     line('Opportunity', c.opportunityNotes),
     c.tags.length > 0 ? `Tags: ${c.tags.join(', ')}` : null,
-    // Relationship summary compresses months of notes+status history into ~300 tokens.
+    // Relationship summary compresses months of notes and stage history into ~300 tokens.
     // When present it replaces bulk note retrieval for Client Insight prompts.
     c.relationshipSummary ? `\n${c.relationshipSummary}` : null,
   ])
@@ -201,7 +199,7 @@ function clientFullContent(c: EngineClient): string {
 function clientSummary(c: EngineClient): string {
   return [
     c.companyName ?? c.id,
-    c.status,
+    CLIENT_STAGE_LABELS[c.stage],
     c.estimatedValueFormatted,
     c.lastContactDate ? `last contact ${c.lastContactDate}` : null,
   ]
@@ -327,9 +325,9 @@ export function toScoredActivity(
 // ─── Context block assembler ──────────────────────────────────────────────────
 
 function aggregateHeader(agg: PipelineAggregate): string {
-  const byStage = (Object.entries(agg.statusCounts) as [ClientStatus, number][])
+  const byStage = (Object.entries(agg.stageCounts) as [ClientStage, number][])
     .filter(([, n]) => n > 0)
-    .map(([s, n]) => `${s}: ${n}`)
+    .map(([s, n]) => `${CLIENT_STAGE_LABELS[s]}: ${n}`)
     .join('  |  ')
 
   return [

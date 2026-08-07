@@ -74,10 +74,9 @@ export async function importClientsAction(rows: ImportRow[]): Promise<ImportResu
     if (str(row.leadSource)) data.leadSource = str(row.leadSource)
     if (str(row.projectType)) data.projectType = str(row.projectType)
 
-    // Normalise status: "Proposal Sent" → "proposal_sent"
-    if (str(row.status)) {
-      data.status = row.status.trim().toLowerCase().replace(/[\s-]+/g, '_')
-    }
+    // Status is no longer a client field either: a client's stage is read off
+    // their projects, so a "status" column in an imported CSV has nowhere to
+    // land. It was removed from the importer's column list to match.
 
     // Value is no longer a client field — it lives on projects, so an
     // "estimated value" column in an imported CSV has nowhere to land. The

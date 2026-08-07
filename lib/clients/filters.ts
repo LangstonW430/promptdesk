@@ -14,10 +14,6 @@ export function buildClientWhere(
     { isArchived: filters.archived ?? false },
   ]
 
-  if (filters.status) {
-    conditions.push({ status: filters.status })
-  }
-
   if (filters.q) {
     conditions.push({
       OR: [
@@ -45,7 +41,6 @@ export function buildClientWhere(
     const threshold = new Date()
     threshold.setDate(threshold.getDate() - filters.stale)
 
-    conditions.push({ status: { notIn: ['won', 'lost'] } })
     conditions.push({
       OR: [
         { lastContactDate: { lt: threshold } },

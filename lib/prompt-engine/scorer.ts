@@ -6,18 +6,21 @@ import type {
   ScorableActivity,
   ScoringWeights,
   ScoreBreakdown,
-  ClientStatus,
+  ClientStage,
 } from './types'
 import { DEFAULT_WEIGHTS } from './types'
 
 // ─── Stage urgency map (spec §7.3) ───────────────────────────────────────────
 
-const STAGE_URGENCY: Record<ClientStatus, number> = {
-  negotiating: 1.0,
-  proposal_sent: 0.75,
+// A quote awaiting an answer is the most time-sensitive thing in the pipeline,
+// so it outranks live delivery work; a finished or archived relationship has
+// nothing to chase.
+const STAGE_URGENCY: Record<ClientStage, number> = {
+  proposal_out: 1.0,
+  active: 0.75,
   contacted: 0.50,
   lead: 0.25,
-  won: 0.0,
+  past: 0.0,
   lost: 0.0,
 }
 
@@ -96,7 +99,7 @@ function scoreClient(
   return {
     recency: recencyScore(item.updatedAt, now),
     dealValue: maxValue > 0 ? (item.estimatedValue ?? 0) / maxValue : 0,
-    stageUrgency: STAGE_URGENCY[item.status] ?? 0,
+    stageUrgency: STAGE_URGENCY[item.stage] ?? 0,
     stalenessRisk: stalenessScore(item.lastContactDate, item.nextFollowupDate, now),
     relevance: jaccardSimilarity(tokenise(item.searchText), objectiveTokens),
   }
@@ -111,7 +114,7 @@ function scoreNote(
   return {
     recency: recencyScore(item.occurredAt, now),
     dealValue: maxValue > 0 ? (item.clientEstimatedValue ?? 0) / maxValue : 0,
-    stageUrgency: STAGE_URGENCY[item.clientStatus ?? 'lead'] ?? 0,
+    stageUrgency: STAGE_URGENCY[item.clientStage ?? 'lead'] ?? 0,
     stalenessRisk: 0, // staleness not meaningful for historical notes
     relevance: jaccardSimilarity(tokenise(item.searchText), objectiveTokens),
   }
@@ -129,7 +132,7 @@ function scoreTask(
   return {
     recency: item.dueDate ? recencyScore(item.dueDate, now) : 0.5,
     dealValue: maxValue > 0 ? (item.clientEstimatedValue ?? 0) / maxValue : 0,
-    stageUrgency: STAGE_URGENCY[item.clientStatus ?? 'lead'] ?? 0,
+    stageUrgency: STAGE_URGENCY[item.clientStage ?? 'lead'] ?? 0,
     stalenessRisk: isOverdue ? 1.0 : 0,
     relevance: jaccardSimilarity(tokenise(item.searchText), objectiveTokens),
   }
@@ -144,7 +147,7 @@ function scoreActivity(
   return {
     recency: recencyScore(item.occurredAt, now),
     dealValue: maxValue > 0 ? (item.clientEstimatedValue ?? 0) / maxValue : 0,
-    stageUrgency: STAGE_URGENCY[item.clientStatus ?? 'lead'] ?? 0,
+    stageUrgency: STAGE_URGENCY[item.clientStage ?? 'lead'] ?? 0,
     stalenessRisk: 0,
     relevance: jaccardSimilarity(tokenise(item.searchText), objectiveTokens),
   }
@@ -156,7 +159,7 @@ const REASON_LABELS: Record<keyof ScoringWeights, (score: number) => string | nu
   recency: (s) => (s >= 0.8 ? 'recent activity' : null),
   dealValue: (s) => (s >= 0.7 ? 'high value' : null),
   stageUrgency: (s) =>
-    s >= 0.75 ? 'negotiating' : s >= 0.5 ? 'active stage' : null,
+    s >= 0.75 ? 'proposal out' : s >= 0.5 ? 'active stage' : null,
   stalenessRisk: (s) => (s >= 1.0 ? 'overdue follow-up' : s >= 0.8 ? 'going cold' : null),
   relevance: (s) => (s >= 0.15 ? 'keyword match' : null),
 }

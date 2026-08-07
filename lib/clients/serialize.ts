@@ -1,5 +1,6 @@
 import type { SerializedClientDetail } from '@/components/clients/client-detail'
 import { PIPELINE_PROJECT_STATUSES } from './pipeline-value'
+import type { ClientStage } from './stage'
 
 type DecimalLike = { toNumber(): number } | number | null | undefined
 
@@ -19,7 +20,6 @@ type ClientWithRelations = {
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  status: string
   defaultRate: DecimalLike
   projectType: string | null
   painPoints: string | null
@@ -49,8 +49,18 @@ type ClientWithRelations = {
   customFields: unknown
 }
 
-export function serializeClientDetail(client: ClientWithRelations): SerializedClientDetail {
+/**
+ * `stage` is passed in rather than computed here: it is derived from projects
+ * and notes by one rule (lib/clients/stage.ts), fed by one query
+ * (lib/clients/stage-query.ts), and re-deriving it from this page's already
+ * filtered relations would quietly disagree with the list and the dashboard.
+ */
+export function serializeClientDetail(
+  client: ClientWithRelations,
+  stage: ClientStage,
+): SerializedClientDetail {
   return {
+    stage,
     id: client.id,
     companyName: client.companyName,
     contactName: client.contactName,
@@ -60,7 +70,6 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
     industry: client.industry,
     companySize: client.companySize,
     leadSource: client.leadSource,
-    status: client.status,
     defaultRate: toNum(client.defaultRate),
     projectType: client.projectType,
     painPoints: client.painPoints,

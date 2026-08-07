@@ -13,13 +13,13 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { StatusBadge } from '@/components/clients/status-badge'
+import { StageBadge } from '@/components/clients/stage-badge'
 import { cn } from '@/lib/utils'
-import { CLIENT_STATUSES } from '@/lib/clients/types'
+import type { ClientStage } from '@/lib/clients/stage'
 import { NOTE_TYPES, type NoteType } from '@/lib/notes/types'
 import { TAG_COLOR_CLASSES } from '@/lib/tags/colors'
 import type { TagColor } from '@/lib/tags/validators'
-import { changeClientStatusAction, setClientArchivedAction, updateClientAction, deleteClientAction } from '@/lib/actions/clients'
+import { setClientArchivedAction, updateClientAction, deleteClientAction } from '@/lib/actions/clients'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { createNoteAction, deleteNoteAction } from '@/lib/actions/notes'
 import { listTagsAction, attachTagAction, detachTagAction } from '@/lib/actions/tags'
@@ -42,7 +42,8 @@ export type SerializedClientDetail = {
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  status: string
+  /** Derived from this client's projects and contact history — see lib/clients/stage.ts. */
+  stage: ClientStage
   /** Summed from the client's proposed + active projects. */
   pipelineValue: number
   defaultRate: number | null
@@ -76,7 +77,9 @@ export type SerializedClientDetail = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const STATUS_LABELS: Record<string, string> = {
+// Clients no longer carry a status, but activity rows recorded before it was
+// removed still reference the old vocabulary — this keeps that history readable.
+const LEGACY_STATUS_LABELS: Record<string, string> = {
   lead: 'Lead', contacted: 'Contacted', proposal_sent: 'Proposal sent',
   negotiating: 'Negotiating', won: 'Won', lost: 'Lost',
 }
@@ -123,6 +126,18 @@ function todayISO(): string {
   return new Date().toISOString().split('T')[0]
 }
 
+// Says what produced the stage, so a read-only badge does not look like a
+// control someone broke.
+// `lost` is deliberately absent: it means archived, and the Archived chip
+// beside the badge already says so.
+const STAGE_EXPLANATIONS: Partial<Record<ClientStage, string>> = {
+  lead: 'No contact logged yet',
+  contacted: 'Contact logged, nothing quoted',
+  proposal_out: 'Has a proposed project',
+  active: 'Has an active project',
+  past: 'All projects completed',
+}
+
 // ── Tabs ───────────────────────────────────────────────────────────────────
 
 type TabId = 'overview' | 'notes' | 'intelligence' | 'attachments'
@@ -138,11 +153,8 @@ interface ClientDetailProps {
 export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabId>('overview')
-  const [localStatus, setLocalStatus] = useState(client.status)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
-
-  useEffect(() => { setLocalStatus(client.status) }, [client.status])
 
   const displayName = client.companyName ?? client.contactName ?? 'Unnamed client'
 
@@ -152,19 +164,6 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
     { id: 'intelligence', label: 'Intelligence' },
     { id: 'attachments', label: 'Attachments', count: client.attachments.length || undefined },
   ]
-
-  function handleStatusChange(newStatus: string) {
-    if (newStatus === localStatus) return
-    setLocalStatus(newStatus)
-    startTransition(async () => {
-      const result = await changeClientStatusAction(client.id, newStatus)
-      if ('error' in result) {
-        setLocalStatus(client.status)
-      } else {
-        router.refresh()
-      }
-    })
-  }
 
   function handleArchiveToggle() {
     startTransition(async () => {
@@ -206,7 +205,14 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
 
         {/* Quick actions row */}
         <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
-          <StatusBadge status={localStatus} />
+          {/* Read-only: the stage follows the client's projects rather than a
+              field someone has to remember to update. */}
+          <StageBadge stage={client.stage} />
+          {STAGE_EXPLANATIONS[client.stage] && (
+            <span className="text-xs text-muted-foreground">
+              {STAGE_EXPLANATIONS[client.stage]}
+            </span>
+          )}
           {client.isArchived && (
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               Archived
@@ -214,18 +220,6 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
           )}
 
           <div className="ml-auto flex items-center gap-1.5">
-            <select
-              value={localStatus}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              disabled={isPending}
-              aria-label="Change status"
-              className="h-7 rounded-lg border border-input bg-transparent px-2 py-1 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-            >
-              {CLIENT_STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-              ))}
-            </select>
-
             <Button
               variant="outline"
               size="sm"
@@ -961,8 +955,8 @@ function activityDescription(activity: Activity): string {
   const d = activity.detail
   switch (activity.type) {
     case 'status_changed': {
-      const from = STATUS_LABELS[String(d.from)] ?? String(d.from)
-      const to = STATUS_LABELS[String(d.to)] ?? String(d.to)
+      const from = LEGACY_STATUS_LABELS[String(d.from)] ?? String(d.from)
+      const to = LEGACY_STATUS_LABELS[String(d.to)] ?? String(d.to)
       return `Status: ${from} → ${to}`
     }
     case 'note_added': {

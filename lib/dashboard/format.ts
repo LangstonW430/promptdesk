@@ -34,6 +34,11 @@ export function formatTemplateKey(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+/**
+ * Labels for `status_changed` activity rows. Clients no longer have a status —
+ * their stage is derived from projects — but rows logged before that change
+ * still use this vocabulary, so the feed keeps rendering them.
+ */
 export function formatStatus(status: string): string {
   const labels: Record<string, string> = {
     lead: 'Lead',
