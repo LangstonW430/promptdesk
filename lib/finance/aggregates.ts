@@ -1,23 +1,8 @@
 import { unstable_cache } from 'next/cache'
 import { prisma } from '@/lib/db/client'
 import { financeTag } from '@/lib/cache-tags'
-import {
-  getPeriodBoundaries,
-  bucketByMonth,
-  groupByClient,
-  calculateMRRSummary,
-} from './calc'
-import type { Period, MonthlyStat, ClientIncomeStat, MRRSummary } from './types'
-
-function dateFilter(from: Date | null, to: Date | null) {
-  if (!from && !to) return {}
-  return {
-    occurredAt: {
-      ...(from && { gte: from }),
-      ...(to && { lt: to }),
-    },
-  }
-}
+import { bucketByMonth } from './calc'
+import type { MonthlyStat } from './types'
 
 /**
  * Wraps an owner-scoped query in `unstable_cache` with a per-owner key and a
@@ -93,51 +78,8 @@ export const getMonthlySeries = ownerCache(
   },
 )
 
-// ─── MRR summary ─────────────────────────────────────────────────────────────
-
-export const getMRRSummary = ownerCache(
-  'finance-mrr',
-  async (ownerId: string): Promise<MRRSummary> => {
-    const { from, to } = getPeriodBoundaries('thisMonth')
-    const rows = await prisma.transaction.findMany({
-      where: { ownerId, ...dateFilter(from, to) },
-      select: { type: true, amount: true, isRecurring: true, frequency: true },
-    })
-    return calculateMRRSummary(
-      rows.map((r) => ({
-        type: r.type,
-        amount: Number(r.amount),
-        isRecurring: r.isRecurring,
-        frequency: r.frequency,
-      })),
-    )
-  },
-)
-
-// ─── Income by client ─────────────────────────────────────────────────────────
-
-export const getIncomeByClient = ownerCache(
-  'finance-income-client',
-  async (ownerId: string, period: Period): Promise<ClientIncomeStat[]> => {
-    const { from, to } = getPeriodBoundaries(period)
-    const rows = await prisma.transaction.findMany({
-      where: { ownerId, type: 'income', ...dateFilter(from, to) },
-      select: {
-        type: true,
-        amount: true,
-        clientId: true,
-        client: { select: { companyName: true, contactName: true } },
-      },
-    })
-    return groupByClient(
-      rows.map((r) => ({
-        type: r.type,
-        amount: Number(r.amount),
-        clientId: r.clientId,
-        clientName: r.client
-          ? (r.client.companyName ?? r.client.contactName ?? 'Unknown')
-          : null,
-      })),
-    )
-  },
-)
+// getMRRSummary and getIncomeByClient were removed. Both were cached wrappers
+// with no callers: MRR is served by getActiveMRR, which now counts manually
+// entered standing charges as well as Stripe subscriptions, and the finance
+// page derives its income-by-client breakdown from the rows it already loads.
+// Their reducers (calculateMRR, groupByClient) are still in lib/finance/calc.

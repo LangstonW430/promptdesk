@@ -2,11 +2,11 @@ import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
 import { listTransactionsForPeriod, fetchClientsForPicker } from '@/lib/finance'
 import { getMonthlySeries } from '@/lib/finance/aggregates'
-import { sumFinancials, groupByCategory } from '@/lib/finance/calc'
+import { sumFinancials, groupByCategory, groupByClient } from '@/lib/finance/calc'
 import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
 import { PeriodSelector } from '@/components/finance/period-selector'
 import { MonthlyChart } from '@/components/finance/monthly-chart'
-import { CategoryChart } from '@/components/finance/category-chart'
+import { BreakdownCard, type BreakdownView } from '@/components/finance/breakdown-card'
 import { TransactionsTable } from '@/components/finance/transactions-table'
 import { FinanceStatCards } from '@/components/finance/finance-stat-cards'
 import type { Period } from '@/lib/finance/types'
@@ -51,9 +51,37 @@ export default async function FinancePage({
   // per load. `sumFinancials` and `groupByCategory` are the pure reducers from
   // lib/finance/calc — same inputs, same outputs, no round-trip.
   const summary = sumFinancials(transactions)
-  const expensesByCategory = groupByCategory(
-    transactions.filter((t) => t.type === 'expense'),
-  )
+
+  // Both breakdowns come off the same expanded rows, so the tabs cannot report
+  // different totals for the same period. groupByClient already existed and had
+  // no caller — the data for "who pays me" was being loaded and thrown away.
+  const breakdowns: BreakdownView[] = [
+    {
+      id: 'expense-category',
+      label: 'Expenses',
+      title: 'Expenses by Category',
+      data: groupByCategory(transactions.filter((t) => t.type === 'expense')),
+      empty: 'No expenses in this period.',
+    },
+    {
+      id: 'income-client',
+      label: 'Income',
+      title: 'Income by Client',
+      data: groupByClient(transactions).map((c) => ({
+        category: c.clientName ?? 'Unattributed',
+        total: c.total,
+        count: 0,
+      })),
+      empty: 'No income in this period.',
+    },
+  ]
+
+  // Trends for the stat tiles. The monthly series is already loaded for the
+  // chart, so the shape of each number's history costs no extra query and no
+  // extra space on the page.
+  const incomeTrend = monthlySeries.map((m) => m.income)
+  const expenseTrend = monthlySeries.map((m) => m.expense)
+  const netTrend = monthlySeries.map((m) => m.net)
 
   return (
     <div className="flex flex-col gap-6">
@@ -71,6 +99,9 @@ export default async function FinancePage({
       {/* ── Stat cards + MRR ───────────────────────────────────── */}
       <FinanceStatCards
         summary={summary}
+        incomeTrend={incomeTrend}
+        expenseTrend={expenseTrend}
+        netTrend={netTrend}
         activeMRR={activeMRR}
         transactions={transactions}
         period={period}
@@ -80,7 +111,7 @@ export default async function FinancePage({
       {/* ── Charts ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <MonthlyChart data={monthlySeries} />
-        <CategoryChart data={expensesByCategory} />
+        <BreakdownCard views={breakdowns} />
       </div>
 
       {/* ── Transactions ───────────────────────────────────────── */}

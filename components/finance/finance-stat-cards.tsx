@@ -37,12 +37,19 @@ function inRange(iso: string, from: Date | null, to: Date | null): boolean {
 interface Props {
   summary: FinancialSummary
   activeMRR: ActiveMRRResult
+  /** Six-month history for the tile trend lines, oldest → newest. */
+  incomeTrend?: number[]
+  expenseTrend?: number[]
+  netTrend?: number[]
   transactions: SerializedTransaction[]
   period: Period
   syncState: SerializedSyncState | null
 }
 
-export function FinanceStatCards({ summary, activeMRR, transactions, period, syncState }: Props) {
+export function FinanceStatCards({
+  summary, activeMRR, transactions, period, syncState,
+  incomeTrend, expenseTrend, netTrend,
+}: Props) {
   const [openDialog, setOpenDialog] = useState<DialogId | null>(null)
   const close = () => setOpenDialog(null)
 
@@ -166,7 +173,9 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
             icon={TrendingUp}
             label="Income"
             value={formatCurrency(summary.totalIncome)}
-            subtext="total received"
+            subtext="total received · 6-mo trend"
+            trend={incomeTrend}
+            trendLabel="Income over the last six months"
           />
         </button>
 
@@ -179,7 +188,9 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
             icon={TrendingDown}
             label="Expenses"
             value={formatCurrency(summary.totalExpense)}
-            subtext="total spent"
+            subtext="total spent · 6-mo trend"
+            trend={expenseTrend}
+            trendLabel="Expenses over the last six months"
           />
         </button>
 
@@ -191,8 +202,10 @@ export function FinanceStatCards({ summary, activeMRR, transactions, period, syn
             icon={DollarSign}
             label="Net"
             value={`${netIsPositive ? '' : '-'}${formatCurrency(Math.abs(summary.net))}`}
-            subtext={netIsPositive ? 'profit · click to view' : 'loss · click to view'}
+            subtext={netIsPositive ? 'profit · 6-mo trend' : 'loss · 6-mo trend'}
             highlight={netIsPositive}
+            trend={netTrend}
+            trendLabel="Net over the last six months"
           />
         </a>
 

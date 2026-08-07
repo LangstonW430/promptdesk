@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+import { Sparkline } from '@/components/ui/sparkline'
 import { cn } from '@/lib/utils'
 
 interface StatCardProps {
@@ -9,9 +10,24 @@ interface StatCardProps {
   subtext?: string
   /** Tints the value with the primary accent colour — use for the headline metric. */
   highlight?: boolean
+  /**
+   * Optional trend, oldest → newest. Adds the shape of the number's history
+   * without taking any more space than the tile already occupies.
+   */
+  trend?: number[]
+  /** Describes the trend for screen readers. Required whenever `trend` is set. */
+  trendLabel?: string
 }
 
-export function StatCard({ icon: Icon, label, value, subtext, highlight }: StatCardProps) {
+export function StatCard({
+  icon: Icon,
+  label,
+  value,
+  subtext,
+  highlight,
+  trend,
+  trendLabel,
+}: StatCardProps) {
   return (
     <Card>
       <CardContent className="flex flex-col gap-3">
@@ -29,6 +45,9 @@ export function StatCard({ icon: Icon, label, value, subtext, highlight }: StatC
         >
           {value}
         </p>
+        {trend && trend.length > 1 && (
+          <Sparkline values={trend} label={trendLabel ?? `${label} trend`} />
+        )}
         {subtext && (
           <p className="text-xs text-muted-foreground">{subtext}</p>
         )}
