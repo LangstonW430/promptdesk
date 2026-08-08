@@ -49,6 +49,36 @@ export async function getSyncState(
 
 // ─── Upsert helpers ───────────────────────────────────────────────────────────
 
+/**
+ * The income row for a charge.
+ *
+ * Charges are keyed on their payment intent now, so that a payment made through
+ * an invoice link cannot land twice — see the note in chargeToTransaction. Rows
+ * written before that change carry the charge id, so this adopts one when it
+ * finds it rather than leaving a second row behind on the next sync.
+ */
+async function upsertChargeIncome(
+  charge: Stripe.Charge,
+  ownerId: string,
+): Promise<string> {
+  const data = chargeToTransaction(charge, ownerId)
+
+  if (data.externalId !== charge.id) {
+    const legacy = await prisma.transaction.findFirst({
+      where: { ownerId, source: 'stripe', externalId: charge.id },
+      select: { id: true },
+    })
+    if (legacy) {
+      await prisma.transaction.update({
+        where: { id: legacy.id },
+        data: { externalId: data.externalId },
+      })
+    }
+  }
+
+  return upsertTransaction(data)
+}
+
 async function upsertTransaction(
   data: StripeTransactionData,
 ): Promise<string> {
@@ -403,7 +433,7 @@ export async function processChargeEvent(
   ownerId: string,
 ): Promise<void> {
   const incomeData = chargeToTransaction(charge, ownerId)
-  const incomeId = await upsertTransaction(incomeData)
+  const incomeId = await upsertChargeIncome(charge, ownerId)
 
   const feeData = chargeFeeToTransaction(charge, ownerId)
   const feeId = feeData ? await upsertTransaction(feeData) : null
@@ -494,7 +524,7 @@ export async function backfillStripe(ownerId: string): Promise<void> {
 
         // ── Income row ────────────────────────────────────────────
         const incomeData = chargeToTransaction(charge, ownerId)
-        const incomeId = await upsertTransaction(incomeData)
+        const incomeId = await upsertChargeIncome(charge, ownerId)
 
         // ── Fee expense row ───────────────────────────────────────
         const feeData = chargeFeeToTransaction(charge, ownerId)

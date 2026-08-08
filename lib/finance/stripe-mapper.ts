@@ -138,6 +138,13 @@ function extractCounterparty(charge: Stripe.Charge): {
  * Maps a succeeded Stripe charge to an income transaction row.
  * Amount is the gross charge (before Stripe fee deduction).
  */
+/** The charge's payment intent id, whether it arrived expanded or as a string. */
+export function paymentIntentId(charge: Stripe.Charge): string | null {
+  const pi = charge.payment_intent
+  if (typeof pi === 'string') return pi
+  return pi?.id ?? null
+}
+
 export function chargeToTransaction(
   charge: Stripe.Charge,
   ownerId: string,
@@ -154,7 +161,18 @@ export function chargeToTransaction(
     category: 'Stripe payment',
     occurredAt: new Date(charge.created * 1000),
     clientId: null,
-    externalId: charge.id,
+    // Keyed on the payment intent, not the charge.
+    //
+    // A client paying an invoice through the public link produces two webhooks
+    // for one payment: checkout.session.completed, which
+    // markInvoicePaidFromCheckout records against the payment intent, and
+    // charge.succeeded, which lands here. The idempotency key is
+    // (ownerId, source, externalId), so keying this on `ch_...` while the other
+    // path used `pi_...` put the same money in Finance twice — and an invoice
+    // payment is usually the largest number in the month.
+    //
+    // Charges made outside a PaymentIntent flow still key on their own id.
+    externalId: paymentIntentId(charge) ?? charge.id,
     externalType: 'charge',
     isRecurring: recurring,
     metadata: {
