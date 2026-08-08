@@ -44,6 +44,8 @@ function formatInvoiceNumber(n: number): string {
   return `INV-${String(n).padStart(4, '0')}`
 }
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+
 /**
  * `overdue` is derived at read time rather than persisted.
  *
@@ -60,7 +62,12 @@ function formatInvoiceNumber(n: number): string {
 function deriveStatus(status: string, dueDate: Date | string, now: Date): InvoiceStatus {
   if (status !== 'sent') return status as InvoiceStatus
   const due = dueDate instanceof Date ? dueDate : new Date(dueDate)
-  return due < now ? 'overdue' : 'sent'
+
+  // A due date is a whole day, not an instant. `dueDate` is a Postgres DATE, so
+  // it arrives as midnight UTC — comparing `due < now` marked an invoice
+  // overdue at 00:00 on the very day it fell due, and a client opening the link
+  // that morning saw a red OVERDUE chip on an invoice that was not yet late.
+  return now.getTime() >= due.getTime() + ONE_DAY_MS ? 'overdue' : 'sent'
 }
 
 export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): SerializedInvoice {
