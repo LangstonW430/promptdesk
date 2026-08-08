@@ -29,12 +29,17 @@ export async function POST(
     )
   }
 
+  // The configured app URL, never the request's Origin header. This route is
+  // public and unauthenticated, so the header is attacker-controlled — using it
+  // let anyone mint a Stripe checkout page that redirected the payer to a site
+  // of their choosing once the payment went through. The header is only
+  // consulted when nothing is configured, which is local development.
   const origin =
-    req.headers.get('origin') ??
     process.env.NEXT_PUBLIC_APP_URL ??
+    req.headers.get('origin') ??
     'http://localhost:3000'
 
-  const returnBase = `${origin}/invoice/${publicToken}`
+  const returnBase = `${origin.replace(/\/+$/, '')}/invoice/${publicToken}`
 
   // Map line items — each becomes a single quantity at its total amount (in cents)
   // so fractional quantities (e.g. "2.5 hrs") display cleanly on the Stripe page.

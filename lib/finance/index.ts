@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/client'
+import { ownsClient, ownsProject } from '@/lib/db/ownership'
 import { getPeriodBoundaries, expandRecurring } from './calc'
 import { serializeTransaction } from './serialize'
 import type { SerializedTransaction } from './serialize'
@@ -100,16 +101,25 @@ export async function listTransactionsForPeriod(
   })
 
   const now = new Date()
-  const endOfThisMonth = new Date(
+
+  // How far standing charges are projected forward. Only that: a one-off the
+  // user dated later this year is a row they entered, and clamping the whole
+  // window to this month used to drop it from the table and the stat cards
+  // entirely — it simply vanished, in every period including All time.
+  const projectUntil = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
   )
+
   const windowFrom = from ?? new Date(0)
-  const windowTo = to && to < endOfThisMonth ? to : endOfThisMonth
+  // `to` is the exclusive start of the next period, so step back off it. With
+  // no period there is no upper bound at all.
+  const windowTo = to ? new Date(to.getTime() - 1) : new Date(8.64e15)
 
   const expanded = expandRecurring(
     rows.map(serializeTransaction),
     windowFrom,
     windowTo,
+    projectUntil,
   )
 
   return expanded.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
@@ -123,10 +133,41 @@ export { listProjectOptions as fetchProjectsForPicker } from '@/lib/projects'
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
+/**
+ * Validates the relation ids on a transaction before they are written.
+ *
+ * Both arrive from the request body, so neither can be trusted: an unchecked
+ * `clientId` attaches another owner's client to your row, and an unchecked
+ * `projectId` files the money against work that is not theirs. Returns a
+ * message when something is wrong, or null when the pair is fine.
+ */
+async function checkRelations(
+  ownerId: string,
+  clientId: string | null | undefined,
+  projectId: string | null | undefined,
+): Promise<string | null> {
+  if (clientId && !(await ownsClient(ownerId, clientId))) {
+    return 'Client not found'
+  }
+  if (projectId) {
+    // A project with no client on the same row still has to belong to the
+    // owner; when a client is given, the project must be theirs.
+    if (!(await ownsProject(ownerId, projectId, clientId ?? undefined))) {
+      return clientId
+        ? 'Project not found for this client'
+        : 'Project not found'
+    }
+  }
+  return null
+}
+
 export async function createTransaction(
   ownerId: string,
   input: CreateTransactionInput,
 ) {
+  const rejection = await checkRelations(ownerId, input.clientId, input.projectId)
+  if (rejection) throw new Error(rejection)
+
   const row = await prisma.transaction.create({
     data: {
       ownerId,
@@ -156,11 +197,20 @@ export async function updateTransaction(
 ) {
   const existing = await prisma.transaction.findFirst({
     where: { id, ownerId },
-    select: { source: true },
+    select: { source: true, clientId: true, projectId: true },
   })
   if (!existing) return null
 
   const isStripe = existing.source === 'stripe'
+
+  // Re-validate against the row's resulting client: a request can move the
+  // project without touching the client, or vice versa.
+  const nextClientId =
+    input.clientId !== undefined ? input.clientId : existing.clientId
+  const nextProjectId =
+    input.projectId !== undefined ? input.projectId : existing.projectId
+  const rejection = await checkRelations(ownerId, nextClientId, nextProjectId)
+  if (rejection) throw new Error(rejection)
 
   // Build update payload; financial fields locked for Stripe rows
   const data: Record<string, unknown> = {}

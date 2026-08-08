@@ -13,12 +13,22 @@ export async function createTransactionAction(data: unknown) {
   if (!parsed.success) {
     return { success: false as const, error: parsed.error.issues[0].message }
   }
-  const transaction = await createTransaction(ownerId, parsed.data)
-  revalidatePath('/finance')
-  revalidatePath('/dashboard')
-  updateTag(financeTag(ownerId))
-  updateTag(dashboardTag(ownerId))
-  return { success: true as const, data: transaction }
+  // createTransaction throws when a relation id does not belong to this owner.
+  // Uncaught, that surfaces as the generic error boundary instead of a message
+  // the form can show.
+  try {
+    const transaction = await createTransaction(ownerId, parsed.data)
+    revalidatePath('/finance')
+    revalidatePath('/dashboard')
+    updateTag(financeTag(ownerId))
+    updateTag(dashboardTag(ownerId))
+    return { success: true as const, data: transaction }
+  } catch (err) {
+    return {
+      success: false as const,
+      error: err instanceof Error ? err.message : 'Failed to save transaction',
+    }
+  }
 }
 
 export async function updateTransactionAction(id: string, data: unknown) {
@@ -27,15 +37,22 @@ export async function updateTransactionAction(id: string, data: unknown) {
   if (!parsed.success) {
     return { success: false as const, error: parsed.error.issues[0].message }
   }
-  const transaction = await updateTransaction(ownerId, id, parsed.data)
-  if (!transaction) {
-    return { success: false as const, error: 'Transaction not found' }
+  try {
+    const transaction = await updateTransaction(ownerId, id, parsed.data)
+    if (!transaction) {
+      return { success: false as const, error: 'Transaction not found' }
+    }
+    revalidatePath('/finance')
+    revalidatePath('/dashboard')
+    updateTag(financeTag(ownerId))
+    updateTag(dashboardTag(ownerId))
+    return { success: true as const, data: transaction }
+  } catch (err) {
+    return {
+      success: false as const,
+      error: err instanceof Error ? err.message : 'Failed to save transaction',
+    }
   }
-  revalidatePath('/finance')
-  revalidatePath('/dashboard')
-  updateTag(financeTag(ownerId))
-  updateTag(dashboardTag(ownerId))
-  return { success: true as const, data: transaction }
 }
 
 export async function deleteTransactionAction(id: string) {

@@ -104,8 +104,19 @@ export interface BucketableRow extends RecurringRow {
  * 15th recurs on the 15th — clamped down in months too short for it, so a
  * charge dated the 31st falls on the 28th of February rather than sliding into
  * March. The day matters as soon as anything buckets by day.
+ *
+ * `projectUntil` caps how far a standing charge is projected forward, and
+ * applies to nothing else. Callers pass today's month-end so the list does not
+ * claim money that has not been spent yet — but a one-off the user dated in
+ * the future is a row they actually entered, and it stays visible as long as
+ * it falls inside the window. Collapsing the two used to hide it completely.
  */
-export function occurrenceDates(row: RecurringRow, from: Date, to: Date): Date[] {
+export function occurrenceDates(
+  row: RecurringRow,
+  from: Date,
+  to: Date,
+  projectUntil: Date = to,
+): Date[] {
   const start = new Date(row.occurredAt)
   const startYear = start.getUTCFullYear()
   const startMonth = start.getUTCMonth() // 0-indexed
@@ -117,10 +128,13 @@ export function occurrenceDates(row: RecurringRow, from: Date, to: Date): Date[]
 
   const step = monthsPerPeriod(row.frequency)
 
-  // Last month the charge applies: the window's end, or when it stopped —
+  // Projections never run past the window, nor past the caller's horizon.
+  const horizon = projectUntil < to ? projectUntil : to
+
+  // Last month the charge applies: the horizon, or when it stopped —
   // inclusive of that month, since a mid-month cancellation was still billed.
   let endIndex = Math.floor(
-    monthsBetween(startYear, startMonth, to.getUTCFullYear(), to.getUTCMonth()) / step,
+    monthsBetween(startYear, startMonth, horizon.getUTCFullYear(), horizon.getUTCMonth()) / step,
   )
   if (row.recurrenceEndedAt) {
     const ended = new Date(row.recurrenceEndedAt)
@@ -145,7 +159,7 @@ export function occurrenceDates(row: RecurringRow, from: Date, to: Date): Date[]
     // Day 0 of the next month is the last day of this one.
     const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate()
     const d = new Date(Date.UTC(y, m, Math.min(startDay, daysInMonth)))
-    if (d >= from && d <= to) dates.push(d)
+    if (d >= from && d <= horizon) dates.push(d)
   }
   return dates
 }
@@ -161,10 +175,11 @@ export function expandRecurring<T extends RecurringRow>(
   rows: ReadonlyArray<T>,
   from: Date,
   to: Date,
+  projectUntil: Date = to,
 ): Array<T & { occurredAt: string; isProjected: boolean }> {
   const out: Array<T & { occurredAt: string; isProjected: boolean }> = []
   for (const row of rows) {
-    for (const date of occurrenceDates(row, from, to)) {
+    for (const date of occurrenceDates(row, from, to, projectUntil)) {
       const iso = date.toISOString()
       out.push({
         ...row,

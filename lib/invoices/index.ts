@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import { prisma } from '@/lib/db/client'
+import { ownsClient, ownsProject } from '@/lib/db/ownership'
 import { serializeInvoice, serializeInvoicePublic } from './serialize'
 import type { CreateInvoiceInput, CreateFromEntriesInput } from './validators'
 import type { LineItem } from './types'
@@ -101,6 +102,16 @@ export async function fetchBillableEntries(ownerId: string, entryIds: string[]) 
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 export async function createInvoice(ownerId: string, input: CreateInvoiceInput) {
+  // clientId and projectId arrive from the request body. Unchecked, an invoice
+  // could be created against another owner's client — and both the invoice list
+  // and the public invoice page render that client's name.
+  if (!(await ownsClient(ownerId, input.clientId))) {
+    throw new Error('Client not found')
+  }
+  if (input.projectId && !(await ownsProject(ownerId, input.projectId, input.clientId))) {
+    throw new Error('Project not found for this client')
+  }
+
   const { subtotal, taxAmount, total } = calcTotals(input.lineItems, input.tax)
   const invoiceNumber = await nextInvoiceNumber(ownerId)
   const publicToken = randomBytes(24).toString('hex')
@@ -244,6 +255,10 @@ export async function markInvoicePaid(ownerId: string, id: string) {
       category:    'Client work',
       occurredAt:  new Date(),
       clientId:    existing.clientId,
+      // Carried through so the work this invoice billed for reports the money
+      // it brought in. Without it, settling an invoice silently detached the
+      // payment from its project.
+      projectId:   existing.projectId,
       isRecurring: false,
     },
   })
@@ -298,6 +313,7 @@ export async function markInvoicePaidFromCheckout(
       category:    'Client work',
       occurredAt:  new Date(),
       clientId:    existing.clientId,
+      projectId:   existing.projectId,
       externalId:  paymentIntentId,
       externalType: 'payment_intent',
       isRecurring: false,
