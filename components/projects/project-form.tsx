@@ -22,6 +22,7 @@ interface ProjectFormProps {
     startDate:    string | null
     endDate:      string | null
     budget:       number | null
+    rate:         number | null
     deliverables: string[]
   }
 }
@@ -46,6 +47,7 @@ export function ProjectForm({ clients, defaultClientId, project }: ProjectFormPr
     startDate:   project?.startDate    ?? '',
     endDate:     project?.endDate      ?? '',
     budget:      project?.budget != null ? String(project.budget) : '',
+    rate:        project?.rate   != null ? String(project.rate)   : '',
     deliverables: (project?.deliverables ?? []).join('\n'),
   })
 
@@ -69,6 +71,7 @@ export function ProjectForm({ clients, defaultClientId, project }: ProjectFormPr
       startDate:    form.startDate || null,
       endDate:      form.endDate   || null,
       budget:       form.budget !== '' ? Number(form.budget) : null,
+      rate:         form.rate   !== '' ? Number(form.rate)   : null,
       deliverables,
     }
 
@@ -166,19 +169,38 @@ export function ProjectForm({ clients, defaultClientId, project }: ProjectFormPr
         </div>
       </div>
 
-      {/* Budget */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium">Budget ($)</label>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          placeholder="—"
-          value={form.budget}
-          onChange={(e) => set('budget', e.target.value)}
-          disabled={isPending}
-          className="h-9 rounded-lg border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-        />
+      {/* Budget and rate */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium">Budget ($)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="—"
+            value={form.budget}
+            onChange={(e) => set('budget', e.target.value)}
+            disabled={isPending}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-medium">Hourly rate ($)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder={project ? '—' : "Client's rate"}
+            value={form.rate}
+            onChange={(e) => set('rate', e.target.value)}
+            disabled={isPending}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          />
+          <p className="text-xs text-muted-foreground">
+            Fills in new time entries. Left blank on a new project, the
+            client&rsquo;s rate is used.
+          </p>
+        </div>
       </div>
 
       {/* Deliverables */}

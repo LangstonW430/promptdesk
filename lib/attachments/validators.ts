@@ -41,6 +41,11 @@ export const confirmUploadSchema = z.object({
   fileName: z.string().min(1).max(255),
   mimeType: z.string().optional(),
   sizeBytes: z.number().int().positive().optional(),
+  /**
+   * Which of the client's projects the file belongs to. Omitted for files that
+   * are about the client rather than one piece of work — an NDA, a W-9.
+   */
+  projectId: z.string().uuid().nullable().optional(),
 })
 
 export type RequestSignedUrlInput = z.infer<typeof requestSignedUrlSchema>

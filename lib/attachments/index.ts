@@ -50,10 +50,21 @@ export async function saveAttachmentMetadata(
   // Prevent spoofing another owner's namespace
   if (!input.storageKey.startsWith(`${ownerId}/`)) return null
 
+  // A project id must belong to this owner *and* to this client, or the file
+  // would be filed against someone else's work. Checked rather than trusted:
+  // it arrives from the request body like everything else.
+  if (input.projectId) {
+    const validProject = await prisma.project.count({
+      where: { id: input.projectId, ownerId, clientId },
+    })
+    if (!validProject) return null
+  }
+
   return prisma.attachment.create({
     data: {
       ownerId,
       clientId,
+      projectId: input.projectId ?? null,
       fileName: input.fileName,
       storageKey: input.storageKey,
       mimeType: input.mimeType ?? null,
@@ -61,6 +72,37 @@ export async function saveAttachmentMetadata(
     },
   })
 }
+
+/**
+ * The files attached to one project. The project page reads this so a proposal
+ * or a signed scope sits with the work it belongs to, rather than only in the
+ * client's undifferentiated file list.
+ */
+export async function listProjectAttachments(ownerId: string, projectId: string) {
+  const rows = await prisma.attachment.findMany({
+    where: { ownerId, projectId },
+    select: {
+      id: true,
+      fileName: true,
+      mimeType: true,
+      sizeBytes: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+  return rows.map((a) => ({
+    id: a.id,
+    fileName: a.fileName,
+    mimeType: a.mimeType,
+    // BigInt does not survive the server/client boundary.
+    sizeBytes: a.sizeBytes != null ? Number(a.sizeBytes) : null,
+    createdAt: a.createdAt.toISOString(),
+  }))
+}
+
+export type ProjectAttachment = Awaited<
+  ReturnType<typeof listProjectAttachments>
+>[number]
 
 /**
  * Generates a short-lived signed download URL (60 s) that forces a file download

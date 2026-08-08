@@ -12,6 +12,7 @@ import type {
   IncludedItem,
   PipelineAggregate,
   ClientStage,
+  EngineClientProject,
 } from './types'
 import type { ScoreBreakdown } from './types'
 import { estimateTokens } from './renderer'
@@ -82,7 +83,8 @@ export function computePipelineAggregate(
 
 function clientSearchText(c: EngineClient): string {
   return [
-    c.companyName, c.contactName, c.industry, c.projectType,
+    c.companyName, c.contactName, c.industry,
+    ...c.projects.map((p) => p.title),
     c.painPoints, c.requirements, c.opportunityNotes, ...c.tags,
   ]
     .filter(Boolean)
@@ -156,6 +158,20 @@ function line(label: string, value: string | null | undefined): string {
   return value ? `${label}: ${value}` : ''
 }
 
+/**
+ * The client's work, one line per project. This replaces a single free-text
+ * "Project type" on the client — a model asked to plan a week can now see that
+ * there is a $22k proposal outstanding and a $5k build underway, rather than
+ * the word "consulting".
+ */
+function projectLines(projects: EngineClientProject[]): string {
+  if (projects.length === 0) return ''
+  const rendered = projects.map((p) =>
+    `  - ${p.title} (${p.status}${p.budgetFormatted ? `, ${p.budgetFormatted}` : ''})`,
+  )
+  return ['Projects:', ...rendered].join('\n')
+}
+
 function compactLines(parts: (string | null | undefined)[]): string {
   return parts.filter(Boolean).join('\n')
 }
@@ -185,7 +201,7 @@ function clientFullContent(c: EngineClient): string {
     `--- CLIENT: ${header} ---`,
     row1,
     row2,
-    line('Project type', c.projectType),
+    projectLines(c.projects),
     line('Pain points', c.painPoints),
     line('Requirements', c.requirements),
     line('Opportunity', c.opportunityNotes),

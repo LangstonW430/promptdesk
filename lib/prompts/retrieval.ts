@@ -94,6 +94,41 @@ export async function getUserProfile(ownerId: string): Promise<UserProfile> {
   }
 }
 
+// ─── Client projects ──────────────────────────────────────────────────────────
+
+type RawClientProject = NonNullable<RawClient['projects']>[number]
+
+/**
+ * Each client's live work, keyed by client id. Cancelled and archived projects
+ * are left out: a prompt asked to plan the week should not be told about work
+ * that was called off.
+ */
+async function projectsForClients(
+  ownerId: string,
+  clientIds: string[],
+): Promise<Map<string, RawClientProject[]>> {
+  if (clientIds.length === 0) return new Map()
+
+  const rows = await prisma.project.findMany({
+    where: {
+      ownerId,
+      clientId: { in: clientIds },
+      isArchived: false,
+      status: { not: 'cancelled' },
+    },
+    select: { clientId: true, title: true, status: true, budget: true },
+    orderBy: { updatedAt: 'desc' },
+  })
+
+  const byClient = new Map<string, RawClientProject[]>()
+  for (const r of rows) {
+    const list = byClient.get(r.clientId) ?? []
+    list.push({ title: r.title, status: r.status, budget: r.budget })
+    byClient.set(r.clientId, list)
+  }
+  return byClient
+}
+
 // ─── Raw context data ─────────────────────────────────────────────────────────
 
 export interface RawContextData {
@@ -147,10 +182,14 @@ export async function fetchContext(
     // longer carry an estimate of their own. The engine's contract is
     // unchanged — it still receives one number per client — so only this
     // boundary had to move.
-    const globalValues = await pipelineValueByClient(
-      ownerId,
-      rawClients.map((c) => c.id),
-    )
+    const fetchedIds = rawClients.map((c) => c.id)
+    const [globalValues, projectsByClient] = await Promise.all([
+      pipelineValueByClient(ownerId, fetchedIds),
+      // One query for every client's work, grouped here — the context block
+      // lists a client's projects where it used to print a single free-text
+      // "project type" off the client row.
+      projectsForClients(ownerId, fetchedIds),
+    ])
 
     for (const c of rawClients) {
       clients.push({
@@ -165,7 +204,7 @@ export async function fetchContext(
         leadSource: c.leadSource,
         stage: allStages.get(c.id) ?? 'lead',
         estimatedValue: globalValues.get(c.id) ?? null,
-        projectType: c.projectType,
+        projects: projectsByClient.get(c.id) ?? [],
         painPoints: c.painPoints,
         requirements: c.requirements,
         opportunityNotes: c.opportunityNotes,
@@ -179,7 +218,7 @@ export async function fetchContext(
       })
     }
 
-    const fetchedClientIds = rawClients.map((c) => c.id)
+    const fetchedClientIds = fetchedIds
 
     // When specific clients are selected, also fetch their notes for richer context
     if (clientIds?.length && fetchedClientIds.length) {
@@ -243,9 +282,10 @@ export async function fetchContext(
       include: { clientTags: { include: { tag: true } } },
     })
     if (c) {
-      const [value, stages] = await Promise.all([
+      const [value, stages, projectsByClient] = await Promise.all([
         pipelineValueForClient(ownerId, c.id),
         clientStagesFor(ownerId, [c.id]),
+        projectsForClients(ownerId, [c.id]),
       ])
       clients.push({
         id: c.id,
@@ -259,7 +299,7 @@ export async function fetchContext(
         leadSource: c.leadSource,
         stage: stages.get(c.id) ?? 'lead',
         estimatedValue: value,
-        projectType: c.projectType,
+        projects: projectsByClient.get(c.id) ?? [],
         painPoints: c.painPoints,
         requirements: c.requirements,
         opportunityNotes: c.opportunityNotes,

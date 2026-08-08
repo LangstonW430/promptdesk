@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
-import { listTransactionsForPeriod, fetchClientsForPicker } from '@/lib/finance'
+import { listTransactionsForPeriod, fetchClientsForPicker, fetchProjectsForPicker } from '@/lib/finance'
 import { getPeriodSeries } from '@/lib/finance/aggregates'
 import { sumFinancials, groupByCategory, groupByClient } from '@/lib/finance/calc'
 import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
@@ -31,7 +31,7 @@ export default async function FinancePage({
       ? (rawPeriod as Period)
       : 'thisMonth'
 
-  const [activeMRR, series, transactions, clients, syncState] =
+  const [activeMRR, series, transactions, clients, projects, syncState] =
     await Promise.all([
       getActiveMRR(ownerId),
       // Follows the period selector, so the chart and the stat cards above it
@@ -43,6 +43,7 @@ export default async function FinancePage({
       // was previously the only thing that did.
       listTransactionsForPeriod(ownerId, period),
       fetchClientsForPicker(ownerId),
+      fetchProjectsForPicker(ownerId),
       getSyncState(ownerId),
     ])
 
@@ -108,7 +109,7 @@ export default async function FinancePage({
 
       {/* ── Transactions ───────────────────────────────────────── */}
       <div id="transactions">
-        <TransactionsTable transactions={transactions} clients={clients} />
+        <TransactionsTable transactions={transactions} clients={clients} projects={projects} />
       </div>
     </div>
   )

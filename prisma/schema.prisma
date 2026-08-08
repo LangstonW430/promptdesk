@@ -61,6 +61,10 @@ model Client {
   /// of their open projects' budgets (see lib/clients/pipeline-value.ts).
   /// Retained so the 20260806100000 migration loses no data; nothing reads it.
   estimatedValue   Decimal?                 @map("estimated_value") @db.Decimal(12, 2)
+  /// Superseded by the client's projects: a single "project type" described a
+  /// plural thing, and projects.title / projects.deliverables say it per piece
+  /// of work. Retained so the 20260807100000 migration loses no data; nothing
+  /// reads it.
   projectType      String?                  @map("project_type")
   painPoints       String?                  @map("pain_points")
   requirements     String?
@@ -85,6 +89,10 @@ model Client {
   projects         Project[]
 
   stripeCustomerId String?  @map("stripe_customer_id")
+  /// Superseded by projects.rate — a rate is a term of an engagement, not a
+  /// property of a person. Backfilled onto every existing project by the
+  /// 20260807100000 migration. No screen writes it; createProject still reads
+  /// it as the starting rate for a client's first project.
   defaultRate      Decimal? @map("default_rate") @db.Decimal(10, 2)
 
   transactions Transaction[]
@@ -165,6 +173,10 @@ model Project {
   startDate    DateTime? @map("start_date") @db.Date
   endDate      DateTime? @map("end_date") @db.Date
   budget       Decimal?  @db.Decimal(12, 2)
+  /// Hourly rate for this engagement, used as the default on new time entries.
+  /// Lives here rather than on the client because a retainer and a one-off
+  /// build for the same client bill differently.
+  rate         Decimal?  @db.Decimal(10, 2)
   deliverables Json      @default("[]") @db.JsonB
   // Separate axis from `status`: status is where the work stands, isArchived is
   // whether the project should still appear in working views. Mirrors Client.
@@ -174,10 +186,12 @@ model Project {
 
   owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tasks       Task[]
-  timeEntries TimeEntry[]
-  invoices    Invoice[]
-  forms       Form[]
+  tasks        Task[]
+  timeEntries  TimeEntry[]
+  invoices     Invoice[]
+  forms        Form[]
+  transactions Transaction[]
+  attachments  Attachment[]
 
   @@index([ownerId, status], map: "projects_owner_status_idx")
   @@index([clientId],        map: "projects_client_idx")
@@ -242,15 +256,21 @@ model Attachment {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ownerId    String   @map("owner_id") @db.Uuid
   clientId   String   @map("client_id") @db.Uuid
+  /// Which piece of work the file belongs to. Optional: an NDA or a W-9 is
+  /// about the client, but a proposal or a signed scope is about one project.
+  projectId  String?  @map("project_id") @db.Uuid
   fileName   String   @map("file_name")
   storageKey String   @map("storage_key")
   mimeType   String?  @map("mime_type")
   sizeBytes  BigInt?  @map("size_bytes")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  owner  User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client  Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([clientId], map: "attachments_client_idx")
+  @@index([projectId], map: "attachments_project_idx")
   @@map("attachments")
 }
 
@@ -316,6 +336,10 @@ model Transaction {
   category     String
   occurredAt   DateTime            @map("occurred_at") @db.Timestamptz(6)
   clientId     String?             @map("client_id") @db.Uuid
+  /// Which piece of work the money belongs to. Optional: overheads and
+  /// retainers legitimately have no project. Without it nothing could answer
+  /// what a project earned against the budget it was quoted at.
+  projectId    String?             @map("project_id") @db.Uuid
   externalId   String?             @map("external_id")      // Stripe object id (ch_..., in_..., etc.)
   externalType String?             @map("external_type")    // "charge" | "refund" | "invoice" | "fee"
   // A recurring transaction is a standing charge, not a payment record: it is
@@ -331,14 +355,16 @@ model Transaction {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  owner   User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  owner   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client  Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   invoice Invoice?
 
   @@unique([ownerId, source, externalId], map: "transactions_owner_source_external_unique")
   @@index([ownerId, occurredAt(sort: Desc)], map: "transactions_owner_occurred_idx")
   @@index([ownerId, type], map: "transactions_owner_type_idx")
   @@index([clientId], map: "transactions_client_idx")
+  @@index([projectId], map: "transactions_project_idx")
   @@map("transactions")
 }
 

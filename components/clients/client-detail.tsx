@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { ReactNode, FormEvent, ElementType } from 'react'
 import {
   Mail, Phone, Globe, Building2, Users, ArrowUpRight,
-  DollarSign, Briefcase, Calendar, CalendarCheck,
+  DollarSign, Calendar, CalendarCheck,
   Lightbulb, Tag, X, Pencil, Archive, RotateCcw, Loader2,
   FileText, PhoneCall, MessagesSquare, Send, Trash2,
   Plus, Check,
@@ -46,8 +46,6 @@ export type SerializedClientDetail = {
   stage: ClientStage
   /** Summed from the client's proposed + active projects. */
   pipelineValue: number
-  defaultRate: number | null
-  projectType: string | null
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -63,6 +61,8 @@ export type SerializedClientDetail = {
     fileName: string
     mimeType: string | null
     sizeBytes: number | null
+    /** Which of this client's projects the file is about; null when it is not about one. */
+    projectId: string | null
     createdAt: string
   }>
   activities: Array<{
@@ -598,7 +598,7 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
   const hasPipeline = !!(
     client.pipelineValue > 0 ||
     client.industry || client.companySize ||
-    client.leadSource || client.projectType
+    client.leadSource
   )
   const customFieldEntries = Object.entries(customFields)
   const openProjectCount = client.projects.filter(
@@ -674,9 +674,6 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
             )}
             {client.leadSource && (
               <FieldRow icon={<ArrowUpRight />} label="Lead source">{client.leadSource}</FieldRow>
-            )}
-            {client.projectType && (
-              <FieldRow icon={<Briefcase />} label="Project type">{client.projectType}</FieldRow>
             )}
           </dl>
         ) : (
@@ -1084,6 +1081,11 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Chosen before picking the file, so one selection covers the whole upload.
+  // '' means the file is about the client rather than one piece of work.
+  const [projectId, setProjectId] = useState('')
+
+  const projectTitles = new Map(client.projects.map((p) => [p.id, p.title]))
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -1130,6 +1132,7 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
 
       // 3. Save metadata
       const saveResult = await saveAttachmentAction(client.id, {
+        projectId: projectId || null,
         storageKey: urlResult.storageKey,
         fileName: file.name,
         mimeType: file.type,
@@ -1167,8 +1170,8 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
         aria-hidden
       />
 
-      {/* Upload button */}
-      <div className="flex items-center gap-3">
+      {/* Upload controls */}
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           variant="outline"
           size="sm"
@@ -1182,6 +1185,23 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
           )}
           {uploading ? 'Uploading…' : 'Attach file'}
         </Button>
+
+        {/* Only when there is work to attach to. */}
+        {client.projects.length > 0 && (
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            disabled={uploading || isPending}
+            aria-label="Attach to project"
+            className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          >
+            <option value="">No project — about the client</option>
+            {client.projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.title}</option>
+            ))}
+          </select>
+        )}
+
         <p className="text-xs text-muted-foreground">
           Max 10 MB · Images, PDF, Word, Excel, CSV, text
         </p>
@@ -1206,6 +1226,13 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
             <AttachmentRow
               key={attachment.id}
               attachment={attachment}
+              // `client.projects` excludes archived and cancelled work, so a
+              // file attached to one would otherwise read as unattributed.
+              projectTitle={
+                attachment.projectId
+                  ? (projectTitles.get(attachment.projectId) ?? 'Archived project')
+                  : null
+              }
               isPending={isPending}
               onDelete={() => handleDelete(attachment.id)}
             />
@@ -1218,10 +1245,12 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
 
 function AttachmentRow({
   attachment,
+  projectTitle,
   isPending,
   onDelete,
 }: {
   attachment: SerializedAttachment
+  projectTitle: string | null
   isPending: boolean
   onDelete: () => void
 }) {
@@ -1231,9 +1260,14 @@ function AttachmentRow({
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium leading-tight">{attachment.fileName}</p>
-        {attachment.sizeBytes != null && (
-          <p className="text-xs text-muted-foreground">{formatBytes(attachment.sizeBytes)}</p>
-        )}
+        <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {attachment.sizeBytes != null && <span>{formatBytes(attachment.sizeBytes)}</span>}
+          {projectTitle && (
+            <span className="rounded bg-muted px-1.5 py-px text-[11px] font-medium">
+              {projectTitle}
+            </span>
+          )}
+        </p>
       </div>
 
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

@@ -24,6 +24,10 @@ export default async function EditProjectPage({ params }: { params: Params }) {
 
   if (!project) notFound()
 
+  // Prisma Decimals arrive as objects; every money column needs the same unwrap.
+  const toNum = (v: unknown): number | null =>
+    v == null ? null : typeof v === 'object' ? (v as { toNumber(): number }).toNumber() : Number(v)
+
   const clientOptions = clients.map((c) => ({ id: c.id, displayName: c.name }))
 
   const serializedProject = {
@@ -33,11 +37,8 @@ export default async function EditProjectPage({ params }: { params: Params }) {
     status:       project.status,
     startDate:    project.startDate ? project.startDate.toISOString().slice(0, 10) : null,
     endDate:      project.endDate   ? project.endDate.toISOString().slice(0, 10)   : null,
-    budget:       project.budget
-      ? (typeof project.budget === 'object'
-          ? (project.budget as { toNumber(): number }).toNumber()
-          : Number(project.budget))
-      : null,
+    budget:       toNum(project.budget),
+    rate:         toNum(project.rate),
     deliverables: (project.deliverables as string[]) ?? [],
   }
 

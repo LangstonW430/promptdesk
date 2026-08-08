@@ -95,7 +95,7 @@ function toNoteType(raw: string): NoteType {
 }
 
 const VALID_PROJECT_STATUSES = new Set<ProjectStatus>([
-  'active', 'completed', 'on_hold', 'cancelled',
+  'proposed', 'active', 'completed', 'on_hold', 'cancelled',
 ])
 
 function toProjectStatus(raw: string): ProjectStatus {
@@ -131,7 +131,11 @@ export function normalizeClient(raw: RawClient, opts: NormalizerOptions = {}): E
     stage: toClientStage(raw.stage),
     estimatedValue: value,
     estimatedValueFormatted: formatCurrency(value, currency, locale),
-    projectType: raw.projectType ?? null,
+    projects: (raw.projects ?? []).map((p) => ({
+      title: p.title,
+      status: toProjectStatus(p.status),
+      budgetFormatted: formatCurrency(toNumber(p.budget), currency, locale),
+    })),
     painPoints: raw.painPoints ?? null,
     requirements: raw.requirements ?? null,
     opportunityNotes: raw.opportunityNotes ?? null,

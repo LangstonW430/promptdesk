@@ -20,8 +20,6 @@ type ClientWithRelations = {
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  defaultRate: DecimalLike
-  projectType: string | null
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -37,6 +35,7 @@ type ClientWithRelations = {
     fileName: string
     mimeType: string | null
     sizeBytes: bigint | null
+    projectId: string | null
     createdAt: Date
   }>
   activities: Array<{
@@ -70,8 +69,6 @@ export function serializeClientDetail(
     industry: client.industry,
     companySize: client.companySize,
     leadSource: client.leadSource,
-    defaultRate: toNum(client.defaultRate),
-    projectType: client.projectType,
     painPoints: client.painPoints,
     requirements: client.requirements,
     opportunityNotes: client.opportunityNotes,
@@ -94,6 +91,7 @@ export function serializeClientDetail(
       fileName: a.fileName,
       mimeType: a.mimeType,
       sizeBytes: a.sizeBytes != null ? Number(a.sizeBytes) : null,
+      projectId: a.projectId,
       createdAt: a.createdAt.toISOString(),
     })),
     activities: client.activities.map((a) => ({

@@ -72,15 +72,12 @@ export async function importClientsAction(rows: ImportRow[]): Promise<ImportResu
     if (str(row.industry)) data.industry = str(row.industry)
     if (str(row.companySize)) data.companySize = str(row.companySize)
     if (str(row.leadSource)) data.leadSource = str(row.leadSource)
-    if (str(row.projectType)) data.projectType = str(row.projectType)
 
-    // Status is no longer a client field either: a client's stage is read off
-    // their projects, so a "status" column in an imported CSV has nowhere to
-    // land. It was removed from the importer's column list to match.
-
-    // Value is no longer a client field — it lives on projects, so an
-    // "estimated value" column in an imported CSV has nowhere to land. The
-    // mapping was removed from the importer's column list to match.
+    // Status, project type and estimated value are no longer client fields:
+    // a client's stage is read off their projects, and the work itself is
+    // described by projects.title, projects.deliverables and projects.budget.
+    // All three columns were dropped from the importer's list to match, so a
+    // CSV carrying them has nowhere for them to land.
 
     // Date fields — accept YYYY-MM-DD or MM/DD/YYYY
     if (str(row.lastContactDate)) {

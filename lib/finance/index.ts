@@ -35,6 +35,7 @@ export async function listTransactions(
       ...(filters.source && { source: filters.source }),
       ...(filters.category && { category: filters.category }),
       ...(filters.clientId && { clientId: filters.clientId }),
+      ...(filters.projectId && { projectId: filters.projectId }),
       ...((from || to) && {
         occurredAt: {
           ...(from && { gte: from }),
@@ -42,7 +43,10 @@ export async function listTransactions(
         },
       }),
     },
-    include: { client: { select: { companyName: true, contactName: true } } },
+    include: {
+      client: { select: { companyName: true, contactName: true } },
+      project: { select: { title: true } },
+    },
     orderBy: { occurredAt: 'desc' },
   })
 
@@ -88,7 +92,10 @@ export async function listTransactionsForPeriod(
         ],
       }),
     },
-    include: { client: { select: { companyName: true, contactName: true } } },
+    include: {
+      client: { select: { companyName: true, contactName: true } },
+      project: { select: { title: true } },
+    },
     orderBy: { occurredAt: 'desc' },
   })
 
@@ -111,6 +118,8 @@ export async function listTransactionsForPeriod(
 // Re-exported from lib/clients so the finance and invoice pickers cannot drift
 // apart — this was a byte-identical copy of the one in lib/invoices.
 export { listClientOptions as fetchClientsForPicker } from '@/lib/clients'
+// Same idea one level down: which piece of work the money is for.
+export { listProjectOptions as fetchProjectsForPicker } from '@/lib/projects'
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
@@ -129,6 +138,7 @@ export async function createTransaction(
       category: input.category,
       occurredAt: new Date(input.occurredAt),
       clientId: input.clientId ?? null,
+      projectId: input.projectId ?? null,
       isRecurring: input.isRecurring ?? false,
       frequency: input.isRecurring ? (input.frequency ?? 'monthly') : null,
       recurrenceEndedAt: input.isRecurring && input.recurrenceEndedAt
@@ -158,6 +168,7 @@ export async function updateTransaction(
   if (input.category !== undefined) data.category = input.category
   if (input.occurredAt !== undefined) data.occurredAt = new Date(input.occurredAt)
   if (input.clientId !== undefined) data.clientId = input.clientId ?? null
+  if (input.projectId !== undefined) data.projectId = input.projectId ?? null
 
   if (input.isRecurring !== undefined) {
     data.isRecurring = input.isRecurring

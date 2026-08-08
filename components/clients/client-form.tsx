@@ -68,7 +68,6 @@ export type ClientForEdit = {
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  projectType: string | null
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -88,7 +87,6 @@ function toFormValues(client: ClientForEdit): ClientFormValues {
     industry: client.industry ?? '',
     companySize: client.companySize ?? '',
     leadSource: client.leadSource ?? '',
-    projectType: client.projectType ?? '',
     painPoints: client.painPoints ?? '',
     requirements: client.requirements ?? '',
     opportunityNotes: client.opportunityNotes ?? '',
@@ -112,7 +110,6 @@ function toActionPayload(values: ClientFormValues) {
     industry: values.industry || undefined,
     companySize: values.companySize || undefined,
     leadSource: values.leadSource || undefined,
-    projectType: values.projectType || undefined,
     painPoints: values.painPoints || undefined,
     requirements: values.requirements || undefined,
     opportunityNotes: values.opportunityNotes || undefined,
@@ -336,20 +333,8 @@ export function ClientForm({ client }: ClientFormProps) {
               )}
             />
 
-            {/* Project type — full width */}
-            <FormField
-              control={form.control}
-              name="projectType"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Project type</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. Web application redesign" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* No project type field: what the work is belongs on the project,
+                where each piece of it has its own title and deliverables. */}
 
           </div>
         </div>

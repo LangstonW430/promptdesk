@@ -9,8 +9,15 @@ import type { Project } from '@/lib/generated/prisma/client'
  */
 export type ProjectStatus = 'proposed' | 'active' | 'completed' | 'on_hold' | 'cancelled'
 
-export interface ProjectWithStats extends Omit<Project, 'budget'> {
+/** Prisma Decimals arrive as objects; every money column needs the same unwrap. */
+function toNum(v: unknown): number | null {
+  if (v == null) return null
+  return typeof v === 'object' ? (v as { toNumber(): number }).toNumber() : Number(v)
+}
+
+export interface ProjectWithStats extends Omit<Project, 'budget' | 'rate'> {
   budget: number | null
+  rate: number | null
   clientName: string
   totalHours: number
   billableAmount: number
@@ -23,6 +30,7 @@ export interface CreateProjectInput {
   startDate?: Date | null
   endDate?: Date | null
   budget?: number | null
+  rate?: number | null
   deliverables?: string[]
 }
 
@@ -32,6 +40,7 @@ export interface UpdateProjectInput {
   startDate?: Date | null
   endDate?: Date | null
   budget?: number | null
+  rate?: number | null
   deliverables?: string[]
 }
 
@@ -46,11 +55,14 @@ export async function createProject(
   ownerId: string,
   input: CreateProjectInput,
 ): Promise<Project> {
-  // Verify the client belongs to this owner before creating the project under it.
-  const clientCount = await prisma.client.count({
+  // Verify the client belongs to this owner before creating the project under
+  // it. `defaultRate` comes back in the same round trip because it seeds the
+  // project's rate when the caller does not supply one.
+  const client = await prisma.client.findFirst({
     where: { id: input.clientId, ownerId },
+    select: { defaultRate: true },
   })
-  if (clientCount === 0) {
+  if (!client) {
     throw new Error('Client not found')
   }
 
@@ -63,6 +75,10 @@ export async function createProject(
       startDate: input.startDate ?? null,
       endDate: input.endDate ?? null,
       budget: input.budget ?? null,
+      // Falls back to the client's stored rate so a first project starts where
+      // the client left off rather than blank. `?? null` would not do: an
+      // explicit null from the caller means "no rate", and must win.
+      rate: input.rate !== undefined ? input.rate : (client.defaultRate ?? null),
       deliverables: input.deliverables ?? [],
     },
   })
@@ -75,6 +91,24 @@ export async function getProjectById(
   return prisma.project.findFirst({
     where: { id, ownerId },
     include: { tasks: { orderBy: { dueDate: 'asc' } } },
+  })
+}
+
+/**
+ * Id, title and owning client for every project a new record can be attached
+ * to — the finance form's project picker, and anywhere else that needs to
+ * offer "which piece of work is this for?".
+ *
+ * Archived and cancelled projects are left out: attaching new money or new
+ * files to work that is over is not something to offer.
+ */
+export async function listProjectOptions(
+  ownerId: string,
+): Promise<Array<{ id: string; title: string; clientId: string }>> {
+  return prisma.project.findMany({
+    where: { ownerId, isArchived: false, status: { not: 'cancelled' } },
+    select: { id: true, title: true, clientId: true },
+    orderBy: [{ updatedAt: 'desc' }],
   })
 }
 
@@ -134,12 +168,11 @@ export async function listProjects(
 
   return rows.map((r) => {
     const stats = timeStats.get(r.id)
-    const { client, budget, ...rest } = r
+    const { client, budget, rate, ...rest } = r
     return {
       ...rest,
-      budget: budget != null
-        ? (typeof budget === 'object' ? (budget as { toNumber(): number }).toNumber() : Number(budget))
-        : null,
+      budget: toNum(budget),
+      rate: toNum(rate),
       clientName: client.companyName ?? client.contactName ?? 'Unknown',
       totalHours: stats?.totalHours ?? 0,
       billableAmount: stats?.billableAmount ?? 0,
@@ -163,6 +196,7 @@ export async function updateProject(
       ...('startDate' in input && { startDate: input.startDate }),
       ...('endDate' in input && { endDate: input.endDate }),
       ...('budget' in input && { budget: input.budget }),
+      ...('rate' in input && { rate: input.rate }),
       ...(input.deliverables !== undefined && { deliverables: input.deliverables }),
     },
   })

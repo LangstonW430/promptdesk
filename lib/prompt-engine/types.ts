@@ -9,7 +9,14 @@ import type { ClientStage } from '@/lib/clients/stage'
 
 export type NoteType = 'note' | 'call' | 'meeting' | 'email'
 
-export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled'
+// `proposed` was added to the app in 20260806100000 but never reached this
+// union, so the normaliser silently coerced quoted work to 'active'.
+export type ProjectStatus =
+  | 'proposed'
+  | 'active'
+  | 'completed'
+  | 'on_hold'
+  | 'cancelled'
 
 /** Canonical client shape used throughout the engine. Dates are human-readable strings. */
 export interface EngineClient {
@@ -25,7 +32,12 @@ export interface EngineClient {
   stage: ClientStage
   estimatedValue: number | null
   estimatedValueFormatted: string | null // "$2,500.00"
-  projectType: string | null
+  /**
+   * The client's own projects, compacted for the context block. Replaces a
+   * single free-text `projectType` on the client, which described one thing
+   * when a client can have several pieces of work at different stages.
+   */
+  projects: EngineClientProject[]
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -37,6 +49,13 @@ export interface EngineClient {
   updatedAt: string
   /** Pre-computed rolling summary of notes + status history (~250–350 tokens). */
   relationshipSummary: string | null
+}
+
+/** One of a client's projects, as it appears inside their context block. */
+export interface EngineClientProject {
+  title: string
+  status: ProjectStatus
+  budgetFormatted: string | null // "$8,500.00"
 }
 
 /** Normalised note with a content hash for deduplication. */
@@ -239,7 +258,11 @@ export interface RawClient {
   leadSource: string | null
   stage: string
   estimatedValue: number | { toNumber(): number } | null // Prisma Decimal compat
-  projectType: string | null
+  projects?: Array<{
+    title: string
+    status: string
+    budget: number | { toNumber(): number } | null
+  }>
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null

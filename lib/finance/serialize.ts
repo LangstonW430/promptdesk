@@ -9,7 +9,9 @@ export type SerializedTransaction = {
   category: string
   occurredAt: string
   clientId: string | null
-  clientName: string | null  // derived from join; null when not included
+  projectId: string | null
+  clientName: string | null   // derived from join; null when not included
+  projectTitle: string | null // derived from join; null when not included
   externalId: string | null
   externalType: string | null
   isRecurring: boolean
@@ -32,6 +34,7 @@ type TransactionRow = {
   category: string
   occurredAt: Date
   clientId: string | null
+  projectId: string | null
   externalId: string | null
   externalType: string | null
   isRecurring: boolean
@@ -41,6 +44,7 @@ type TransactionRow = {
   createdAt: Date
   updatedAt: Date
   client?: { companyName: string | null; contactName: string | null } | null
+  project?: { title: string } | null
 }
 
 export function serializeTransaction(t: TransactionRow): SerializedTransaction {
@@ -58,9 +62,11 @@ export function serializeTransaction(t: TransactionRow): SerializedTransaction {
     category: t.category,
     occurredAt: t.occurredAt.toISOString(),
     clientId: t.clientId,
+    projectId: t.projectId,
     clientName: t.client
       ? (t.client.companyName ?? t.client.contactName ?? 'Unknown')
       : null,
+    projectTitle: t.project?.title ?? null,
     externalId: t.externalId,
     externalType: t.externalType,
     isRecurring: t.isRecurring,

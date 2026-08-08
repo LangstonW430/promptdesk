@@ -27,7 +27,6 @@ export default async function EditClientPage({ params }: { params: Params }) {
     industry: client.industry,
     companySize: client.companySize,
     leadSource: client.leadSource,
-    projectType: client.projectType,
     painPoints: client.painPoints,
     requirements: client.requirements,
     opportunityNotes: client.opportunityNotes,

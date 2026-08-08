@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { deleteTransactionAction } from '@/lib/actions/finance'
-import { TransactionForm, type ClientOption } from './transaction-form'
+import { TransactionForm, type ClientOption, type ProjectOption } from './transaction-form'
 import type { SerializedTransaction } from '@/lib/finance/serialize'
 import type { TransactionFormValues } from '@/lib/finance/validators'
 
@@ -43,6 +43,7 @@ function toFormValues(t: SerializedTransaction): Partial<TransactionFormValues> 
     category: t.category,
     occurredAt: t.occurredAt.slice(0, 10),
     clientId: t.clientId ?? '',
+    projectId: t.projectId ?? '',
     isRecurring: t.isRecurring,
   }
 }
@@ -53,9 +54,10 @@ type SourceFilter = 'all' | 'manual' | 'stripe'
 interface TransactionsTableProps {
   transactions: Array<SerializedTransaction & { isProjected?: boolean }>
   clients: ClientOption[]
+  projects: ProjectOption[]
 }
 
-export function TransactionsTable({ transactions, clients }: TransactionsTableProps) {
+export function TransactionsTable({ transactions, clients, projects }: TransactionsTableProps) {
   const router = useRouter()
   const [, startTransition] = useTransition()
 
@@ -272,6 +274,7 @@ export function TransactionsTable({ transactions, clients }: TransactionsTablePr
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <TransactionForm
               clients={clients}
+              projects={projects}
               defaultValues={editing ? toFormValues(editing) : undefined}
               transactionId={editing?.id}
               onSuccess={handleSuccess}

@@ -3,13 +3,16 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, CalendarDays, AlertCircle, Archive, ArchiveRestore } from 'lucide-react'
+import { CheckSquare, Square, Pencil, Trash2, Plus, Loader2, CalendarDays, AlertCircle, Archive, ArchiveRestore, FileText, Download } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { ProjectStatusBadge } from './project-status-badge'
 import { TimerWidget } from '@/components/time-tracking/timer-widget'
 import { updateProjectAction, deleteProjectAction, setProjectArchivedAction } from '@/lib/actions/projects'
 import { deleteTimeEntryAction } from '@/lib/actions/time-entries'
 import type { SerializedTimeEntry } from '@/lib/time-entries/serialize'
+import type { ProjectFinancials } from '@/lib/projects/financials'
+import type { ProjectAttachment } from '@/lib/attachments'
+import { cn } from '@/lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,11 +34,13 @@ interface ProjectDetailProps {
     deliverables: string[]
     clientId:     string
     clientName:   string
-    defaultRate:  number | null
+    rate:         number | null
     isArchived:   boolean
     tasks:        ProjectTask[]
   }
   timeEntries: SerializedTimeEntry[]
+  financials: ProjectFinancials
+  attachments: ProjectAttachment[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -59,11 +64,190 @@ function formatEntryDate(iso: string): string {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+function formatPercent(fraction: number): string {
+  return `${Math.round(fraction * 100)}%`
+}
+
 type Tab = 'overview' | 'time' | 'tasks'
+
+// ── Files ──────────────────────────────────────────────────────────────────────
+
+function formatBytes(n: number | null): string | null {
+  if (n == null) return null
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * The proposal, the signed scope, the design files. Uploading still happens on
+ * the client — one place to attach, one place that knows the storage flow — so
+ * this lists and links rather than duplicating it.
+ */
+function ProjectFiles({
+  attachments,
+  clientId,
+}: {
+  attachments: ProjectAttachment[]
+  clientId: string
+}) {
+  if (attachments.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border px-4 py-5 text-center">
+        <p className="text-sm text-muted-foreground">No files on this project.</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Attach one from the{' '}
+          <Link
+            href={`/clients/${clientId}`}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            client&rsquo;s Attachments tab
+          </Link>{' '}
+          and pick this project.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Files
+      </p>
+      <ul className="flex flex-col divide-y divide-border rounded-xl border border-border">
+        {attachments.map((a) => {
+          const size = formatBytes(a.sizeBytes)
+          return (
+            <li key={a.id} className="flex items-center gap-3 px-4 py-2.5">
+              <FileText className="size-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium leading-tight">{a.fileName}</p>
+                {size && <p className="text-xs text-muted-foreground">{size}</p>}
+              </div>
+              <a
+                href={`/api/attachments/${a.id}/download`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Download ${a.fileName}`}
+                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Download className="size-4" />
+              </a>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+// ── Money ──────────────────────────────────────────────────────────────────────
+
+/**
+ * What the project earned against what it was quoted at.
+ *
+ * Deliberately reports collected income rather than invoiced: a sent invoice is
+ * a claim, and a project that has billed everything and been paid nothing is
+ * exactly the situation this is meant to surface.
+ */
+function ProjectMoney({ financials }: { financials: ProjectFinancials }) {
+  // Every figure here, the budget included, comes off the same object. Reading
+  // the budget from `project` instead would let the label and the percentage
+  // disagree about which number the bar is measuring.
+  const { budget, income, expenses, net, margin, budgetCollected, hasAttributedMoney } =
+    financials
+
+  if (!hasAttributedMoney) {
+    return (
+      <div className="rounded-xl border border-dashed border-border px-4 py-5 text-center">
+        <p className="text-sm text-muted-foreground">
+          No money attributed to this project yet.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Pick this project when you add income or an expense in{' '}
+          <Link href="/finance" className="underline underline-offset-2 hover:text-foreground">
+            Finance
+          </Link>{' '}
+          and it will report what the work earned against its budget.
+        </p>
+      </div>
+    )
+  }
+
+  // Bar caps at the full width; overrun is called out in the label instead of
+  // drawing past the track, which would misread as a longer budget.
+  const filled = budgetCollected != null ? Math.min(budgetCollected, 1) : null
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-border bg-muted/30 px-4 py-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Money
+        </p>
+        {budgetCollected != null && (
+          <p className="text-xs text-muted-foreground tabular-nums">
+            {formatPercent(budgetCollected)} of {formatCurrency(budget!)} budget
+            {budgetCollected > 1 ? ' (over)' : ''}
+          </p>
+        )}
+      </div>
+
+      {filled != null && (
+        <div
+          className="h-2 w-full overflow-hidden rounded-full bg-border"
+          role="img"
+          aria-label={`${formatPercent(budgetCollected!)} of budget collected`}
+        >
+          <div
+            className={cn(
+              'h-full rounded-full transition-all',
+              budgetCollected! >= 1 ? 'bg-green-600 dark:bg-green-500' : 'bg-primary',
+            )}
+            style={{ width: `${filled * 100}%` }}
+          />
+        </div>
+      )}
+
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+        <MoneyFigure label="Received" value={formatCurrency(income)} />
+        <MoneyFigure label="Spent" value={formatCurrency(expenses)} />
+        <MoneyFigure
+          label="Net"
+          value={formatCurrency(net)}
+          // Colour is a secondary encoding here: the minus sign in the figure
+          // already says it, so a reader who cannot see the hue loses nothing.
+          className={net < 0 ? 'text-red-600 dark:text-red-400' : undefined}
+        />
+        <MoneyFigure
+          label="Margin"
+          value={margin != null ? formatPercent(margin) : '—'}
+          className={margin != null && margin < 0 ? 'text-red-600 dark:text-red-400' : undefined}
+        />
+      </dl>
+    </div>
+  )
+}
+
+function MoneyFigure({
+  label,
+  value,
+  className,
+}: {
+  label: string
+  value: string
+  className?: string
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cn('text-base font-semibold tabular-nums', className)}>{value}</dd>
+    </div>
+  )
+}
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
+export function ProjectDetail({ project, timeEntries, financials, attachments }: ProjectDetailProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [isPending, startTransition] = useTransition()
@@ -240,7 +424,11 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
 
       {/* ── Overview tab ───────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-6">
+          <ProjectMoney financials={financials} />
+
+          <ProjectFiles attachments={attachments} clientId={project.clientId} />
+
           {deliverables.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-10 text-center">
               <p className="text-sm text-muted-foreground">No deliverables defined.</p>
@@ -281,7 +469,7 @@ export function ProjectDetail({ project, timeEntries }: ProjectDetailProps) {
             <TimerWidget
               projectId={project.id}
               projectTitle={project.title}
-              defaultRate={project.defaultRate}
+              defaultRate={project.rate}
             />
           )}
 
