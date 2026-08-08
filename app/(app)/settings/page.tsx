@@ -28,6 +28,10 @@ export default async function SettingsPage() {
         businessName: true,
         businessType: true,
         defaultAi: true,
+        businessAddress: true,
+        businessPhone: true,
+        taxNumber: true,
+        defaultPaymentTerms: true,
         settings: true,
       },
     }),
@@ -59,6 +63,10 @@ export default async function SettingsPage() {
         businessName={user?.businessName ?? null}
         businessType={user?.businessType ?? null}
         defaultAi={user?.defaultAi ?? null}
+        businessAddress={user?.businessAddress ?? null}
+        businessPhone={user?.businessPhone ?? null}
+        taxNumber={user?.taxNumber ?? null}
+        defaultPaymentTerms={user?.defaultPaymentTerms ?? null}
       />
 
       <div className="border-t border-border pt-8">

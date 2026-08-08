@@ -15,6 +15,18 @@ model User {
   fullName     String?  @map("full_name")
   businessName String?  @map("business_name")
   businessType String?  @map("business_type")
+  /// Billing identity, printed in the "From" block of every invoice. An
+  /// invoice without a supplier address is not a valid commercial document in
+  /// most places, and a client's bookkeeper will ask for the tax number.
+  /// Free text, newlines preserved — addresses do not decompose usefully for
+  /// a single-operator tool.
+  businessAddress String? @map("business_address")
+  businessPhone   String? @map("business_phone")
+  /// EIN, VAT number, UTR — whatever the operator's jurisdiction calls it.
+  taxNumber       String? @map("tax_number")
+  /// Prefilled on new invoices, e.g. "Net 30". The invoice keeps its own copy
+  /// so changing this never rewrites what a client was already sent.
+  defaultPaymentTerms String? @map("default_payment_terms")
   defaultAi      String?  @map("default_ai")
   stripeKey      String?  @map("stripe_key")       // AES-256-GCM encrypted; never store plaintext
   stripeKeyHint  String?  @map("stripe_key_hint")  // last-4 chars for display only (not sensitive)
@@ -49,6 +61,9 @@ model Client {
   email            String?
   phone            String?
   website          String?
+  /// Printed in the "Bill To" block of their invoices. Required on a valid
+  /// invoice nearly everywhere, and their own bookkeeping needs it.
+  address          String?
   industry         String?
   companySize      String?                  @map("company_size")
   leadSource       String?                  @map("lead_source")
@@ -386,6 +401,16 @@ model Invoice {
   projectId     String?       @map("project_id") @db.Uuid
   lineItems     Json          @map("line_items") @db.JsonB
   status        InvoiceStatus @default(draft)
+  /// The percentage behind `tax`. Stored alongside the amount so the document
+  /// can say "Tax (8.5%)" — the amount alone cannot be read back into a rate,
+  /// and a client cannot tell sales tax from VAT without it.
+  taxRate       Decimal?      @map("tax_rate") @db.Decimal(5, 2)
+  /// e.g. "Net 30". Copied from the user's default at creation and frozen
+  /// here, so an invoice always states the terms it was actually sent under.
+  paymentTerms  String?       @map("payment_terms")
+  /// The client's purchase order or reference. Larger clients will not pay an
+  /// invoice that does not quote theirs.
+  purchaseOrder String?       @map("purchase_order")
   issueDate     DateTime      @map("issue_date") @db.Date
   dueDate       DateTime      @map("due_date") @db.Date
   subtotal      Decimal       @db.Decimal(12, 2)

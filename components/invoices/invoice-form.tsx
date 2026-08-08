@@ -19,10 +19,23 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function in30DaysISO() {
-  const d = new Date()
-  d.setDate(d.getDate() + 30)
-  return d.toISOString().slice(0, 10)
+/**
+ * Terms that imply a due date. Anything not listed here (free text) leaves the
+ * date alone — the operator sets it themselves.
+ */
+const TERMS_PRESETS: Record<string, number> = {
+  'Due on receipt': 0,
+  'Net 7': 7,
+  'Net 14': 14,
+  'Net 30': 30,
+  'Net 60': 60,
+}
+
+function addDaysISO(fromISO: string, days: number) {
+  const [y, m, d] = fromISO.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
 }
 
 function newLineItem(): LineItem {
@@ -33,6 +46,8 @@ type Client = { id: string; name: string }
 
 type Props = {
   clients: Client[]
+  /** The operator's default terms, from settings. */
+  defaultTerms: string | null
   /** Pre-populated when coming from the time-entry flow */
   prefill?: {
     entryIds: string[]
@@ -41,15 +56,33 @@ type Props = {
   }
 }
 
-export function InvoiceForm({ clients, prefill }: Props) {
+export function InvoiceForm({ clients, defaultTerms, prefill }: Props) {
   const router   = useRouter()
   const [isPending, startTransition] = useTransition()
 
   const [clientId,   setClientId]   = useState(prefill?.clientId ?? '')
   const [issueDate,  setIssueDate]  = useState(todayISO())
-  const [dueDate,    setDueDate]    = useState(in30DaysISO())
+  const [terms,      setTerms]      = useState(defaultTerms ?? 'Net 30')
+  const [dueDate,    setDueDate]    = useState(() =>
+    addDaysISO(todayISO(), TERMS_PRESETS[defaultTerms ?? 'Net 30'] ?? 30),
+  )
   const [taxPct,     setTaxPct]     = useState('')
+  const [purchaseOrder, setPurchaseOrder] = useState('')
   const [notes,      setNotes]      = useState('')
+
+  // Terms and the issue date together decide the due date, but only for terms
+  // that actually imply one. A free-text term leaves whatever is in the field.
+  function applyTerms(nextTerms: string, nextIssue = issueDate) {
+    setTerms(nextTerms)
+    const days = TERMS_PRESETS[nextTerms]
+    if (days !== undefined) setDueDate(addDaysISO(nextIssue, days))
+  }
+
+  function handleIssueDateChange(next: string) {
+    setIssueDate(next)
+    const days = TERMS_PRESETS[terms]
+    if (days !== undefined) setDueDate(addDaysISO(next, days))
+  }
   const [lineItems,  setLineItems]  = useState<LineItem[]>(
     prefill?.lineItems && prefill.lineItems.length > 0
       ? prefill.lineItems
@@ -110,6 +143,8 @@ export function InvoiceForm({ clients, prefill }: Props) {
           issueDate,
           dueDate,
           tax: taxNum,
+          paymentTerms: terms.trim() || null,
+          purchaseOrder: purchaseOrder.trim() || null,
           notes: notes.trim() || null,
         })
       } else {
@@ -119,6 +154,8 @@ export function InvoiceForm({ clients, prefill }: Props) {
           issueDate,
           dueDate,
           tax: taxNum,
+          paymentTerms: terms.trim() || null,
+          purchaseOrder: purchaseOrder.trim() || null,
           notes: notes.trim() || null,
         })
       }
@@ -168,7 +205,7 @@ export function InvoiceForm({ clients, prefill }: Props) {
           <input
             type="date"
             value={issueDate}
-            onChange={(e) => setIssueDate(e.target.value)}
+            onChange={(e) => handleIssueDateChange(e.target.value)}
             required
             className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
@@ -181,6 +218,40 @@ export function InvoiceForm({ clients, prefill }: Props) {
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
             required
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="terms" className="text-xs font-medium text-muted-foreground">
+            Payment Terms
+          </label>
+          <input
+            id="terms"
+            list="invoice-terms"
+            value={terms}
+            onChange={(e) => applyTerms(e.target.value)}
+            placeholder="Net 30"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <datalist id="invoice-terms">
+            {Object.keys(TERMS_PRESETS).map((t) => <option key={t} value={t} />)}
+          </datalist>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Sets the due date. Printed on the invoice.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <label htmlFor="po" className="text-xs font-medium text-muted-foreground">
+            PO / Reference
+          </label>
+          <input
+            id="po"
+            type="text"
+            value={purchaseOrder}
+            onChange={(e) => setPurchaseOrder(e.target.value)}
+            placeholder="Their purchase order number, if they gave you one"
             className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>

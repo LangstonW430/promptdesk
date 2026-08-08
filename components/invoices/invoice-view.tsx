@@ -44,8 +44,10 @@ function isPublic(inv: SerializedInvoice | SerializedInvoicePublic): inv is Seri
  * have to come out dark-on-white.
  */
 export function InvoiceView({ invoice, showFrom }: Props) {
-  const fromName  = isPublic(invoice) ? (invoice.ownerBusinessName ?? invoice.ownerEmail) : null
-  const fromEmail = isPublic(invoice) ? invoice.ownerEmail : null
+  const pub = isPublic(invoice) ? invoice : null
+  // Falls back to the email address only when no business name is set — better
+  // than an empty supplier line, but it is worth setting one in Settings.
+  const fromName = pub ? (pub.ownerBusinessName ?? pub.ownerEmail) : null
 
   return (
     <div
@@ -66,36 +68,71 @@ export function InvoiceView({ invoice, showFrom }: Props) {
       </div>
 
       {/* ── From / To / Dates ───────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-8 p-8 border-b border-border print:p-6 sm:grid-cols-3">
-        {showFrom && fromName && (
+      {/* Three parties to the document: who is billing, who is billed, and the
+          terms. The dates stay in one column — split across grid rows, issue
+          and due read as unrelated facts. */}
+      <div className="grid grid-cols-1 gap-8 p-8 border-b border-border print:p-6 sm:grid-cols-3">
+        {showFrom && pub && fromName && (
           <div>
             <FieldLabel>From</FieldLabel>
             <p className="mt-1 text-sm font-medium text-foreground">{fromName}</p>
-            {fromEmail && <p className="text-sm text-muted-foreground">{fromEmail}</p>}
+            {pub.ownerAddress && (
+              <p className="whitespace-pre-line text-sm text-muted-foreground">
+                {pub.ownerAddress}
+              </p>
+            )}
+            {pub.ownerBusinessName && (
+              <p className="text-sm text-muted-foreground">{pub.ownerEmail}</p>
+            )}
+            {pub.ownerPhone && (
+              <p className="text-sm text-muted-foreground">{pub.ownerPhone}</p>
+            )}
+            {pub.ownerTaxNumber && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Tax ID {pub.ownerTaxNumber}
+              </p>
+            )}
           </div>
         )}
 
         <div>
           <FieldLabel>Bill To</FieldLabel>
           <p className="mt-1 text-sm font-medium text-foreground">{invoice.clientName}</p>
+          {invoice.clientAddress && (
+            <p className="whitespace-pre-line text-sm text-muted-foreground">
+              {invoice.clientAddress}
+            </p>
+          )}
         </div>
 
-        <div>
-          <FieldLabel>Issue Date</FieldLabel>
-          <p className="mt-1 text-sm text-foreground">{formatDate(invoice.issueDate)}</p>
-        </div>
+        <div className="flex flex-col gap-4">
+          <div>
+            <FieldLabel>Issue Date</FieldLabel>
+            <p className="mt-1 text-sm text-foreground">{formatDate(invoice.issueDate)}</p>
+          </div>
 
-        <div>
-          <FieldLabel>Due Date</FieldLabel>
-          <p
-            className={
-              invoice.status === 'overdue'
-                ? 'print-overdue mt-1 text-sm font-medium text-red-600 dark:text-red-400'
-                : 'mt-1 text-sm font-medium text-foreground'
-            }
-          >
-            {formatDate(invoice.dueDate)}
-          </p>
+          <div>
+            <FieldLabel>Due Date</FieldLabel>
+            <p
+              className={
+                invoice.status === 'overdue'
+                  ? 'print-overdue mt-1 text-sm font-medium text-red-600 dark:text-red-400'
+                  : 'mt-1 text-sm font-medium text-foreground'
+              }
+            >
+              {formatDate(invoice.dueDate)}
+            </p>
+            {invoice.paymentTerms && (
+              <p className="text-sm text-muted-foreground">{invoice.paymentTerms}</p>
+            )}
+          </div>
+
+          {invoice.purchaseOrder && (
+            <div>
+              <FieldLabel>PO / Reference</FieldLabel>
+              <p className="mt-1 text-sm text-foreground">{invoice.purchaseOrder}</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -131,7 +168,11 @@ export function InvoiceView({ invoice, showFrom }: Props) {
             </div>
             {invoice.tax != null && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Tax</span>
+                {/* The rate is only known on invoices raised after it started
+                    being stored; older ones show the amount alone, as before. */}
+                <span className="text-muted-foreground">
+                  Tax{invoice.taxRate != null ? ` (${formatRate(invoice.taxRate)})` : ''}
+                </span>
                 <span className="tabular-nums text-foreground">{formatCurrency(invoice.tax)}</span>
               </div>
             )}
@@ -152,6 +193,11 @@ export function InvoiceView({ invoice, showFrom }: Props) {
       </div>
     </div>
   )
+}
+
+/** Trims a stored rate to how a person writes it: 8.5%, not 8.50%. */
+function formatRate(rate: number): string {
+  return `${Number(rate.toFixed(2))}%`
 }
 
 function FieldLabel({

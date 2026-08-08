@@ -4,9 +4,16 @@ const clientCount = vi.fn()
 const projectCount = vi.fn()
 const invoiceCreate = vi.fn()
 const invoiceAggregate = vi.fn()
+const userFindUnique = vi.fn()
 
 vi.mock('@/lib/db/client', () => ({
   prisma: {
+    // createInvoice reads the owner's default payment terms.
+    user: {
+      get findUnique() {
+        return userFindUnique
+      },
+    },
     client: {
       get count() {
         return clientCount
@@ -63,6 +70,7 @@ const input = {
 }
 
 beforeEach(() => {
+  userFindUnique.mockReset().mockResolvedValue({ defaultPaymentTerms: null })
   clientCount.mockReset().mockResolvedValue(1)
   projectCount.mockReset().mockResolvedValue(1)
   invoiceCreate.mockReset().mockResolvedValue(created)

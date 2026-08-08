@@ -17,6 +17,7 @@ type ClientWithRelations = {
   email: string | null
   phone: string | null
   website: string | null
+  address: string | null
   industry: string | null
   companySize: string | null
   leadSource: string | null
@@ -66,6 +67,7 @@ export function serializeClientDetail(
     email: client.email,
     phone: client.phone,
     website: client.website,
+    address: client.address,
     industry: client.industry,
     companySize: client.companySize,
     leadSource: client.leadSource,

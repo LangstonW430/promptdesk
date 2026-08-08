@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ReactNode, FormEvent, ElementType } from 'react'
 import {
-  Mail, Phone, Globe, Building2, Users, ArrowUpRight,
+  Mail, Phone, Globe, MapPin, Building2, Users, ArrowUpRight,
   DollarSign, Calendar, CalendarCheck,
   Lightbulb, Tag, X, Pencil, Archive, RotateCcw, Loader2,
   FileText, PhoneCall, MessagesSquare, Send, Trash2,
@@ -39,6 +39,7 @@ export type SerializedClientDetail = {
   email: string | null
   phone: string | null
   website: string | null
+  address: string | null
   industry: string | null
   companySize: string | null
   leadSource: string | null
@@ -594,7 +595,7 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
   }
 
   const followupOverdue = isOverdue(localNextFollowup || null)
-  const hasContact = !!(client.email || client.phone || client.website)
+  const hasContact = !!(client.email || client.phone || client.website || client.address)
   const hasPipeline = !!(
     client.pipelineValue > 0 ||
     client.industry || client.companySize ||
@@ -629,6 +630,11 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
             {client.phone && (
               <FieldRow icon={<Phone />} label="Phone">
                 <a href={`tel:${client.phone}`} className="hover:underline">{client.phone}</a>
+              </FieldRow>
+            )}
+            {client.address && (
+              <FieldRow icon={<MapPin />} label="Billing address">
+                <span className="whitespace-pre-wrap">{client.address}</span>
               </FieldRow>
             )}
             {client.website && (

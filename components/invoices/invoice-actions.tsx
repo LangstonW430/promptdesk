@@ -4,16 +4,35 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Send, Link2, Printer, Loader2, Trash2, AlertCircle, Copy, FileText, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import Link from 'next/link'
 import { updateInvoiceStatusAction, markInvoicePaidAction, deleteInvoiceAction } from '@/lib/actions/invoices'
 import type { SerializedInvoice } from '@/lib/invoices/types'
+
+/** "a, b and c" — a list a person would read aloud. */
+function formatList(items: string[]): string {
+  if (items.length === 1) return items[0]
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
 
 type Props = {
   invoice: SerializedInvoice
   publicUrl: string
   promptText: string | null
+  /**
+   * Billing details a client would find missing on the public page, phrased as
+   * a list of things to add. Empty when the invoice is complete.
+   */
+  missingDetails: string[]
+  clientId: string
 }
 
-export function InvoiceActions({ invoice, publicUrl, promptText }: Props) {
+export function InvoiceActions({
+  invoice,
+  publicUrl,
+  promptText,
+  missingDetails,
+  clientId,
+}: Props) {
   const router = useRouter()
   const [isPending, start] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -76,6 +95,30 @@ export function InvoiceActions({ invoice, publicUrl, promptText }: Props) {
         <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           <AlertCircle className="size-4 shrink-0" />
           {error}
+        </div>
+      )}
+
+      {/* Missing billing details — shown while there is still time to fix it */}
+      {missingDetails.length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 dark:border-amber-800/40 dark:bg-amber-950/20">
+          <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+              This invoice is missing {missingDetails.length === 1 ? 'a detail' : 'details'}
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+              Your client will not see {formatList(missingDetails)}. Most
+              jurisdictions require both parties&rsquo; addresses on a valid invoice,
+              and their bookkeeper will ask for your tax number.
+            </p>
+            <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
+              <Link href="/settings" className="underline underline-offset-2">Settings</Link>
+              {' · '}
+              <Link href={`/clients/${clientId}/edit`} className="underline underline-offset-2">
+                Edit client
+              </Link>
+            </p>
+          </div>
         </div>
       )}
 

@@ -15,6 +15,8 @@ export const createInvoiceSchema = z.object({
   issueDate: z.string().date(),
   dueDate: z.string().date(),
   tax: z.number().min(0).max(100).nullable().optional(),
+  paymentTerms: z.string().max(120).nullable().optional(),
+  purchaseOrder: z.string().max(120).nullable().optional(),
   notes: z.string().nullable().optional(),
 })
 
@@ -23,6 +25,8 @@ export const createFromEntriesSchema = z.object({
   issueDate: z.string().date(),
   dueDate: z.string().date(),
   tax: z.number().min(0).max(100).nullable().optional(),
+  paymentTerms: z.string().max(120).nullable().optional(),
+  purchaseOrder: z.string().max(120).nullable().optional(),
   notes: z.string().nullable().optional(),
 })
 

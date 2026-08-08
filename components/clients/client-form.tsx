@@ -65,6 +65,7 @@ export type ClientForEdit = {
   email: string | null
   phone: string | null
   website: string | null
+  address: string | null
   industry: string | null
   companySize: string | null
   leadSource: string | null
@@ -84,6 +85,7 @@ function toFormValues(client: ClientForEdit): ClientFormValues {
     email: client.email ?? '',
     phone: client.phone ?? '',
     website: client.website ?? '',
+    address: client.address ?? '',
     industry: client.industry ?? '',
     companySize: client.companySize ?? '',
     leadSource: client.leadSource ?? '',
@@ -107,6 +109,7 @@ function toActionPayload(values: ClientFormValues) {
     email: values.email || undefined,
     phone: values.phone || undefined,
     website: values.website || undefined,
+    address: values.address || undefined,
     industry: values.industry || undefined,
     companySize: values.companySize || undefined,
     leadSource: values.leadSource || undefined,
@@ -247,6 +250,30 @@ export function ClientForm({ client }: ClientFormProps) {
                   <FormLabel>Website</FormLabel>
                   <FormControl>
                     <Input placeholder="https://acme.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Billing address — full width */}
+            <FormField
+              control={form.control}
+              name="address"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>
+                    Billing address{' '}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      (appears on their invoices)
+                    </span>
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea
+                      rows={3}
+                      placeholder={'Accounts Payable\n500 Market St, Suite 400\nSan Francisco, CA 94105'}
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

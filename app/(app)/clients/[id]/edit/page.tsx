@@ -24,6 +24,7 @@ export default async function EditClientPage({ params }: { params: Params }) {
     email: client.email,
     phone: client.phone,
     website: client.website,
+    address: client.address,
     industry: client.industry,
     companySize: client.companySize,
     leadSource: client.leadSource,

@@ -26,18 +26,27 @@ export type InvoiceRow = {
   dueDate: Date | string
   subtotal: DecimalLike
   tax: DecimalLike
+  taxRate: DecimalLike
   total: DecimalLike
+  paymentTerms: string | null
+  purchaseOrder: string | null
   notes: string | null
   transactionId: string | null
   isArchived?: boolean
   createdAt: Date | string
   updatedAt: Date | string
-  client: { companyName: string | null; contactName: string | null }
+  client: { companyName: string | null; contactName: string | null; address: string | null }
   project: { title: string } | null
 }
 
 export type InvoiceRowPublic = InvoiceRow & {
-  owner: { businessName: string | null; email: string }
+  owner: {
+    businessName: string | null
+    email: string
+    businessAddress: string | null
+    businessPhone: string | null
+    taxNumber: string | null
+  }
 }
 
 function formatInvoiceNumber(n: number): string {
@@ -79,6 +88,7 @@ export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): Seria
     publicToken: row.publicToken,
     clientId: row.clientId,
     clientName: row.client.companyName ?? row.client.contactName ?? 'Unknown',
+    clientAddress: row.client.address,
     projectId: row.projectId,
     projectTitle: row.project?.title ?? null,
     lineItems: row.lineItems as LineItem[],
@@ -87,7 +97,10 @@ export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): Seria
     dueDate: toDateStr(row.dueDate),
     subtotal: toNum(row.subtotal) ?? 0,
     tax: toNum(row.tax),
+    taxRate: toNum(row.taxRate),
     total: toNum(row.total) ?? 0,
+    paymentTerms: row.paymentTerms,
+    purchaseOrder: row.purchaseOrder,
     notes: row.notes,
     transactionId: row.transactionId,
     isArchived: row.isArchived ?? false,
@@ -104,5 +117,8 @@ export function serializeInvoicePublic(
     ...serializeInvoice(row, now),
     ownerBusinessName: row.owner.businessName,
     ownerEmail: row.owner.email,
+    ownerAddress: row.owner.businessAddress,
+    ownerPhone: row.owner.businessPhone,
+    ownerTaxNumber: row.owner.taxNumber,
   }
 }
