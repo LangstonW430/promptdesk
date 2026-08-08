@@ -179,3 +179,48 @@
     @apply font-sans;
   }
 }
+/* ── Printing an invoice ──────────────────────────────────────────────────
+   An invoice is a document. Whatever theme the sender happens to be using,
+   the printed sheet and the "Save as PDF" output have to be dark-on-white —
+   a dark-mode invoice would print as a wall of toner, and browsers strip
+   background colours by default, which would leave pale text on nothing.
+
+   The invoice body is built from theme tokens, so restating the light values
+   on the print area is enough: every utility inside resolves against these.
+   The values are copied from :root above rather than invented, so a printed
+   invoice is exactly the light-theme one.
+
+   The status chip is handled separately because it carries its own colours
+   rather than tokens; on paper it reads as an outlined label. */
+@media print {
+  /* Whatever theme is active on screen, paper is white. Without this the body
+     keeps its dark background and prints as a black page around the invoice. */
+  html,
+  body {
+    background: oklch(1 0 0) !important;
+    color: oklch(0.145 0 0) !important;
+  }
+
+  #invoice-print-area {
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --foreground: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+
+    background-color: oklch(1 0 0);
+    color: oklch(0.145 0 0);
+  }
+
+  /* Carries the dark-mode red, which is washed out on white. */
+  #invoice-print-area .print-overdue {
+    color: oklch(0.577 0.245 27.325) !important;
+  }
+
+  #invoice-print-area [data-invoice-status] {
+    background-color: transparent !important;
+    color: oklch(0.145 0 0) !important;
+    border: 1px solid oklch(0.922 0 0);
+  }
+}
