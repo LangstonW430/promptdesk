@@ -4,10 +4,18 @@ import { ChevronLeft } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { getProjectById } from '@/lib/projects'
 import { listTimeEntries } from '@/lib/time-entries'
+import { projectFinancials } from '@/lib/projects/financials'
+import { listProjectAttachments } from '@/lib/attachments'
 import { prisma } from '@/lib/db/client'
 import { ProjectDetail } from '@/components/projects/project-detail'
 
 type Params = Promise<{ id: string }>
+
+/** Prisma Decimals arrive as objects; every money column needs the same unwrap. */
+function toNum(v: unknown): number | null {
+  if (v == null) return null
+  return typeof v === 'object' ? (v as { toNumber(): number }).toNumber() : Number(v)
+}
 
 export default async function ProjectDetailPage({ params }: { params: Params }) {
   let ownerId: string
@@ -25,18 +33,19 @@ export default async function ProjectDetailPage({ params }: { params: Params }) 
 
   if (!project) notFound()
 
-  const client = await prisma.client.findFirst({
-    where: { id: project.clientId, ownerId },
-    select: { companyName: true, contactName: true, defaultRate: true },
-  })
+  const budget = toNum(project.budget)
+
+  const [client, financials, attachments] = await Promise.all([
+    prisma.client.findFirst({
+      where: { id: project.clientId, ownerId },
+      select: { companyName: true, contactName: true },
+    }),
+    projectFinancials(ownerId, id, budget),
+    listProjectAttachments(ownerId, id),
+  ])
   if (!client) notFound()
 
   const clientName = client.companyName ?? client.contactName ?? 'Unknown client'
-  const defaultRate = client.defaultRate
-    ? (typeof client.defaultRate === 'object'
-        ? (client.defaultRate as { toNumber(): number }).toNumber()
-        : Number(client.defaultRate))
-    : null
 
   const serializedProject = {
     id:           project.id,
@@ -44,15 +53,13 @@ export default async function ProjectDetailPage({ params }: { params: Params }) 
     status:       project.status,
     startDate:    project.startDate ? project.startDate.toISOString().slice(0, 10) : null,
     endDate:      project.endDate   ? project.endDate.toISOString().slice(0, 10)   : null,
-    budget:       project.budget
-      ? (typeof project.budget === 'object'
-          ? (project.budget as { toNumber(): number }).toNumber()
-          : Number(project.budget))
-      : null,
+    budget,
     deliverables: (project.deliverables as string[]) ?? [],
     clientId:     project.clientId,
     clientName,
-    defaultRate,
+    // The rate lives on the project now: two engagements with the same client
+    // can bill differently, and the timer should offer this one's number.
+    rate:         toNum(project.rate),
     isArchived:   project.isArchived,
     tasks:        project.tasks.map((t) => ({
       id:      t.id,
@@ -73,7 +80,12 @@ export default async function ProjectDetailPage({ params }: { params: Params }) 
       </Link>
 
       <div className="mt-4">
-        <ProjectDetail project={serializedProject} timeEntries={timeEntries} />
+        <ProjectDetail
+          project={serializedProject}
+          timeEntries={timeEntries}
+          financials={financials}
+          attachments={attachments}
+        />
       </div>
     </div>
   )

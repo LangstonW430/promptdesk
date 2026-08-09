@@ -8,6 +8,7 @@ export interface TransactionFilters {
   source?: TransactionSource
   category?: string
   clientId?: string
+  projectId?: string
   period?: Period
 }
 

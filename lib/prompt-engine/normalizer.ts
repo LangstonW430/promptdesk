@@ -4,7 +4,7 @@ import type {
   EngineTask,
   EngineActivity,
   EngineProject,
-  ClientStatus,
+  ClientStage,
   NoteType,
   ProjectStatus,
   NormalizerOptions,
@@ -14,6 +14,7 @@ import type {
   RawActivity,
   RawProject,
 } from './types'
+import { CLIENT_STAGES } from '@/lib/clients/stage'
 
 // ─── Hashing ──────────────────────────────────────────────────────────────────
 
@@ -81,12 +82,10 @@ function formatCurrency(
   }).format(amount)
 }
 
-const VALID_STATUSES = new Set<ClientStatus>([
-  'lead', 'contacted', 'proposal_sent', 'negotiating', 'won', 'lost',
-])
+const VALID_STAGES = new Set<ClientStage>(CLIENT_STAGES)
 
-function toClientStatus(raw: string): ClientStatus {
-  return VALID_STATUSES.has(raw as ClientStatus) ? (raw as ClientStatus) : 'lead'
+function toClientStage(raw: string): ClientStage {
+  return VALID_STAGES.has(raw as ClientStage) ? (raw as ClientStage) : 'lead'
 }
 
 const VALID_NOTE_TYPES = new Set<NoteType>(['note', 'call', 'meeting', 'email'])
@@ -96,7 +95,7 @@ function toNoteType(raw: string): NoteType {
 }
 
 const VALID_PROJECT_STATUSES = new Set<ProjectStatus>([
-  'active', 'completed', 'on_hold', 'cancelled',
+  'proposed', 'active', 'completed', 'on_hold', 'cancelled',
 ])
 
 function toProjectStatus(raw: string): ProjectStatus {
@@ -129,10 +128,14 @@ export function normalizeClient(raw: RawClient, opts: NormalizerOptions = {}): E
     industry: raw.industry ?? null,
     companySize: raw.companySize ?? null,
     leadSource: raw.leadSource ?? null,
-    status: toClientStatus(raw.status),
+    stage: toClientStage(raw.stage),
     estimatedValue: value,
     estimatedValueFormatted: formatCurrency(value, currency, locale),
-    projectType: raw.projectType ?? null,
+    projects: (raw.projects ?? []).map((p) => ({
+      title: p.title,
+      status: toProjectStatus(p.status),
+      budgetFormatted: formatCurrency(toNumber(p.budget), currency, locale),
+    })),
     painPoints: raw.painPoints ?? null,
     requirements: raw.requirements ?? null,
     opportunityNotes: raw.opportunityNotes ?? null,

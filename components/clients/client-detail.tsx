@@ -4,8 +4,8 @@ import { useState, useEffect, useTransition, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import type { ReactNode, FormEvent, ElementType } from 'react'
 import {
-  Mail, Phone, Globe, Building2, Users, ArrowUpRight,
-  DollarSign, Briefcase, Calendar, CalendarCheck,
+  Mail, Phone, Globe, MapPin, Building2, Users, ArrowUpRight,
+  DollarSign, Calendar, CalendarCheck,
   Lightbulb, Tag, X, Pencil, Archive, RotateCcw, Loader2,
   FileText, PhoneCall, MessagesSquare, Send, Trash2,
   Plus, Check,
@@ -13,13 +13,13 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { StatusBadge } from '@/components/clients/status-badge'
+import { StageBadge } from '@/components/clients/stage-badge'
 import { cn } from '@/lib/utils'
-import { CLIENT_STATUSES } from '@/lib/clients/types'
+import type { ClientStage } from '@/lib/clients/stage'
 import { NOTE_TYPES, type NoteType } from '@/lib/notes/types'
 import { TAG_COLOR_CLASSES } from '@/lib/tags/colors'
 import type { TagColor } from '@/lib/tags/validators'
-import { changeClientStatusAction, setClientArchivedAction, updateClientAction, deleteClientAction } from '@/lib/actions/clients'
+import { setClientArchivedAction, updateClientAction, deleteClientAction } from '@/lib/actions/clients'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { createNoteAction, deleteNoteAction } from '@/lib/actions/notes'
 import { listTagsAction, attachTagAction, detachTagAction } from '@/lib/actions/tags'
@@ -39,14 +39,14 @@ export type SerializedClientDetail = {
   email: string | null
   phone: string | null
   website: string | null
+  address: string | null
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  status: string
+  /** Derived from this client's projects and contact history — see lib/clients/stage.ts. */
+  stage: ClientStage
   /** Summed from the client's proposed + active projects. */
   pipelineValue: number
-  defaultRate: number | null
-  projectType: string | null
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -62,6 +62,8 @@ export type SerializedClientDetail = {
     fileName: string
     mimeType: string | null
     sizeBytes: number | null
+    /** Which of this client's projects the file is about; null when it is not about one. */
+    projectId: string | null
     createdAt: string
   }>
   activities: Array<{
@@ -76,7 +78,9 @@ export type SerializedClientDetail = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const STATUS_LABELS: Record<string, string> = {
+// Clients no longer carry a status, but activity rows recorded before it was
+// removed still reference the old vocabulary — this keeps that history readable.
+const LEGACY_STATUS_LABELS: Record<string, string> = {
   lead: 'Lead', contacted: 'Contacted', proposal_sent: 'Proposal sent',
   negotiating: 'Negotiating', won: 'Won', lost: 'Lost',
 }
@@ -123,6 +127,18 @@ function todayISO(): string {
   return new Date().toISOString().split('T')[0]
 }
 
+// Says what produced the stage, so a read-only badge does not look like a
+// control someone broke.
+// `lost` is deliberately absent: it means archived, and the Archived chip
+// beside the badge already says so.
+const STAGE_EXPLANATIONS: Partial<Record<ClientStage, string>> = {
+  lead: 'No contact logged yet',
+  contacted: 'Contact logged, nothing quoted',
+  proposal_out: 'Has a proposed project',
+  active: 'Has an active project',
+  past: 'All projects completed',
+}
+
 // ── Tabs ───────────────────────────────────────────────────────────────────
 
 type TabId = 'overview' | 'notes' | 'intelligence' | 'attachments'
@@ -138,11 +154,8 @@ interface ClientDetailProps {
 export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabId>('overview')
-  const [localStatus, setLocalStatus] = useState(client.status)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
-
-  useEffect(() => { setLocalStatus(client.status) }, [client.status])
 
   const displayName = client.companyName ?? client.contactName ?? 'Unnamed client'
 
@@ -152,19 +165,6 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
     { id: 'intelligence', label: 'Intelligence' },
     { id: 'attachments', label: 'Attachments', count: client.attachments.length || undefined },
   ]
-
-  function handleStatusChange(newStatus: string) {
-    if (newStatus === localStatus) return
-    setLocalStatus(newStatus)
-    startTransition(async () => {
-      const result = await changeClientStatusAction(client.id, newStatus)
-      if ('error' in result) {
-        setLocalStatus(client.status)
-      } else {
-        router.refresh()
-      }
-    })
-  }
 
   function handleArchiveToggle() {
     startTransition(async () => {
@@ -206,7 +206,14 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
 
         {/* Quick actions row */}
         <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
-          <StatusBadge status={localStatus} />
+          {/* Read-only: the stage follows the client's projects rather than a
+              field someone has to remember to update. */}
+          <StageBadge stage={client.stage} />
+          {STAGE_EXPLANATIONS[client.stage] && (
+            <span className="text-xs text-muted-foreground">
+              {STAGE_EXPLANATIONS[client.stage]}
+            </span>
+          )}
           {client.isArchived && (
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
               Archived
@@ -214,18 +221,6 @@ export function ClientDetail({ client, defaultAi, onClose }: ClientDetailProps) 
           )}
 
           <div className="ml-auto flex items-center gap-1.5">
-            <select
-              value={localStatus}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              disabled={isPending}
-              aria-label="Change status"
-              className="h-7 rounded-lg border border-input bg-transparent px-2 py-1 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
-            >
-              {CLIENT_STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-              ))}
-            </select>
-
             <Button
               variant="outline"
               size="sm"
@@ -600,11 +595,11 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
   }
 
   const followupOverdue = isOverdue(localNextFollowup || null)
-  const hasContact = !!(client.email || client.phone || client.website)
+  const hasContact = !!(client.email || client.phone || client.website || client.address)
   const hasPipeline = !!(
     client.pipelineValue > 0 ||
     client.industry || client.companySize ||
-    client.leadSource || client.projectType
+    client.leadSource
   )
   const customFieldEntries = Object.entries(customFields)
   const openProjectCount = client.projects.filter(
@@ -635,6 +630,11 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
             {client.phone && (
               <FieldRow icon={<Phone />} label="Phone">
                 <a href={`tel:${client.phone}`} className="hover:underline">{client.phone}</a>
+              </FieldRow>
+            )}
+            {client.address && (
+              <FieldRow icon={<MapPin />} label="Billing address">
+                <span className="whitespace-pre-wrap">{client.address}</span>
               </FieldRow>
             )}
             {client.website && (
@@ -680,9 +680,6 @@ function OverviewTab({ client, defaultAi }: { client: SerializedClientDetail; de
             )}
             {client.leadSource && (
               <FieldRow icon={<ArrowUpRight />} label="Lead source">{client.leadSource}</FieldRow>
-            )}
-            {client.projectType && (
-              <FieldRow icon={<Briefcase />} label="Project type">{client.projectType}</FieldRow>
             )}
           </dl>
         ) : (
@@ -961,8 +958,8 @@ function activityDescription(activity: Activity): string {
   const d = activity.detail
   switch (activity.type) {
     case 'status_changed': {
-      const from = STATUS_LABELS[String(d.from)] ?? String(d.from)
-      const to = STATUS_LABELS[String(d.to)] ?? String(d.to)
+      const from = LEGACY_STATUS_LABELS[String(d.from)] ?? String(d.from)
+      const to = LEGACY_STATUS_LABELS[String(d.to)] ?? String(d.to)
       return `Status: ${from} → ${to}`
     }
     case 'note_added': {
@@ -1090,6 +1087,11 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  // Chosen before picking the file, so one selection covers the whole upload.
+  // '' means the file is about the client rather than one piece of work.
+  const [projectId, setProjectId] = useState('')
+
+  const projectTitles = new Map(client.projects.map((p) => [p.id, p.title]))
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -1136,6 +1138,7 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
 
       // 3. Save metadata
       const saveResult = await saveAttachmentAction(client.id, {
+        projectId: projectId || null,
         storageKey: urlResult.storageKey,
         fileName: file.name,
         mimeType: file.type,
@@ -1173,8 +1176,8 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
         aria-hidden
       />
 
-      {/* Upload button */}
-      <div className="flex items-center gap-3">
+      {/* Upload controls */}
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           variant="outline"
           size="sm"
@@ -1188,6 +1191,23 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
           )}
           {uploading ? 'Uploading…' : 'Attach file'}
         </Button>
+
+        {/* Only when there is work to attach to. */}
+        {client.projects.length > 0 && (
+          <select
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            disabled={uploading || isPending}
+            aria-label="Attach to project"
+            className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-xs text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          >
+            <option value="">No project — about the client</option>
+            {client.projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.title}</option>
+            ))}
+          </select>
+        )}
+
         <p className="text-xs text-muted-foreground">
           Max 10 MB · Images, PDF, Word, Excel, CSV, text
         </p>
@@ -1212,6 +1232,13 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
             <AttachmentRow
               key={attachment.id}
               attachment={attachment}
+              // `client.projects` excludes archived and cancelled work, so a
+              // file attached to one would otherwise read as unattributed.
+              projectTitle={
+                attachment.projectId
+                  ? (projectTitles.get(attachment.projectId) ?? 'Archived project')
+                  : null
+              }
               isPending={isPending}
               onDelete={() => handleDelete(attachment.id)}
             />
@@ -1224,10 +1251,12 @@ function AttachmentsTab({ client }: { client: SerializedClientDetail }) {
 
 function AttachmentRow({
   attachment,
+  projectTitle,
   isPending,
   onDelete,
 }: {
   attachment: SerializedAttachment
+  projectTitle: string | null
   isPending: boolean
   onDelete: () => void
 }) {
@@ -1237,9 +1266,14 @@ function AttachmentRow({
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium leading-tight">{attachment.fileName}</p>
-        {attachment.sizeBytes != null && (
-          <p className="text-xs text-muted-foreground">{formatBytes(attachment.sizeBytes)}</p>
-        )}
+        <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {attachment.sizeBytes != null && <span>{formatBytes(attachment.sizeBytes)}</span>}
+          {projectTitle && (
+            <span className="rounded bg-muted px-1.5 py-px text-[11px] font-medium">
+              {projectTitle}
+            </span>
+          )}
+        </p>
       </div>
 
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

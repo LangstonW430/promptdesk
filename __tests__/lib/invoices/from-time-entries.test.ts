@@ -5,9 +5,16 @@ const timeEntryUpdateMany = vi.fn()
 const invoiceCreate = vi.fn()
 const invoiceAggregate = vi.fn()
 const transaction = vi.fn()
+const userFindUnique = vi.fn()
 
 vi.mock('@/lib/db/client', () => ({
   prisma: {
+    // createInvoice reads the owner's default payment terms.
+    user: {
+      get findUnique() {
+        return userFindUnique
+      },
+    },
     timeEntry: {
       get findMany() {
         return timeEntryFindMany
@@ -54,6 +61,7 @@ const INPUT = {
 
 describe('createInvoiceFromTimeEntries', () => {
   beforeEach(() => {
+  userFindUnique.mockReset().mockResolvedValue({ defaultPaymentTerms: null })
     timeEntryFindMany.mockReset()
     timeEntryUpdateMany.mockReset()
     invoiceCreate.mockReset()

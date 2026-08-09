@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { CheckCircle2 } from 'lucide-react'
 import { getInvoiceByPublicToken } from '@/lib/invoices'
@@ -7,6 +8,15 @@ import { PublicPayButton } from '@/components/invoices/public-pay-button'
 import { PrintButton } from '@/components/invoices/print-button'
 
 export const dynamic = 'force-dynamic'
+
+/**
+ * An invoice link is unguessable but not secret — clients forward them, and
+ * link-preview bots follow them. Nothing here should end up in a search index:
+ * it carries a client's name, what they were billed for and what they owe.
+ */
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, nocache: true },
+}
 
 export default async function PublicInvoicePage({
   params,
@@ -20,6 +30,11 @@ export default async function PublicInvoicePage({
 
   const invoice = await getInvoiceByPublicToken(publicToken)
   if (!invoice) notFound()
+
+  // A draft is an unfinished document. The owner can still preview it in the
+  // app; the public link only starts working once the invoice is sent, which
+  // is how Stripe and FreshBooks behave — a draft has no hosted page at all.
+  if (invoice.status === 'draft') notFound()
 
   const { connected: stripeEnabled } = await getStripeKeyStatus(invoice.ownerId)
   const canPay =

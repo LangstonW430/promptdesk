@@ -27,9 +27,9 @@ const clientAcme: RawClient = {
   industry: 'Technology',
   companySize: '50-200',
   leadSource: 'Referral',
-  status: 'negotiating',
+  stage: 'proposal_out',
   estimatedValue: 10000,
-  projectType: 'Website redesign',
+  projects: [{ title: 'Website redesign', status: 'proposed', budget: 10000 }],
   painPoints: 'Old website, poor mobile experience',
   requirements: 'React, mobile-first, CMS integration',
   opportunityNotes: 'Strong fit, decision next month',
@@ -51,9 +51,9 @@ const clientBeta: RawClient = {
   industry: 'Finance',
   companySize: null,
   leadSource: null,
-  status: 'lead',
+  stage: 'lead',
   estimatedValue: 500,
-  projectType: null,
+  projects: [],
   painPoints: null,
   requirements: null,
   opportunityNotes: null,
@@ -75,9 +75,9 @@ const clientGamma: RawClient = {
   industry: 'Design',
   companySize: null,
   leadSource: null,
-  status: 'proposal_sent',
+  stage: 'proposal_out',
   estimatedValue: 5000,
-  projectType: 'Brand identity',
+  projects: [{ title: 'Brand identity', status: 'active', budget: 6000 }],
   painPoints: 'Needs a fresh visual direction',
   requirements: 'Logo, color palette, guidelines',
   opportunityNotes: null,
@@ -188,6 +188,15 @@ describe('buildPrompt — global scope (Business Action Plan)', () => {
 
   it('includes the pipeline overview section', () => {
     expect(result.text).toContain('PIPELINE OVERVIEW')
+  })
+
+  it("names each client's projects, with status and budget", () => {
+    // This replaced a single free-text "Project type" on the client. A model
+    // planning a week can now see there is a $10k proposal outstanding, rather
+    // than the words "website redesign".
+    expect(result.text).toContain('Website redesign')
+    expect(result.text).toContain('proposed')
+    expect(result.text).toContain('$10,000.00')
   })
 
   it('returns a positive tokenCount', () => {

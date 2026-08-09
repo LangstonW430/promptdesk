@@ -2,15 +2,19 @@ import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
 import { listClientsForTable } from '@/lib/clients'
 import { ClientTable } from '@/components/clients/client-table'
-import type { ClientStatus } from '@/lib/clients/types'
+import { CLIENT_STAGES, type ClientStage } from '@/lib/clients/stage'
 
 type SearchParams = Promise<{
   q?: string
-  status?: string
+  stage?: string
   tag?: string
   stale?: string
   archived?: string
 }>
+
+function parseStage(value: string | undefined): ClientStage | undefined {
+  return CLIENT_STAGES.find((s) => s === value)
+}
 
 export default async function ClientsPage({
   searchParams,
@@ -28,7 +32,7 @@ export default async function ClientsPage({
 
   const rawClients = await listClientsForTable(ownerId, {
     q: params.q,
-    status: params.status as ClientStatus | undefined,
+    stage: parseStage(params.stage),
     tag: params.tag,
     stale: params.stale ? Number(params.stale) : undefined,
     archived: params.archived === 'true',
@@ -41,7 +45,7 @@ export default async function ClientsPage({
     contactName: c.contactName,
     email: c.email,
     industry: c.industry,
-    status: c.status,
+    stage: c.stage,
     pipelineValue: c.pipelineValue,
     lastContactDate: c.lastContactDate?.toISOString() ?? null,
     nextFollowupDate: c.nextFollowupDate?.toISOString() ?? null,

@@ -271,7 +271,7 @@ describe('refundToTransaction', () => {
 
   it('handles null reason gracefully', () => {
     const refund = makeRefund('re_1', 1000)
-    ;(refund as Record<string, unknown>).reason = null
+    ;(refund as unknown as Record<string, unknown>).reason = null
     const result = refundToTransaction(refund, charge, OWNER)
     expect(result.metadata.reason).toBeNull()
   })

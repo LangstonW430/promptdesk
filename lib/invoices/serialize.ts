@@ -26,23 +26,34 @@ export type InvoiceRow = {
   dueDate: Date | string
   subtotal: DecimalLike
   tax: DecimalLike
+  taxRate: DecimalLike
   total: DecimalLike
+  paymentTerms: string | null
+  purchaseOrder: string | null
   notes: string | null
   transactionId: string | null
   isArchived?: boolean
   createdAt: Date | string
   updatedAt: Date | string
-  client: { companyName: string | null; contactName: string | null }
+  client: { companyName: string | null; contactName: string | null; address: string | null }
   project: { title: string } | null
 }
 
 export type InvoiceRowPublic = InvoiceRow & {
-  owner: { businessName: string | null; email: string }
+  owner: {
+    businessName: string | null
+    email: string
+    businessAddress: string | null
+    businessPhone: string | null
+    taxNumber: string | null
+  }
 }
 
 function formatInvoiceNumber(n: number): string {
   return `INV-${String(n).padStart(4, '0')}`
 }
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 /**
  * `overdue` is derived at read time rather than persisted.
@@ -60,7 +71,12 @@ function formatInvoiceNumber(n: number): string {
 function deriveStatus(status: string, dueDate: Date | string, now: Date): InvoiceStatus {
   if (status !== 'sent') return status as InvoiceStatus
   const due = dueDate instanceof Date ? dueDate : new Date(dueDate)
-  return due < now ? 'overdue' : 'sent'
+
+  // A due date is a whole day, not an instant. `dueDate` is a Postgres DATE, so
+  // it arrives as midnight UTC — comparing `due < now` marked an invoice
+  // overdue at 00:00 on the very day it fell due, and a client opening the link
+  // that morning saw a red OVERDUE chip on an invoice that was not yet late.
+  return now.getTime() >= due.getTime() + ONE_DAY_MS ? 'overdue' : 'sent'
 }
 
 export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): SerializedInvoice {
@@ -72,6 +88,7 @@ export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): Seria
     publicToken: row.publicToken,
     clientId: row.clientId,
     clientName: row.client.companyName ?? row.client.contactName ?? 'Unknown',
+    clientAddress: row.client.address,
     projectId: row.projectId,
     projectTitle: row.project?.title ?? null,
     lineItems: row.lineItems as LineItem[],
@@ -80,7 +97,10 @@ export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): Seria
     dueDate: toDateStr(row.dueDate),
     subtotal: toNum(row.subtotal) ?? 0,
     tax: toNum(row.tax),
+    taxRate: toNum(row.taxRate),
     total: toNum(row.total) ?? 0,
+    paymentTerms: row.paymentTerms,
+    purchaseOrder: row.purchaseOrder,
     notes: row.notes,
     transactionId: row.transactionId,
     isArchived: row.isArchived ?? false,
@@ -97,5 +117,8 @@ export function serializeInvoicePublic(
     ...serializeInvoice(row, now),
     ownerBusinessName: row.owner.businessName,
     ownerEmail: row.owner.email,
+    ownerAddress: row.owner.businessAddress,
+    ownerPhone: row.owner.businessPhone,
+    ownerTaxNumber: row.owner.taxNumber,
   }
 }

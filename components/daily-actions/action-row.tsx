@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Sparkles, Loader2, CheckCircle2, AlertCircle, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { StatusBadge } from '@/components/clients/status-badge'
+import { StageBadge } from '@/components/clients/stage-badge'
 import { PromptResultPanel } from '@/components/prompts/prompt-result-panel'
 import { CompleteFollowUpSheet } from '@/components/daily-actions/complete-followup-sheet'
 import { usePromptGenerator } from '@/lib/prompts/use-prompt-generator'
@@ -99,7 +99,7 @@ export function ActionRow({ client, queueType, defaultAi, isLast }: ActionRowPro
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium">{client.displayName}</span>
-            <StatusBadge status={client.status} />
+            <StageBadge stage={client.stage} />
             {client.pipelineValue != null && queueType !== 'hot' && (
               <span className="text-xs text-muted-foreground">
                 {formatValue(client.pipelineValue)}

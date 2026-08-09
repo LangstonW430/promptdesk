@@ -71,7 +71,7 @@ export default async function DashboardPage() {
           icon={Briefcase}
           label="Active Clients"
           value={String(aggregates.activeClients)}
-          subtext="contacted · proposal · negotiating"
+          subtext="with a project underway"
         />
         <StatCard
           icon={TrendingUp}

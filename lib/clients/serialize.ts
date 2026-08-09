@@ -1,5 +1,6 @@
 import type { SerializedClientDetail } from '@/components/clients/client-detail'
 import { PIPELINE_PROJECT_STATUSES } from './pipeline-value'
+import type { ClientStage } from './stage'
 
 type DecimalLike = { toNumber(): number } | number | null | undefined
 
@@ -16,12 +17,10 @@ type ClientWithRelations = {
   email: string | null
   phone: string | null
   website: string | null
+  address: string | null
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  status: string
-  defaultRate: DecimalLike
-  projectType: string | null
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -37,6 +36,7 @@ type ClientWithRelations = {
     fileName: string
     mimeType: string | null
     sizeBytes: bigint | null
+    projectId: string | null
     createdAt: Date
   }>
   activities: Array<{
@@ -49,20 +49,28 @@ type ClientWithRelations = {
   customFields: unknown
 }
 
-export function serializeClientDetail(client: ClientWithRelations): SerializedClientDetail {
+/**
+ * `stage` is passed in rather than computed here: it is derived from projects
+ * and notes by one rule (lib/clients/stage.ts), fed by one query
+ * (lib/clients/stage-query.ts), and re-deriving it from this page's already
+ * filtered relations would quietly disagree with the list and the dashboard.
+ */
+export function serializeClientDetail(
+  client: ClientWithRelations,
+  stage: ClientStage,
+): SerializedClientDetail {
   return {
+    stage,
     id: client.id,
     companyName: client.companyName,
     contactName: client.contactName,
     email: client.email,
     phone: client.phone,
     website: client.website,
+    address: client.address,
     industry: client.industry,
     companySize: client.companySize,
     leadSource: client.leadSource,
-    status: client.status,
-    defaultRate: toNum(client.defaultRate),
-    projectType: client.projectType,
     painPoints: client.painPoints,
     requirements: client.requirements,
     opportunityNotes: client.opportunityNotes,
@@ -85,6 +93,7 @@ export function serializeClientDetail(client: ClientWithRelations): SerializedCl
       fileName: a.fileName,
       mimeType: a.mimeType,
       sizeBytes: a.sizeBytes != null ? Number(a.sizeBytes) : null,
+      projectId: a.projectId,
       createdAt: a.createdAt.toISOString(),
     })),
     activities: client.activities.map((a) => ({

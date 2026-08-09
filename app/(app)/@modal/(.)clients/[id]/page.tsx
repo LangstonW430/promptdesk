@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
 import { getClientById } from '@/lib/clients'
+import { clientStagesFor } from '@/lib/clients/stage-query'
 import { serializeClientDetail } from '@/lib/clients/serialize'
 import { ClientDetailSheet } from '@/components/clients/client-detail-sheet'
 import { prisma } from '@/lib/db/client'
@@ -16,15 +17,16 @@ export default async function ClientDetailModal({ params }: { params: Params }) 
   }
 
   const { id } = await params
-  const [client, user] = await Promise.all([
+  const [client, user, stages] = await Promise.all([
     getClientById(ownerId, id),
     prisma.user.findUnique({ where: { id: ownerId }, select: { defaultAi: true } }),
+    clientStagesFor(ownerId, [id]),
   ])
   if (!client) redirect('/clients')
 
   return (
     <ClientDetailSheet
-      client={serializeClientDetail(client)}
+      client={serializeClientDetail(client, stages.get(id) ?? 'lead')}
       defaultAi={user?.defaultAi ?? null}
     />
   )

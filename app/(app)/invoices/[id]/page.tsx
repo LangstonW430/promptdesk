@@ -37,8 +37,22 @@ export default async function InvoiceDetailPage({
   // Fetch owner settings for prompt rendering
   const ownerRow = await prisma.user.findUnique({
     where: { id: ownerId },
-    select: { businessName: true, businessType: true },
+    select: {
+      businessName: true,
+      businessType: true,
+      businessAddress: true,
+      taxNumber: true,
+    },
   })
+
+  // What the client will find missing when they open the link. Checked here
+  // rather than at send time so it is visible while there is still something
+  // to do about it.
+  const missingDetails: string[] = []
+  if (!ownerRow?.businessName) missingDetails.push('your business name')
+  if (!ownerRow?.businessAddress) missingDetails.push('your business address')
+  if (!ownerRow?.taxNumber) missingDetails.push('your tax number')
+  if (!invoice.clientAddress) missingDetails.push("the client's billing address")
 
   // Build invoice cover email prompt
   const lineSummary = invoice.lineItems
@@ -83,6 +97,8 @@ export default async function InvoiceDetailPage({
         {/* Actions sidebar — hidden when printing */}
         <div className="print:hidden">
           <InvoiceActions
+          missingDetails={missingDetails}
+          clientId={invoice.clientId}
             invoice={invoice}
             publicUrl={publicUrl}
             promptText={promptResult.text}

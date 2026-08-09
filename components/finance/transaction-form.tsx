@@ -25,8 +25,16 @@ import { createTransactionAction, updateTransactionAction } from '@/lib/actions/
 
 export type ClientOption = { id: string; name: string }
 
+/**
+ * A project a transaction can be attributed to. `clientId` is carried so the
+ * picker can narrow to the selected client's work rather than listing every
+ * project the user has.
+ */
+export type ProjectOption = { id: string; title: string; clientId: string }
+
 interface TransactionFormProps {
   clients: ClientOption[]
+  projects: ProjectOption[]
   defaultValues?: Partial<TransactionFormValues>
   transactionId?: string
   onSuccess: () => void
@@ -41,6 +49,7 @@ function toActionPayload(values: TransactionFormValues) {
     category: values.category,
     occurredAt: values.occurredAt,
     clientId: values.clientId || undefined,
+    projectId: values.projectId || undefined,
     isRecurring: values.isRecurring,
     recurrenceEndedAt: values.isRecurring
       ? (values.recurrenceEndedAt || null)
@@ -53,6 +62,7 @@ function toActionPayload(values: TransactionFormValues) {
 
 export function TransactionForm({
   clients,
+  projects,
   defaultValues,
   transactionId,
   onSuccess,
@@ -68,6 +78,13 @@ export function TransactionForm({
 
   const watchedType = useWatch({ control: form.control, name: 'type' })
   const watchedRecurring = useWatch({ control: form.control, name: 'isRecurring' })
+  const watchedClientId = useWatch({ control: form.control, name: 'clientId' })
+
+  // Only the selected client's work. With no client chosen there is nothing to
+  // attribute to, so the picker stays hidden rather than offering every project.
+  const selectedClientProjects = watchedClientId
+    ? projects.filter((p) => p.clientId === watchedClientId)
+    : []
   const categoryOptions =
     watchedType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
 
@@ -293,13 +310,50 @@ export function TransactionForm({
                   <span className="text-xs text-muted-foreground font-normal">(optional)</span>
                 </FormLabel>
                 <FormControl>
-                  <Select {...field}>
+                  <Select
+                    {...field}
+                    onChange={(e) => {
+                      field.onChange(e)
+                      // The project belongs to the old client, so keeping it
+                      // would file this money against someone else's work.
+                      form.setValue('projectId', '')
+                    }}
+                  >
                     <option value="">— No client —</option>
                     {clients.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </Select>
                 </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+
+        {/* Project — only once a client is chosen, and only if they have work */}
+        {selectedClientProjects.length > 0 && (
+          <FormField
+            control={form.control}
+            name="projectId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  Project{' '}
+                  <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                </FormLabel>
+                <FormControl>
+                  <Select {...field}>
+                    <option value="">— No project —</option>
+                    {selectedClientProjects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.title}</option>
+                    ))}
+                  </Select>
+                </FormControl>
+                <p className="text-xs text-muted-foreground">
+                  Attributing money to a project is what lets the project report
+                  what it earned against its budget.
+                </p>
                 <FormMessage />
               </FormItem>
             )}

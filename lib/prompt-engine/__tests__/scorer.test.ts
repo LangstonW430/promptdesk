@@ -12,21 +12,21 @@ const daysAgo = (n: number): string =>
 const daysFromNow = (n: number): string =>
   new Date(NOW.getTime() + n * 86_400_000).toISOString()
 
-const negotiatingClient: ScorableClient = {
+const proposalOutClient: ScorableClient = {
   kind: 'client',
   id: 'c1',
-  status: 'negotiating',
+  stage: 'proposal_out',
   estimatedValue: 10_000,
   lastContactDate: daysAgo(5),
   nextFollowupDate: daysFromNow(3),
   updatedAt: daysAgo(2),
-  searchText: 'Acme Corp web development project proposal negotiating',
+  searchText: 'Acme Corp web development project proposal outstanding',
 }
 
 const staleLeadClient: ScorableClient = {
   kind: 'client',
   id: 'c2',
-  status: 'lead',
+  stage: 'lead',
   estimatedValue: 500,
   lastContactDate: daysAgo(60),
   nextFollowupDate: daysAgo(30), // overdue
@@ -37,7 +37,7 @@ const staleLeadClient: ScorableClient = {
 const freshLeadClient: ScorableClient = {
   kind: 'client',
   id: 'c3',
-  status: 'lead',
+  stage: 'lead',
   estimatedValue: 1_000,
   lastContactDate: daysAgo(2),
   nextFollowupDate: daysFromNow(5),
@@ -48,7 +48,7 @@ const freshLeadClient: ScorableClient = {
 const recentNote: ScorableNote = {
   kind: 'note',
   id: 'n1',
-  clientStatus: 'negotiating',
+  clientStage: 'proposal_out',
   clientEstimatedValue: 10_000,
   occurredAt: daysAgo(1),
   searchText: 'Had a great call about the contract terms and timeline',
@@ -57,7 +57,7 @@ const recentNote: ScorableNote = {
 const oldNote: ScorableNote = {
   kind: 'note',
   id: 'n2',
-  clientStatus: 'lead',
+  clientStage: 'lead',
   clientEstimatedValue: 500,
   occurredAt: daysAgo(70),
   searchText: 'Initial outreach sent no response',
@@ -66,7 +66,7 @@ const oldNote: ScorableNote = {
 const overdueTask: ScorableTask = {
   kind: 'task',
   id: 't1',
-  clientStatus: 'proposal_sent',
+  clientStage: 'active',
   clientEstimatedValue: 5_000,
   dueDate: daysAgo(7),
   isDone: false,
@@ -76,7 +76,7 @@ const overdueTask: ScorableTask = {
 const doneTask: ScorableTask = {
   kind: 'task',
   id: 't2',
-  clientStatus: 'won',
+  clientStage: 'past',
   clientEstimatedValue: 3_000,
   dueDate: daysAgo(3),
   isDone: true,
@@ -87,13 +87,13 @@ const doneTask: ScorableTask = {
 
 describe('scoreItem — composite bounds', () => {
   it('composite is between 0 and 1', () => {
-    const result = scoreItem(negotiatingClient, 'grow revenue', {}, 10_000, NOW)
+    const result = scoreItem(proposalOutClient, 'grow revenue', {}, 10_000, NOW)
     expect(result.composite).toBeGreaterThanOrEqual(0)
     expect(result.composite).toBeLessThanOrEqual(1)
   })
 
   it('all sub-scores are between 0 and 1', () => {
-    const result = scoreItem(negotiatingClient, 'convert leads', {}, 10_000, NOW)
+    const result = scoreItem(proposalOutClient, 'convert leads', {}, 10_000, NOW)
     expect(result.recency).toBeGreaterThanOrEqual(0)
     expect(result.recency).toBeLessThanOrEqual(1)
     expect(result.dealValue).toBeGreaterThanOrEqual(0)
@@ -108,26 +108,26 @@ describe('scoreItem — composite bounds', () => {
 })
 
 describe('scoreItem — stage urgency', () => {
-  it('negotiating client scores higher stageUrgency than lead', () => {
-    const n = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+  it('a client with a proposal out scores higher stageUrgency than a lead', () => {
+    const n = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     const l = scoreItem(freshLeadClient, '', {}, 10_000, NOW)
     expect(n.stageUrgency).toBeGreaterThan(l.stageUrgency)
   })
 
-  it('negotiating stageUrgency is 1.0, lead is 0.25', () => {
-    const n = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+  it('proposal-out stageUrgency is 1.0, lead is 0.25', () => {
+    const n = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     const l = scoreItem(freshLeadClient, '', {}, 10_000, NOW)
     expect(n.stageUrgency).toBe(1.0)
     expect(l.stageUrgency).toBe(0.25)
   })
 
-  it('won/lost clients have stageUrgency of 0', () => {
-    const wonClient: ScorableClient = {
-      ...negotiatingClient,
-      id: 'cw',
-      status: 'won',
+  it('past and archived clients have stageUrgency of 0', () => {
+    // Nothing outstanding to chase either way: the work is finished, or the
+    // relationship is over.
+    for (const stage of ['past', 'lost'] as const) {
+      const closed: ScorableClient = { ...proposalOutClient, id: `c-${stage}`, stage }
+      expect(scoreItem(closed, '', {}, 10_000, NOW).stageUrgency).toBe(0)
     }
-    expect(scoreItem(wonClient, '', {}, 10_000, NOW).stageUrgency).toBe(0)
   })
 })
 
@@ -146,7 +146,7 @@ describe('scoreItem — recency decay', () => {
 
   it('recency at day 0 is ~1.0', () => {
     const client: ScorableClient = {
-      ...negotiatingClient,
+      ...proposalOutClient,
       updatedAt: NOW.toISOString(),
     }
     const result = scoreItem(client, '', {}, 10_000, NOW)
@@ -155,7 +155,7 @@ describe('scoreItem — recency decay', () => {
 
   it('recency at 30 days is ~1/e (~0.37)', () => {
     const client: ScorableClient = {
-      ...negotiatingClient,
+      ...proposalOutClient,
       updatedAt: daysAgo(30),
     }
     const result = scoreItem(client, '', {}, 10_000, NOW)
@@ -165,19 +165,19 @@ describe('scoreItem — recency decay', () => {
 
 describe('scoreItem — deal value', () => {
   it('high-value client scores higher dealValue than low-value', () => {
-    const high = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+    const high = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     const low = scoreItem(freshLeadClient, '', {}, 10_000, NOW)
     expect(high.dealValue).toBeGreaterThan(low.dealValue)
   })
 
   it('dealValue is 1.0 for the max-value item', () => {
-    const result = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+    const result = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     expect(result.dealValue).toBe(1.0)
   })
 
   it('null estimatedValue yields dealValue of 0', () => {
     const noValue: ScorableClient = {
-      ...negotiatingClient,
+      ...proposalOutClient,
       id: 'cn',
       estimatedValue: null,
     }
@@ -210,19 +210,19 @@ describe('scoreItem — staleness risk', () => {
 describe('scoreItem — keyword relevance', () => {
   it('objective containing words from searchText boosts relevance', () => {
     const withObjective = scoreItem(
-      negotiatingClient,
+      proposalOutClient,
       'web development proposal',
       {},
       10_000,
       NOW,
     )
-    const withoutObjective = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+    const withoutObjective = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     expect(withObjective.relevance).toBeGreaterThan(withoutObjective.relevance)
   })
 
   it('completely unrelated objective yields near-zero relevance', () => {
     const result = scoreItem(
-      negotiatingClient,
+      proposalOutClient,
       'restaurant menu pricing',
       {},
       10_000,
@@ -233,7 +233,7 @@ describe('scoreItem — keyword relevance', () => {
 
   it('relevance is symmetric to word overlap', () => {
     const result = scoreItem(
-      { ...negotiatingClient, searchText: 'convert leads pipeline' },
+      { ...proposalOutClient, searchText: 'convert leads pipeline' },
       'convert leads',
       {},
       10_000,
@@ -245,9 +245,9 @@ describe('scoreItem — keyword relevance', () => {
 
 describe('scoreItem — weight overrides', () => {
   it('zeroing dealValue does not change stageUrgency or recency contributions', () => {
-    const normal = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+    const normal = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     const noDealValue = scoreItem(
-      negotiatingClient,
+      proposalOutClient,
       '',
       { dealValue: 0 },
       10_000,
@@ -258,8 +258,8 @@ describe('scoreItem — weight overrides', () => {
     expect(noDealValue.recency).toBeCloseTo(normal.recency, 5)
   })
 
-  it('maximising stageUrgency weight makes negotiating rank much higher than lead', () => {
-    const neg = scoreItem(negotiatingClient, '', { stageUrgency: 1, recency: 0, dealValue: 0, stalenessRisk: 0, relevance: 0 }, 10_000, NOW)
+  it('maximising stageUrgency weight makes a proposal-out client rank much higher than a lead', () => {
+    const neg = scoreItem(proposalOutClient, '', { stageUrgency: 1, recency: 0, dealValue: 0, stalenessRisk: 0, relevance: 0 }, 10_000, NOW)
     const lead = scoreItem(freshLeadClient, '', { stageUrgency: 1, recency: 0, dealValue: 0, stalenessRisk: 0, relevance: 0 }, 10_000, NOW)
     expect(neg.composite).toBeGreaterThan(lead.composite)
   })
@@ -267,7 +267,7 @@ describe('scoreItem — weight overrides', () => {
   it('weights are normalised: partial override still sums to a valid composite', () => {
     // Supply weights that don't sum to 1 — result should still be in [0,1]
     const result = scoreItem(
-      negotiatingClient,
+      proposalOutClient,
       'convert',
       { recency: 2, dealValue: 3 },
       10_000,
@@ -281,14 +281,14 @@ describe('scoreItem — weight overrides', () => {
 // ─── scoreAll ─────────────────────────────────────────────────────────────────
 
 describe('scoreAll — ranking', () => {
-  it('negotiating high-value client ranks above a stale low-value lead', () => {
+  it('a high-value client with a proposal out ranks above a stale low-value lead', () => {
     const results = scoreAll(
-      [staleLeadClient, negotiatingClient],
+      [staleLeadClient, proposalOutClient],
       'grow revenue',
       {},
       NOW,
     )
-    expect(results[0].item.id).toBe('c1') // negotiating
+    expect(results[0].item.id).toBe('c1') // proposal out
     expect(results[1].item.id).toBe('c2') // stale lead
   })
 
@@ -303,39 +303,39 @@ describe('scoreAll — ranking', () => {
     expect(results[0].item.id).toBe('t1')
   })
 
-  it('objective keyword "convert leads" boosts lead-status items relative to won', () => {
+  it('objective keyword "convert leads" boosts leads relative to finished clients', () => {
     // Equal value and recency — only stageUrgency and keyword relevance differ.
     const baseDate = daysAgo(5)
-    const wonClient: ScorableClient = {
+    const pastClient: ScorableClient = {
       kind: 'client',
       id: 'cw',
-      status: 'won',
+      stage: 'past',
       estimatedValue: 5_000,
       lastContactDate: baseDate,
       nextFollowupDate: daysFromNow(10),
       updatedAt: baseDate,
-      searchText: 'won client closed deal payment received',
+      searchText: 'past client closed deal payment received',
     }
     const leadClient: ScorableClient = {
       kind: 'client',
       id: 'cl',
-      status: 'lead',
+      stage: 'lead',
       estimatedValue: 5_000,
       lastContactDate: baseDate,
       nextFollowupDate: daysFromNow(10),
       updatedAt: baseDate,
       searchText: 'convert leads pipeline potential prospect',
     }
-    const results = scoreAll([wonClient, leadClient], 'convert leads', {}, NOW)
-    // Won: stageUrgency=0, relevance≈0. Lead: stageUrgency=0.25, relevance>0.
-    const wonScore = results.find((r) => r.item.id === 'cw')!.breakdown.composite
+    const results = scoreAll([pastClient, leadClient], 'convert leads', {}, NOW)
+    // Past: stageUrgency=0, relevance≈0. Lead: stageUrgency=0.25, relevance>0.
+    const pastScore = results.find((r) => r.item.id === 'cw')!.breakdown.composite
     const leadScore = results.find((r) => r.item.id === 'cl')!.breakdown.composite
-    expect(leadScore).toBeGreaterThan(wonScore)
+    expect(leadScore).toBeGreaterThan(pastScore)
   })
 
   it('returns items sorted descending by composite', () => {
     const results = scoreAll(
-      [staleLeadClient, freshLeadClient, negotiatingClient],
+      [staleLeadClient, freshLeadClient, proposalOutClient],
       '',
       {},
       NOW,
@@ -349,7 +349,7 @@ describe('scoreAll — ranking', () => {
 
   it('maxValue is computed from the batch — dealValue is relative', () => {
     const results = scoreAll(
-      [negotiatingClient, freshLeadClient],
+      [proposalOutClient, freshLeadClient],
       '',
       {},
       NOW,
@@ -367,8 +367,8 @@ describe('scoreAll — ranking', () => {
 // ─── Reason strings ───────────────────────────────────────────────────────────
 
 describe('scoreItem — reason strings', () => {
-  it('negotiating high-value recent client produces a non-empty reason', () => {
-    const result = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+  it('a high-value recent client with a proposal out produces a non-empty reason', () => {
+    const result = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     expect(result.reason.length).toBeGreaterThan(0)
   })
 
@@ -377,19 +377,19 @@ describe('scoreItem — reason strings', () => {
     expect(result.reason).toContain('overdue follow-up')
   })
 
-  it('"negotiating" label appears when stage is negotiating', () => {
-    const result = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
-    expect(result.reason).toContain('negotiating')
+  it('"proposal out" label appears when the client has a proposal outstanding', () => {
+    const result = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
+    expect(result.reason).toContain('proposal out')
   })
 
   it('"high value" appears when item is at max deal value', () => {
-    const result = scoreItem(negotiatingClient, '', {}, 10_000, NOW)
+    const result = scoreItem(proposalOutClient, '', {}, 10_000, NOW)
     expect(result.reason).toContain('high value')
   })
 
   it('"keyword match" appears when objective overlaps with searchText', () => {
     const result = scoreItem(
-      { ...negotiatingClient, searchText: 'convert leads proposal' },
+      { ...proposalOutClient, searchText: 'convert leads proposal' },
       'convert leads',
       {},
       10_000,
@@ -402,7 +402,7 @@ describe('scoreItem — reason strings', () => {
     const lowItem: ScorableClient = {
       kind: 'client',
       id: 'low',
-      status: 'lost',
+      stage: 'lost',
       estimatedValue: 0,
       lastContactDate: daysAgo(5),
       nextFollowupDate: daysFromNow(10),

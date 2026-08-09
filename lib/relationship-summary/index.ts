@@ -4,6 +4,14 @@
  * Target: ~250–350 tokens (~1,000–1,400 chars).
  */
 
+import { CLIENT_STAGE_LABELS, type ClientStage } from '@/lib/clients/stage'
+
+/**
+ * A historical stage move, read from `status_changed` activity rows. Clients no
+ * longer carry a status anyone can set, so nothing new is recorded here — but
+ * the transitions logged before the change are still real history and the
+ * strings use the vocabulary of their time.
+ */
 export interface StatusTransition {
   from: string
   to: string
@@ -18,7 +26,8 @@ export interface SummaryNote {
 
 export interface SummaryInput {
   client: {
-    status: string
+    /** Derived from the client's projects — see lib/clients/stage.ts. */
+    stage: ClientStage
     createdAt: Date | string
   }
   notes: SummaryNote[]
@@ -52,10 +61,11 @@ function truncateAtWord(text: string, maxLen: number): string {
   return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut) + '…'
 }
 
-// ─── Status path ──────────────────────────────────────────────────────────────
+// ─── Stage path ───────────────────────────────────────────────────────────────
 
-function buildStatusPath(currentStatus: string, history: StatusTransition[]): string {
-  if (history.length === 0) return currentStatus
+function buildStagePath(currentStage: ClientStage, history: StatusTransition[]): string {
+  const current = CLIENT_STAGE_LABELS[currentStage]
+  if (history.length === 0) return current
 
   const sorted = [...history]
     .sort((a, b) => toDate(a.occurredAt).getTime() - toDate(b.occurredAt).getTime())
@@ -66,9 +76,9 @@ function buildStatusPath(currentStatus: string, history: StatusTransition[]): st
     parts.push(`${t.to} (${monthYear(toDate(t.occurredAt))})`)
   }
 
-  // Append current status if it diverged from the last recorded transition
-  if (sorted[sorted.length - 1].to !== currentStatus) {
-    parts.push(currentStatus)
+  // Append the current stage if it diverged from the last recorded transition
+  if (sorted[sorted.length - 1].to !== currentStage) {
+    parts.push(current)
   }
 
   return parts.join(' → ')
@@ -177,11 +187,11 @@ export function buildRelationshipSummary(
 
   // ── Relationship header ──
   lines.push(
-    `Active ${agePart} | ${notes.length} note${notes.length === 1 ? '' : 's'} | Current status: ${client.status}`,
+    `Active ${agePart} | ${notes.length} note${notes.length === 1 ? '' : 's'} | Current stage: ${CLIENT_STAGE_LABELS[client.stage]}`,
   )
 
-  // ── Status path ──
-  lines.push(`Status path: ${buildStatusPath(client.status, statusHistory)}`)
+  // ── Stage path ──
+  lines.push(`Stage path: ${buildStagePath(client.stage, statusHistory)}`)
 
   // ── Key facts ──
   const keyFacts = extractKeyFacts(notes, now)

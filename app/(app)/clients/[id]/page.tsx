@@ -3,6 +3,7 @@ import { redirect, notFound } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { getClientById } from '@/lib/clients'
+import { clientStagesFor } from '@/lib/clients/stage-query'
 import { serializeClientDetail } from '@/lib/clients/serialize'
 import { ClientDetail } from '@/components/clients/client-detail'
 import { prisma } from '@/lib/db/client'
@@ -18,9 +19,10 @@ export default async function ClientDetailPage({ params }: { params: Params }) {
   }
 
   const { id } = await params
-  const [client, user] = await Promise.all([
+  const [client, user, stages] = await Promise.all([
     getClientById(ownerId, id),
     prisma.user.findUnique({ where: { id: ownerId }, select: { defaultAi: true } }),
+    clientStagesFor(ownerId, [id]),
   ])
   if (!client) notFound()
 
@@ -36,7 +38,7 @@ export default async function ClientDetailPage({ params }: { params: Params }) {
 
       <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
         <ClientDetail
-          client={serializeClientDetail(client)}
+          client={serializeClientDetail(client, stages.get(id) ?? 'lead')}
           defaultAi={user?.defaultAi ?? null}
         />
       </div>

@@ -17,6 +17,7 @@ const createProjectSchema = z.object({
   startDate:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   endDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   budget:       z.number().positive().nullable().optional(),
+  rate:         z.number().positive().nullable().optional(),
   deliverables: z.array(z.string()).optional(),
 })
 
@@ -26,6 +27,7 @@ const updateProjectSchema = z.object({
   startDate:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   endDate:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   budget:       z.number().positive().nullable().optional(),
+  rate:         z.number().positive().nullable().optional(),
   deliverables: z.array(z.string()).optional(),
 })
 
@@ -60,6 +62,7 @@ export async function updateProjectAction(id: string, data: unknown) {
       ...(d.status       !== undefined && { status:       d.status }),
       ...(d.deliverables !== undefined && { deliverables: d.deliverables }),
       ...('budget'    in d && { budget:    d.budget }),
+      ...('rate'      in d && { rate:      d.rate }),
       ...('startDate' in d && { startDate: d.startDate ? new Date(d.startDate) : null }),
       ...('endDate'   in d && { endDate:   d.endDate   ? new Date(d.endDate)   : null }),
     })

@@ -3,6 +3,7 @@ import { getOwnerId } from '@/lib/auth'
 import { fetchClientsForPicker, fetchBillableEntries } from '@/lib/invoices'
 import { InvoiceForm } from '@/components/invoices/invoice-form'
 import type { LineItem } from '@/lib/invoices/types'
+import { prisma } from '@/lib/db/client'
 
 export default async function NewInvoicePage({
   searchParams,
@@ -17,7 +18,13 @@ export default async function NewInvoicePage({
   }
 
   const { entries: entriesParam } = await searchParams
-  const clients = await fetchClientsForPicker(ownerId)
+  const [clients, user] = await Promise.all([
+    fetchClientsForPicker(ownerId),
+    prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { defaultPaymentTerms: true },
+    }),
+  ])
 
   let prefill: { entryIds: string[]; clientId: string; lineItems: LineItem[] } | undefined
 
@@ -62,7 +69,11 @@ export default async function NewInvoicePage({
         </p>
       </div>
 
-      <InvoiceForm clients={clients} prefill={prefill} />
+      <InvoiceForm
+        clients={clients}
+        defaultTerms={user?.defaultPaymentTerms ?? null}
+        prefill={prefill}
+      />
     </div>
   )
 }

@@ -1,11 +1,12 @@
 import { randomBytes } from 'crypto'
 import { prisma } from '@/lib/db/client'
+import { ownsClient, ownsProject } from '@/lib/db/ownership'
 import { serializeInvoice, serializeInvoicePublic } from './serialize'
 import type { CreateInvoiceInput, CreateFromEntriesInput } from './validators'
 import type { LineItem } from './types'
 
 const WITH_JOIN = {
-  client:  { select: { companyName: true, contactName: true } },
+  client:  { select: { companyName: true, contactName: true, address: true } },
   project: { select: { title: true } },
 } as const
 
@@ -62,7 +63,15 @@ export async function getInvoiceByPublicToken(publicToken: string) {
     where: { publicToken },
     include: {
       ...WITH_JOIN,
-      owner: { select: { businessName: true, email: true } },
+      owner: {
+        select: {
+          businessName: true,
+          email: true,
+          businessAddress: true,
+          businessPhone: true,
+          taxNumber: true,
+        },
+      },
     },
   })
   if (!row) return null
@@ -100,7 +109,36 @@ export async function fetchBillableEntries(ownerId: string, entryIds: string[]) 
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
+/**
+ * The payment terms an invoice is created under.
+ *
+ * Copied from the user's default rather than read through at display time: an
+ * invoice must always state the terms it was actually sent under, so changing
+ * the default later cannot rewrite what a client already has.
+ */
+async function termsFor(
+  ownerId: string,
+  supplied: string | null | undefined,
+): Promise<string | null> {
+  if (supplied !== undefined) return supplied
+  const user = await prisma.user.findUnique({
+    where: { id: ownerId },
+    select: { defaultPaymentTerms: true },
+  })
+  return user?.defaultPaymentTerms ?? null
+}
+
 export async function createInvoice(ownerId: string, input: CreateInvoiceInput) {
+  // clientId and projectId arrive from the request body. Unchecked, an invoice
+  // could be created against another owner's client — and both the invoice list
+  // and the public invoice page render that client's name.
+  if (!(await ownsClient(ownerId, input.clientId))) {
+    throw new Error('Client not found')
+  }
+  if (input.projectId && !(await ownsProject(ownerId, input.projectId, input.clientId))) {
+    throw new Error('Project not found for this client')
+  }
+
   const { subtotal, taxAmount, total } = calcTotals(input.lineItems, input.tax)
   const invoiceNumber = await nextInvoiceNumber(ownerId)
   const publicToken = randomBytes(24).toString('hex')
@@ -118,7 +156,10 @@ export async function createInvoice(ownerId: string, input: CreateInvoiceInput) 
       dueDate:    new Date(input.dueDate),
       subtotal,
       tax:        taxAmount,
+      taxRate:    input.tax ?? null,
       total,
+      paymentTerms:  await termsFor(ownerId, input.paymentTerms),
+      purchaseOrder: input.purchaseOrder ?? null,
       notes:      input.notes ?? null,
     },
     include: WITH_JOIN,
@@ -161,6 +202,7 @@ export async function createInvoiceFromTimeEntries(
   const publicToken = randomBytes(24).toString('hex')
 
   const projectId = entries[0].projectId ?? null
+  const terms = await termsFor(ownerId, input.paymentTerms)
 
   // Creating the invoice and claiming its time entries has to be one unit: the
   // create used to sit alone inside `$transaction([...])` with the updateMany
@@ -181,7 +223,10 @@ export async function createInvoiceFromTimeEntries(
         dueDate:   new Date(input.dueDate),
         subtotal,
         tax:       taxAmount,
+        taxRate:   input.tax ?? null,
         total,
+        paymentTerms:  terms,
+        purchaseOrder: input.purchaseOrder ?? null,
         notes:     input.notes ?? null,
       },
       include: WITH_JOIN,
@@ -244,6 +289,10 @@ export async function markInvoicePaid(ownerId: string, id: string) {
       category:    'Client work',
       occurredAt:  new Date(),
       clientId:    existing.clientId,
+      // Carried through so the work this invoice billed for reports the money
+      // it brought in. Without it, settling an invoice silently detached the
+      // payment from its project.
+      projectId:   existing.projectId,
       isRecurring: false,
     },
   })
@@ -298,6 +347,7 @@ export async function markInvoicePaidFromCheckout(
       category:    'Client work',
       occurredAt:  new Date(),
       clientId:    existing.clientId,
+      projectId:   existing.projectId,
       externalId:  paymentIntentId,
       externalType: 'payment_intent',
       isRecurring: false,

@@ -1,6 +1,7 @@
 import Stripe from 'stripe'
 import { getInvoiceByPublicToken } from '@/lib/invoices'
 import { getStripeForOwner } from '@/lib/finance/stripe-client'
+import { prisma } from '@/lib/db/client'
 
 export async function POST(
   req: Request,
@@ -29,12 +30,17 @@ export async function POST(
     )
   }
 
+  // The configured app URL, never the request's Origin header. This route is
+  // public and unauthenticated, so the header is attacker-controlled — using it
+  // let anyone mint a Stripe checkout page that redirected the payer to a site
+  // of their choosing once the payment went through. The header is only
+  // consulted when nothing is configured, which is local development.
   const origin =
-    req.headers.get('origin') ??
     process.env.NEXT_PUBLIC_APP_URL ??
+    req.headers.get('origin') ??
     'http://localhost:3000'
 
-  const returnBase = `${origin}/invoice/${publicToken}`
+  const returnBase = `${origin.replace(/\/+$/, '')}/invoice/${publicToken}`
 
   // Map line items — each becomes a single quantity at its total amount (in cents)
   // so fractional quantities (e.g. "2.5 hrs") display cleanly on the Stripe page.
@@ -60,11 +66,28 @@ export async function POST(
     })
   }
 
+  // Prefills the email Checkout would otherwise ask for, so Stripe's automatic
+  // receipt reaches the person who was billed rather than whoever happened to
+  // be at the keyboard. Looked up here rather than added to the public payload:
+  // there is no reason to ship it to the browser.
+  const client = await prisma.client.findUnique({
+    where: { id: invoice.clientId },
+    select: { email: true },
+  })
+
+  // What the payment was for. Without it the charge, the Stripe dashboard row
+  // and the customer's receipt all read "Payment" — and a receipt that does not
+  // name the invoice is no use reconciling against one.
+  const description = `${invoice.invoiceNumberFormatted}${
+    invoice.projectTitle ? ` — ${invoice.projectTitle}` : ''
+  }`
+
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: lineItems,
       mode: 'payment',
+      ...(client?.email ? { customer_email: client.email } : {}),
       success_url: `${returnBase}?paid=1`,
       cancel_url: returnBase,
       metadata: {
@@ -73,9 +96,11 @@ export async function POST(
         publicToken,
       },
       payment_intent_data: {
+        description,
         metadata: {
           invoiceId: invoice.id,
           ownerId: invoice.ownerId,
+          invoiceNumber: invoice.invoiceNumberFormatted,
         },
       },
     })

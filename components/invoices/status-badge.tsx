@@ -18,6 +18,10 @@ const STATUS_LABELS: Record<InvoiceStatus, string> = {
 export function StatusBadge({ status }: { status: InvoiceStatus }) {
   return (
     <span
+      // Marks the chip for the print rule in globals.css: it carries its own
+      // colours rather than theme tokens, so a printed invoice would otherwise
+      // show a dark-mode chip on a white sheet.
+      data-invoice-status={status}
       className={cn(
         'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
         STATUS_STYLES[status],

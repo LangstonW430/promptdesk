@@ -16,6 +16,7 @@ export type SerializedInvoice = {
   publicToken: string
   clientId: string
   clientName: string
+  clientAddress: string | null
   projectId: string | null
   projectTitle: string | null
   lineItems: LineItem[]
@@ -24,7 +25,13 @@ export type SerializedInvoice = {
   dueDate: string
   subtotal: number
   tax: number | null
+  /** The percentage behind `tax`; null on invoices raised before it was stored. */
+  taxRate: number | null
   total: number
+  /** e.g. "Net 30", frozen at creation. */
+  paymentTerms: string | null
+  /** The client's PO or reference. */
+  purchaseOrder: string | null
   notes: string | null
   transactionId: string | null
   isArchived: boolean
@@ -32,7 +39,15 @@ export type SerializedInvoice = {
   updatedAt: string
 }
 
+/**
+ * Everything the "From" block needs. Only the public view carries it — the
+ * owner already knows who they are, and there is no reason to ship their own
+ * billing details to their own browser on every list render.
+ */
 export type SerializedInvoicePublic = SerializedInvoice & {
   ownerBusinessName: string | null
   ownerEmail: string
+  ownerAddress: string | null
+  ownerPhone: string | null
+  ownerTaxNumber: string | null
 }

@@ -23,7 +23,6 @@ import {
   clientFormDefaultValues,
   type ClientFormValues,
 } from '@/lib/clients/validators'
-import { CLIENT_STATUSES } from '@/lib/clients/types'
 import { createClientAction, updateClientAction } from '@/lib/actions/clients'
 
 // ── Option lists ───────────────────────────────────────────────────────────
@@ -57,15 +56,6 @@ const LEAD_SOURCE_OPTIONS = [
   'Other',
 ]
 
-const STATUS_LABELS: Record<string, string> = {
-  lead: 'Lead',
-  contacted: 'Contacted',
-  proposal_sent: 'Proposal sent',
-  negotiating: 'Negotiating',
-  won: 'Won',
-  lost: 'Lost',
-}
-
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type ClientForEdit = {
@@ -75,11 +65,10 @@ export type ClientForEdit = {
   email: string | null
   phone: string | null
   website: string | null
+  address: string | null
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  status: string
-  projectType: string | null
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -96,11 +85,10 @@ function toFormValues(client: ClientForEdit): ClientFormValues {
     email: client.email ?? '',
     phone: client.phone ?? '',
     website: client.website ?? '',
+    address: client.address ?? '',
     industry: client.industry ?? '',
     companySize: client.companySize ?? '',
     leadSource: client.leadSource ?? '',
-    status: (client.status as ClientFormValues['status']) ?? 'lead',
-    projectType: client.projectType ?? '',
     painPoints: client.painPoints ?? '',
     requirements: client.requirements ?? '',
     opportunityNotes: client.opportunityNotes ?? '',
@@ -121,11 +109,10 @@ function toActionPayload(values: ClientFormValues) {
     email: values.email || undefined,
     phone: values.phone || undefined,
     website: values.website || undefined,
+    address: values.address || undefined,
     industry: values.industry || undefined,
     companySize: values.companySize || undefined,
     leadSource: values.leadSource || undefined,
-    status: values.status,
-    projectType: values.projectType || undefined,
     painPoints: values.painPoints || undefined,
     requirements: values.requirements || undefined,
     opportunityNotes: values.opportunityNotes || undefined,
@@ -269,6 +256,30 @@ export function ClientForm({ client }: ClientFormProps) {
               )}
             />
 
+            {/* Billing address — full width */}
+            <FormField
+              control={form.control}
+              name="address"
+              render={({ field }) => (
+                <FormItem className="sm:col-span-2">
+                  <FormLabel>
+                    Billing address{' '}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      (appears on their invoices)
+                    </span>
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea
+                      rows={3}
+                      placeholder={'Accounts Payable\n500 Market St, Suite 400\nSan Francisco, CA 94105'}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
           </div>
         </div>
 
@@ -279,26 +290,9 @@ export function ClientForm({ client }: ClientFormProps) {
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
-            {/* Status */}
-            <FormField
-              control={form.control}
-              name="status"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Status</FormLabel>
-                  <FormControl>
-                    <Select {...field}>
-                      {CLIENT_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* No status field: a client's stage is read off their projects
+                (see lib/clients/stage.ts), so it is not something to type in
+                here and then forget to keep current. */}
 
             {/* Lead source */}
             <FormField
@@ -366,20 +360,8 @@ export function ClientForm({ client }: ClientFormProps) {
               )}
             />
 
-            {/* Project type — full width */}
-            <FormField
-              control={form.control}
-              name="projectType"
-              render={({ field }) => (
-                <FormItem className="sm:col-span-2">
-                  <FormLabel>Project type</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. Web application redesign" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* No project type field: what the work is belongs on the project,
+                where each piece of it has its own title and deliverables. */}
 
           </div>
         </div>

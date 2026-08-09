@@ -1,16 +1,22 @@
 // ─── Normalised domain shapes ─────────────────────────────────────────────────
 
-export type ClientStatus =
-  | 'lead'
-  | 'contacted'
-  | 'proposal_sent'
-  | 'negotiating'
-  | 'won'
-  | 'lost'
+// The engine speaks the same stage vocabulary as the rest of the app rather
+// than keeping a parallel one of its own — see lib/clients/stage.ts. That
+// module is pure (no I/O, no framework), so importing it here costs the engine
+// nothing and stops the two vocabularies drifting apart.
+export type { ClientStage } from '@/lib/clients/stage'
+import type { ClientStage } from '@/lib/clients/stage'
 
 export type NoteType = 'note' | 'call' | 'meeting' | 'email'
 
-export type ProjectStatus = 'active' | 'completed' | 'on_hold' | 'cancelled'
+// `proposed` was added to the app in 20260806100000 but never reached this
+// union, so the normaliser silently coerced quoted work to 'active'.
+export type ProjectStatus =
+  | 'proposed'
+  | 'active'
+  | 'completed'
+  | 'on_hold'
+  | 'cancelled'
 
 /** Canonical client shape used throughout the engine. Dates are human-readable strings. */
 export interface EngineClient {
@@ -23,10 +29,15 @@ export interface EngineClient {
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  status: ClientStatus
+  stage: ClientStage
   estimatedValue: number | null
   estimatedValueFormatted: string | null // "$2,500.00"
-  projectType: string | null
+  /**
+   * The client's own projects, compacted for the context block. Replaces a
+   * single free-text `projectType` on the client, which described one thing
+   * when a client can have several pieces of work at different stages.
+   */
+  projects: EngineClientProject[]
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null
@@ -38,6 +49,13 @@ export interface EngineClient {
   updatedAt: string
   /** Pre-computed rolling summary of notes + status history (~250–350 tokens). */
   relationshipSummary: string | null
+}
+
+/** One of a client's projects, as it appears inside their context block. */
+export interface EngineClientProject {
+  title: string
+  status: ProjectStatus
+  budgetFormatted: string | null // "$8,500.00"
 }
 
 /** Normalised note with a content hash for deduplication. */
@@ -84,10 +102,10 @@ export interface EngineActivity {
 /** Pipeline-level aggregates for global-scope prompts. */
 export interface PipelineAggregate {
   totalActive: number
-  statusCounts: Record<ClientStatus, number>
+  stageCounts: Record<ClientStage, number>
   weightedPipelineValue: number
   weightedPipelineValueFormatted: string // "$14,250.00"
-  staleClientCount: number               // no contact ≥30 days, not won/lost
+  staleClientCount: number               // no contact ≥30 days, still open
   overdueFollowUpCount: number           // nextFollowupDate < today
   currency: string                       // "USD"
 }
@@ -106,7 +124,7 @@ export interface ScoredItem {
   id: string
   type: ContextItemType
   score: number          // 0–1 composite
-  reason: string         // e.g. "high value + negotiating"
+  reason: string         // e.g. "high value + proposal out"
   fullContent: string    // verbatim block for the prompt
   summaryContent: string // one-line distillation
   estimatedTokens: number
@@ -144,7 +162,7 @@ export interface BudgetResult {
 export interface ScoringWeights {
   recency: number        // w1 — newer activity ranks higher
   dealValue: number      // w2 — higher estimatedValue ranks higher
-  stageUrgency: number   // w3 — negotiating/proposal > lead
+  stageUrgency: number   // w3 — active/proposal out > lead
   stalenessRisk: number  // w4 — overdue follow-ups get a boost
   relevance: number      // w5 — keyword match to the objective
 }
@@ -170,7 +188,7 @@ export type ScorableItem =
 export interface ScorableClient {
   kind: 'client'
   id: string
-  status: ClientStatus
+  stage: ClientStage
   estimatedValue: number | null
   lastContactDate: string | null  // ISO 8601 or null
   nextFollowupDate: string | null // ISO 8601 or null
@@ -182,7 +200,7 @@ export interface ScorableClient {
 export interface ScorableNote {
   kind: 'note'
   id: string
-  clientStatus?: ClientStatus
+  clientStage?: ClientStage
   clientEstimatedValue?: number | null
   occurredAt: string // ISO 8601
   searchText: string
@@ -191,7 +209,7 @@ export interface ScorableNote {
 export interface ScorableTask {
   kind: 'task'
   id: string
-  clientStatus?: ClientStatus
+  clientStage?: ClientStage
   clientEstimatedValue?: number | null
   dueDate: string | null // ISO 8601 or null
   isDone: boolean
@@ -201,7 +219,7 @@ export interface ScorableTask {
 export interface ScorableActivity {
   kind: 'activity'
   id: string
-  clientStatus?: ClientStatus
+  clientStage?: ClientStage
   clientEstimatedValue?: number | null
   occurredAt: string // ISO 8601
   searchText: string
@@ -238,9 +256,13 @@ export interface RawClient {
   industry: string | null
   companySize: string | null
   leadSource: string | null
-  status: string
+  stage: string
   estimatedValue: number | { toNumber(): number } | null // Prisma Decimal compat
-  projectType: string | null
+  projects?: Array<{
+    title: string
+    status: string
+    budget: number | { toNumber(): number } | null
+  }>
   painPoints: string | null
   requirements: string | null
   opportunityNotes: string | null

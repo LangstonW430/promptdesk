@@ -37,7 +37,7 @@ All clients whose scheduled follow-up date has already passed. For each: client 
 Clients whose follow-up window opens within the next 7 days, or who have not been contacted in 14–30 days and represent meaningful deal value. For each: client name, deal value, pipeline stage, recommended contact date, and a one-sentence suggested approach.
 
 ## At Risk: Going Cold
-Clients with no contact in 30+ days who are still active (not won or lost). For each: client name, deal value, days since last contact, and a re-engagement message suggestion.
+Clients with no contact in 30+ days whose relationship is still open (not a past client, not archived). For each: client name, deal value, days since last contact, and a re-engagement message suggestion.
 
 ## Suggested Outreach Messages
 Draft personalised outreach messages for the top 3 highest-priority contacts. For each message:

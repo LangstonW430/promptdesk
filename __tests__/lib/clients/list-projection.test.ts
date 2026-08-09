@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const clientFindMany = vi.fn()
 const projectGroupBy = vi.fn()
+const queryRaw = vi.fn()
 
 vi.mock('@/lib/db/client', () => ({
   prisma: {
@@ -14,6 +15,9 @@ vi.mock('@/lib/db/client', () => ({
       get groupBy() {
         return projectGroupBy
       },
+    },
+    get $queryRaw() {
+      return queryRaw
     },
   },
 }))
@@ -34,10 +38,12 @@ const TABLE_COLUMNS = [
   'contactName',
   'email',
   'industry',
-  'status',
   'lastContactDate',
   'nextFollowupDate',
 ]
+
+// The stage is not among them: it is derived from projects and notes, so there
+// is no column to select — see lib/clients/stage.ts.
 
 // Long free-text columns. These are the reason the list query is projected:
 // they are unbounded in length and no list view displays them.
@@ -58,6 +64,8 @@ describe('listClientsForTable projection', () => {
     projectGroupBy.mockReset()
     clientFindMany.mockResolvedValue([])
     projectGroupBy.mockResolvedValue([])
+    queryRaw.mockReset()
+    queryRaw.mockResolvedValue([])
   })
 
   it('projects columns explicitly instead of selecting whole rows', async () => {
@@ -94,12 +102,28 @@ describe('listClientsForTable projection', () => {
   })
 
   it('still applies the owner scope and filters', async () => {
-    await listClientsForTable(OWNER, { status: 'won' })
+    await listClientsForTable(OWNER, { q: 'acme' })
 
     const where = clientFindMany.mock.calls[0][0].where
-    expect(where.AND).toEqual(
-      expect.arrayContaining([{ ownerId: OWNER }, { status: 'won' }]),
-    )
+    expect(where.AND).toEqual(expect.arrayContaining([{ ownerId: OWNER }]))
+  })
+
+  it('filters by stage after deriving it, never in the query', async () => {
+    clientFindMany.mockResolvedValue([{ id: 'c1' }, { id: 'c2' }])
+    queryRaw.mockResolvedValue([
+      { id: 'c1', is_archived: false, has_active: true, has_proposed: false, has_completed: false, contacted: true },
+      { id: 'c2', is_archived: false, has_active: false, has_proposed: false, has_completed: false, contacted: false },
+    ])
+
+    const rows = await listClientsForTable(OWNER, { stage: 'active' })
+
+    const where = clientFindMany.mock.calls[0][0].where
+    const conditions = where.AND as unknown[]
+    expect(
+      conditions.some((c) => typeof c === 'object' && c !== null && 'stage' in (c as object)),
+    ).toBe(false)
+
+    expect(rows.map((r) => r.id)).toEqual(['c1'])
   })
 
   it('attaches pipeline value summed from each client\'s open projects', async () => {
@@ -111,8 +135,8 @@ describe('listClientsForTable projection', () => {
     // c2 has no open projects, so it reports null rather than 0 — "nobody has
     // quoted them" is not the same claim as "they are worth nothing".
     expect(rows).toEqual([
-      { id: 'c1', pipelineValue: 9000 },
-      { id: 'c2', pipelineValue: null },
+      { id: 'c1', pipelineValue: 9000, stage: 'lead' },
+      { id: 'c2', pipelineValue: null, stage: 'lead' },
     ])
   })
 

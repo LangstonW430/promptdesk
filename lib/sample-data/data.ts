@@ -38,7 +38,8 @@ export interface SampleClientDef {
   contactName:              string
   email:                    string
   industry:                 string
-  status:                   string
+  // No status: a sample client's stage falls out of the projects and notes
+  // below, the same way a real one's does (lib/clients/stage.ts).
   lastContactDaysAgo:       number
   nextFollowupDaysFromNow:  number
   painPoints:               string
@@ -54,7 +55,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     contactName: 'Dana Hartwell',
     email: 'dana@hartwelldigital.com',
     industry: 'Digital Marketing',
-    status: 'won',
     lastContactDaysAgo: 2,
     nextFollowupDaysFromNow: 14,
     painPoints: 'Needed a complete rebrand and SEO overhaul to compete in a crowded market.',
@@ -130,13 +130,12 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     ],
   },
 
-  // ── Active pipeline clients (no projects yet) ────────────────────────────────
+  // ── Open pipeline ───────────────────────────────────────────────────────────
   {
     companyName: 'Meridian Creative Studio',
     contactName: 'Priya Nair',
     email: 'priya@meridiancreative.com',
     industry: 'Design & Branding',
-    status: 'contacted',
     lastContactDaysAgo: 12,
     nextFollowupDaysFromNow: -3,
     painPoints: 'Needs a new brand identity and website overhaul before a product launch.',
@@ -178,7 +177,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     contactName: 'James Callahan',
     email: 'j.callahan@peakspartners.com',
     industry: 'Management Consulting',
-    status: 'proposal_sent',
     lastContactDaysAgo: 5,
     nextFollowupDaysFromNow: 7,
     painPoints: 'Looking for an operations consultant to streamline onboarding and reduce churn.',
@@ -218,7 +216,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     contactName: 'Sofia Mendez',
     email: 'sofia@brightleafmktg.com',
     industry: 'Digital Marketing',
-    status: 'negotiating',
     lastContactDaysAgo: 35,
     nextFollowupDaysFromNow: -5,
     painPoints: 'Wants help setting up an email nurture sequence and lead scoring in HubSpot.',
@@ -253,7 +250,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     contactName: 'Marcus Tomlin',
     email: 'marcus@tomlinreyes.com',
     industry: 'Architecture & Real Estate',
-    status: 'lead',
     lastContactDaysAgo: 3,
     nextFollowupDaysFromNow: 2,
     painPoints: 'Growing firm needs a custom project management portal and client-facing dashboard.',
@@ -290,7 +286,6 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
     contactName: 'Lena Park',
     email: 'lena@sunriverspa.com',
     industry: 'Wellness & Hospitality',
-    status: 'contacted',
     lastContactDaysAgo: 40,
     nextFollowupDaysFromNow: -10,
     painPoints: 'Small spa group wants a booking and membership site, simple and affordable.',
@@ -302,20 +297,10 @@ export const SAMPLE_CLIENTS: SampleClientDef[] = [
         daysAgo: 40,
       },
     ],
-    projects: [
-      {
-        title:        'Booking flow redesign',
-        status:       'proposed',
-        startDaysAgo: 0,
-        endDaysAgo:   null,
-        budget:       3200,
-        deliverables: [
-          'Booking UX audit',
-          'Checkout redesign',
-        ],
-        timeEntries:  [],
-        tasks:        [],
-      },
-    ],
+    // No project: a ballpark figure over email is not a quote. Lena has been
+    // spoken to and nothing has been put in front of her, which is what
+    // "Contacted" means — and it keeps the sample pipeline from being six
+    // clients all sitting in the same column.
+    projects: [],
   },
 ]

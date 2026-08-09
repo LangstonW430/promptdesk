@@ -24,7 +24,7 @@ const {
   PIPELINE_PROJECT_STATUSES,
   pipelineValueByClient,
   pipelineValueForClient,
-  pipelineValueByClientStatus,
+  pipelineValueByStage,
 } = await import('@/lib/clients/pipeline-value')
 
 const OWNER = 'owner-abc-123'
@@ -115,27 +115,67 @@ describe('pipelineValueForClient', () => {
   })
 })
 
-describe('pipelineValueByClientStatus', () => {
+describe('pipelineValueByStage', () => {
   beforeEach(() => {
     queryRaw.mockReset()
     queryRaw.mockResolvedValue([])
+    projectGroupBy.mockReset()
+    projectGroupBy.mockResolvedValue([])
   })
 
-  it('keys the totals by client status', async () => {
+  const stageRow = (
+    id: string,
+    over: Partial<{
+      is_archived: boolean
+      has_active: boolean
+      has_proposed: boolean
+      has_completed: boolean
+      contacted: boolean
+    }> = {},
+  ) => ({
+    id,
+    is_archived: false,
+    has_active: false,
+    has_proposed: false,
+    has_completed: false,
+    contacted: false,
+    ...over,
+  })
+
+  it('keys the totals by the derived stage, not by a stored column', async () => {
+    projectGroupBy.mockResolvedValue([
+      { clientId: 'c1', _sum: { budget: 5_000 } },
+      { clientId: 'c2', _sum: { budget: 22_000 } },
+    ])
     queryRaw.mockResolvedValue([
-      { status: 'lead', total: 5_000 },
-      { status: 'negotiating', total: 22_000 },
+      stageRow('c1'),
+      stageRow('c2', { has_proposed: true, contacted: true }),
     ])
 
-    const map = await pipelineValueByClientStatus(OWNER)
+    const map = await pipelineValueByStage(OWNER)
     expect(map.get('lead')).toBe(5_000)
-    expect(map.get('negotiating')).toBe(22_000)
+    expect(map.get('proposal_out')).toBe(22_000)
   })
 
-  it('treats a null total as zero', async () => {
-    queryRaw.mockResolvedValue([{ status: 'lead', total: null }])
+  it('adds up clients that land on the same stage', async () => {
+    projectGroupBy.mockResolvedValue([
+      { clientId: 'c1', _sum: { budget: 5_000 } },
+      { clientId: 'c2', _sum: { budget: 1_500 } },
+    ])
+    queryRaw.mockResolvedValue([
+      stageRow('c1', { has_proposed: true }),
+      stageRow('c2', { has_proposed: true }),
+    ])
 
-    const map = await pipelineValueByClientStatus(OWNER)
-    expect(map.get('lead')).toBe(0)
+    const map = await pipelineValueByStage(OWNER)
+    expect(map.get('proposal_out')).toBe(6_500)
+  })
+
+  it('reports nothing for a client whose stage could not be derived', async () => {
+    projectGroupBy.mockResolvedValue([{ clientId: 'ghost', _sum: { budget: 900 } }])
+    queryRaw.mockResolvedValue([])
+
+    const map = await pipelineValueByStage(OWNER)
+    expect(map.size).toBe(0)
   })
 })

@@ -6,7 +6,7 @@ export async function Topbar() {
   const user = await getCurrentUser()
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 print:hidden">
       <MobileNav />
       <div className="flex flex-1 items-center justify-end gap-2">
         {/* Theme and sign-out used to sit loose beside the avatar. They live in

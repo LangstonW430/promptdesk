@@ -1,16 +1,12 @@
-export const CLIENT_STATUSES = [
-  'lead',
-  'contacted',
-  'proposal_sent',
-  'negotiating',
-  'won',
-  'lost',
-] as const
+import type { ClientStage } from './stage'
 
-export type ClientStatus = (typeof CLIENT_STATUSES)[number]
-
+/**
+ * Client status was removed: a stage is derived from the client's projects and
+ * contact history instead. See lib/clients/stage.ts for why.
+ */
 export interface ClientFilters {
-  status?: ClientStatus
+  /** Filter to a derived stage. */
+  stage?: ClientStage
   /** Case-insensitive substring match on company name, contact name, or email */
   q?: string
   /** Filter by tag label (case-insensitive) */

@@ -16,8 +16,6 @@ const CLIENT_FIELDS: Array<{ value: string; label: string }> = [
   { value: 'industry',         label: 'Industry' },
   { value: 'companySize',      label: 'Company size' },
   { value: 'leadSource',       label: 'Lead source' },
-  { value: 'status',           label: 'Status' },
-  { value: 'projectType',      label: 'Project type' },
   { value: 'lastContactDate',  label: 'Last contact date' },
   { value: 'nextFollowupDate', label: 'Next follow-up date' },
 ]
@@ -34,8 +32,6 @@ const FIELD_ALIASES: Record<string, string> = {
   'industry': 'industry', 'sector': 'industry',
   'company size': 'companySize', 'company_size': 'companySize', 'size': 'companySize', 'employees': 'companySize',
   'lead source': 'leadSource', 'lead_source': 'leadSource', 'source': 'leadSource', 'how found': 'leadSource',
-  'status': 'status', 'stage': 'status', 'pipeline stage': 'status',
-  'project type': 'projectType', 'project_type': 'projectType', 'project': 'projectType', 'type': 'projectType',
   'last contact': 'lastContactDate', 'last contact date': 'lastContactDate', 'last_contact': 'lastContactDate',
   'last contacted': 'lastContactDate',
   'next followup': 'nextFollowupDate', 'next follow-up': 'nextFollowupDate', 'next follow up': 'nextFollowupDate',
@@ -45,8 +41,10 @@ const FIELD_ALIASES: Record<string, string> = {
 
 const TEMPLATE_HEADERS = CLIENT_FIELDS.map((f) => f.label)
 const TEMPLATE_EXAMPLE = [
+  // One value per CLIENT_FIELDS entry, in the same order — the downloaded
+  // template puts these straight under TEMPLATE_HEADERS.
   'Acme Corp', 'Jane Smith', 'jane@acme.com', '+1 555 0100', 'https://acme.com',
-  'Technology', '11–50', 'Referral', 'lead', '5000', 'Web redesign', '2024-01-15', '2024-02-15',
+  'Technology', '11–50', 'Referral', '2024-01-15', '2024-02-15',
 ]
 
 // ── Helpers ────────────────────────────────────────────────────────────────

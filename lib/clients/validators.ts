@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CLIENT_STATUSES } from './types'
+import { CLIENT_STAGES } from './stage'
 
 export const createClientSchema = z.object({
   companyName: z.string().optional(),
@@ -7,11 +7,10 @@ export const createClientSchema = z.object({
   email: z.string().optional(),
   phone: z.string().optional(),
   website: z.string().optional(),
+  address: z.string().optional(),
   industry: z.string().optional(),
   companySize: z.string().optional(),
   leadSource: z.string().optional(),
-  status: z.enum(CLIENT_STATUSES).default('lead'),
-  projectType: z.string().optional(),
   painPoints: z.string().optional(),
   requirements: z.string().optional(),
   opportunityNotes: z.string().optional(),
@@ -23,13 +22,12 @@ export const createClientSchema = z.object({
 export const updateClientSchema = createClientSchema
   .partial()
   .extend({
-    status: z.enum(CLIENT_STATUSES).optional(),
     lastContactDate: z.union([z.string().date(), z.literal('')]).optional(),
     nextFollowupDate: z.union([z.string().date(), z.literal('')]).optional(),
   })
 
 export const listClientSchema = z.object({
-  status: z.enum(CLIENT_STATUSES).optional(),
+  stage: z.enum(CLIENT_STAGES).optional(),
   q: z.string().optional(),
   tag: z.string().optional(),
   stale: z.coerce.number().int().positive().optional(),
@@ -52,11 +50,10 @@ export const clientFormSchema = z.object({
   email: z.string(),
   phone: z.string(),
   website: z.string(),
+  address: z.string(),
   industry: z.string(),
   companySize: z.string(),
   leadSource: z.string(),
-  status: z.enum(CLIENT_STATUSES),
-  projectType: z.string(),
   painPoints: z.string(),
   requirements: z.string(),
   opportunityNotes: z.string(),
@@ -72,11 +69,10 @@ export const clientFormDefaultValues: ClientFormValues = {
   email: '',
   phone: '',
   website: '',
+  address: '',
   industry: '',
   companySize: '',
   leadSource: '',
-  status: 'lead',
-  projectType: '',
   painPoints: '',
   requirements: '',
   opportunityNotes: '',

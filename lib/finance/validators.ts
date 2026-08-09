@@ -14,6 +14,7 @@ export const createTransactionSchema = z.object({
   category: z.string().refine(validCategory, { message: 'Invalid category' }),
   occurredAt: z.string().date(),
   clientId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
   isRecurring: z.boolean().default(false),
   frequency: z.enum(FREQUENCIES).optional(),
   recurrenceEndedAt: z.string().date().nullable().optional(),
@@ -32,6 +33,7 @@ export const updateTransactionSchema = z.object({
     .optional(),
   occurredAt: z.string().date().optional(),
   clientId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
   isRecurring: z.boolean().optional(),
   frequency: z.enum(FREQUENCIES).nullable().optional(),
   recurrenceEndedAt: z.string().date().nullable().optional(),
@@ -49,6 +51,7 @@ export const transactionFormSchema = z.object({
   category: z.string().min(1, 'Category is required'),
   occurredAt: z.string().min(1, 'Date is required'),
   clientId: z.string(),  // '' means no client
+  projectId: z.string(), // '' means no project — overheads have none
   isRecurring: z.boolean(),
   frequency: z.string(),  // '' | 'monthly' | 'quarterly' | 'annual'
   recurrenceEndedAt: z.string(),  // '' | YYYY-MM-DD
@@ -65,6 +68,7 @@ export const transactionFormDefaultValues: TransactionFormValues = {
   category: '',
   occurredAt: '',
   clientId: '',
+  projectId: '',
   isRecurring: false,
   frequency: 'monthly',
   recurrenceEndedAt: '',
