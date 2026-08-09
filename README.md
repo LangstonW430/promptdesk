@@ -26,11 +26,15 @@ An AI-assisted CRM for solo freelancers and small service businesses. PromptDesk
 
 PromptDesk is a single-tenant CRM where each user account holds its own isolated workspace. Users can:
 
-- **Manage clients** through a full pipeline (lead → contacted → proposal sent → negotiating → won/lost), with estimated deal values, contact dates, notes, tasks, file attachments, and tags.
+- **Manage clients** through a pipeline whose stage is *derived from their projects* rather than set by hand (lead → contacted → proposal out → active → past, with archived reading as lost). Clients carry contact dates, notes, tasks, file attachments, tags and a billing address.
 - **Track activity** — every status change, note, and follow-up is logged in an activity feed.
 - **Get daily action queues** — overdue follow-ups, hot leads by value, and clients going cold (no contact in 30+ days).
 - **Generate AI prompts** — the core feature. The app assembles structured context from CRM data and renders it into a ready-to-paste prompt using a library of built-in templates (business advisor, revenue analysis, client insight, follow-up recommendations, etc.). The user copies the prompt and pastes it into any AI tool. No LLM calls are made by this app.
 - **Manage prompt templates** — users can customize built-in templates or create their own with `{{placeholder}}` syntax.
+- **Run projects** — the work itself, with budgets, hourly rates, deliverable checklists, and a per-project profit-and-loss showing what came in against what was quoted.
+- **Track time** — a weekly timesheet and a running timer, per project, with billable/non-billable split. Unbilled entries turn straight into an invoice.
+- **Invoice clients** — a proper document with both parties' addresses, tax number, payment terms and itemisation, on a public link the client opens and pays by card through Stripe Checkout.
+- **See the money** — income and expenses over a selectable period, with recurring charges projected forward, Stripe transactions synced in, and category and per-client breakdowns.
 
 ---
 
@@ -131,10 +135,42 @@ Three-tab layout:
 - **Templates** — browse and edit built-in and custom templates
 
 #### `/daily-actions`
-Three action queues displayed as vertical lists, each up to 20 items: overdue follow-ups (sorted oldest first), hot leads (sorted by estimated value), and going cold (no contact in 30+ days, sorted most stale first). Each row links to the client and has a quick-action sheet.
+Three action queues displayed as vertical lists, each up to 20 items: overdue follow-ups (sorted oldest first), hot leads (sorted by pipeline value, summed from their open projects), and going cold (no contact in 30+ days and still at an open stage, most stale first). Each row links to the client and has a quick-action sheet.
+
+#### `/projects`
+Every piece of work, grouped by status (proposed, active, on hold, completed, cancelled) with inline status switching. A project carries a budget, an hourly rate, dated start/end, and a deliverables checklist.
+
+#### `/projects/[id]`
+One project: money (received, spent, net, margin, and how much of the budget has been collected), attached files, deliverables, logged time with a built-in timer, and tasks.
+
+#### `/projects/new`, `/projects/[id]/edit`
+Create and edit forms.
+
+#### `/time`
+Weekly timesheet across every project, with billable/non-billable split and per-entry rates. Unbilled billable entries can be selected and turned straight into an invoice.
+
+#### `/invoices`
+Invoice list with status filtering. `overdue` is derived at read time from the due date rather than stored.
+
+#### `/invoices/[id]`
+The invoice document alongside its actions: mark sent, mark paid, copy the client link, print, archive, delete. Warns when billing details a client would expect are missing. Also generates a cover-email prompt.
+
+#### `/invoices/new`
+Create an invoice by hand, or pre-populated from selected time entries.
+
+#### `/finance`
+Income and expenses over a selectable period. Stat cards, a trend chart with a cumulative toggle, category and per-client breakdowns, and a transaction table. Recurring charges are entered once and projected across the periods they apply to.
 
 #### `/settings`
-User profile (name, business name/type, preferred AI tool), prompt token budget, tag manager, and CSV bulk import.
+User profile (name, business name/type, preferred AI tool), billing details printed on invoices (address, phone, tax number, default payment terms), Stripe connection, prompt token budget, tag manager, and CSV bulk import.
+
+### Public, unauthenticated
+
+| Route | Description |
+|-------|-------------|
+| `/invoice/[publicToken]` | The invoice a client opens. Unguessable 24-byte token, `noindex`, 404s for drafts. Offers card payment via Stripe Checkout when the invoice has been sent. |
+| `POST /api/invoice/[publicToken]/checkout` | Creates the Stripe Checkout session. |
+| `POST /api/webhooks/stripe` | Signature-verified Stripe events — charges, refunds, customers, completed checkouts. |
 
 ---
 
@@ -167,9 +203,9 @@ The core CRM record.
 | contactName | String? | |
 | email, phone, website | String? | |
 | industry, companySize, leadSource | String? | |
-| status | String | `lead \| contacted \| proposal_sent \| negotiating \| won \| lost` |
-| estimatedValue | Decimal(12,2)? | |
-| projectType, painPoints, requirements, opportunityNotes | String? | |
+| address | String? | Billing address, printed on their invoices |
+| painPoints, requirements, opportunityNotes | String? | |
+| status, estimatedValue, projectType, defaultRate | — | **Retained but unread.** See [Superseded columns](#superseded-columns). |
 | lastContactDate | DateTime? | Indexed. Updated automatically when notes are added. |
 | nextFollowupDate | DateTime? | Indexed. Used by daily actions. |
 | customFields | JSON | Extensible key-value pairs |
@@ -180,7 +216,25 @@ The core CRM record.
 | searchVector | tsvector | GIN-indexed full-text search |
 | createdAt, updatedAt | DateTime | |
 
-Indexes: `(ownerId, status)`, `(ownerId, nextFollowupDate)`, `customFields` GIN, `searchVector` GIN.
+Indexes: `(ownerId, nextFollowupDate)`, `(ownerId, isArchived, updatedAt DESC)`, `customFields` GIN, `searchVector` GIN.
+
+#### Superseded columns
+
+Four columns are still on the table and read by nothing: `status`,
+`estimatedValue`, `projectType` and `defaultRate`. Each was replaced by
+something derived from the client's projects, and each is retained deliberately
+rather than dropped:
+
+| Column | Replaced by | Why it is still here |
+|--------|-------------|----------------------|
+| `status` | Derived stage — `lib/clients/stage.ts` | The only record of what each client had been set to. The derived stage reads differently for anyone whose status was never reflected in their projects. |
+| `estimatedValue` | `projects.budget` | The backfill skipped clients that already had projects, to avoid double-counting; their old figure survives only here. |
+| `projectType` | `projects.title` / `deliverables` | Free text with no structured equivalent to migrate into. |
+| `defaultRate` | `projects.rate` | No screen ever wrote it, so any value present was set directly against the database. `createProject` still reads it as the starting rate for a client's first project. |
+
+This is a deliberate two-phase migration: stop reading, verify the derived
+figures against real data, then drop in a later migration. Each column carries
+the same note in `schema.prisma` and in the migration that retired it.
 
 ### Note
 Dated journal entries on a client.
@@ -282,6 +336,62 @@ History of every prompt the user has generated.
 
 Index: `(ownerId, createdAt DESC)`.
 
+### Project
+A piece of work for a client. The client's pipeline stage is derived from these.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | PK |
+| ownerId, clientId | UUID | FKs |
+| title | String | |
+| status | String | `proposed \| active \| completed \| on_hold \| cancelled` |
+| budget | Decimal(12,2)? | What the work was quoted at. Open budgets sum to the client's pipeline value. |
+| rate | Decimal(10,2)? | Hourly rate for this engagement; seeds new time entries |
+| startDate, endDate | Date? | |
+| deliverables | JSON | String array, checkable on the project page |
+| isArchived | Boolean | Visibility only — a separate axis from `status` |
+
+`proposed` exists so an opportunity can carry a number before there is anything to deliver.
+
+### TimeEntry
+| Column | Type | Notes |
+|--------|------|-------|
+| ownerId, projectId | UUID | FKs. Time belongs to a project, never to a client directly. |
+| date, hours, rate | | |
+| isBillable | Boolean | |
+| invoiceId | UUID? | Set when the entry is billed; re-asserted null on claim so two invoices cannot take the same entry |
+
+### Invoice
+| Column | Type | Notes |
+|--------|------|-------|
+| ownerId, clientId | UUID | FKs |
+| projectId | UUID? | Which work was billed |
+| invoiceNumber | Int | Sequential per owner, unique with it. Rendered `INV-0042`. |
+| publicToken | String | 24 random bytes; the client's link |
+| lineItems | JSON | Description, quantity, unit price, amount |
+| status | Enum | `draft \| sent \| paid \| overdue` — `overdue` is *derived at read time*, never written |
+| issueDate, dueDate | Date | |
+| subtotal, tax, taxRate, total | Decimal | The rate is stored alongside the amount so the document can say "Tax (8.5%)" |
+| paymentTerms | String? | e.g. "Net 30", copied from the user's default and frozen at creation |
+| purchaseOrder | String? | The client's reference |
+| transactionId | UUID? | The income row created when it was paid |
+
+### Transaction
+Income and expenses, whether entered by hand or synced from Stripe.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| ownerId | UUID | FK |
+| type, amount, currency, category | | `income \| expense`; amount always positive, `type` carries the sign |
+| occurredAt | DateTime | |
+| clientId, projectId | UUID? | Both `SET NULL` on delete — removing a project must not delete the record of money |
+| source | String | `manual \| stripe` |
+| externalId, externalType | String? | Unique with `(ownerId, source)`. Charges key on their **payment intent** so a card payment cannot be counted twice. |
+| isRecurring, frequency, recurrenceEndedAt | | A standing charge is entered once and projected forward, not re-entered monthly |
+
+### StripeSyncState
+One row per owner: sync status, last backfill, last event, last error.
+
 ---
 
 ## 6. Library Modules
@@ -328,8 +438,8 @@ Standard CRUD: `createTask`, `listTasks`, `updateTask`, `deleteTask`. Tasks can 
 
 ### `lib/daily-actions/`
 - `getOverdueFollowUps(ownerId)` — `nextFollowupDate < today`, oldest first
-- `getHotLeads(ownerId)` — lead/contacted status with `estimatedValue > 0`, sorted by value descending
-- `getGoingCold(ownerId)` — no contact in 30+ days (non-won/lost), most stale first
+- `getHotLeads(ownerId)` — clients with a pipeline value above zero, summed from their open projects, sorted by value descending
+- `getGoingCold(ownerId)` — no contact in 30+ days and still at an open stage (lead, contacted or proposal out), most stale first
 - `getRecommendedActions(ownerId)` — runs all three queries in `Promise.all`, deduplicates by clientId, returns up to 5 items
 
 ### `lib/users/`
@@ -345,6 +455,28 @@ Standard CRUD: `createTask`, `listTasks`, `updateTask`, `deleteTask`. Tasks can 
 - `loadSampleData(ownerId)` — creates a set of realistic seed clients, notes, tags, and tasks in a transaction. Marks rows with `isSampleData = true`.
 - `clearSampleData(ownerId)` — deletes all rows where `isSampleData = true`
 - `hasSampleData(ownerId)` → boolean
+
+### `lib/projects/`
+- `index.ts` — CRUD, plus `listProjects` with per-project time totals aggregated in SQL
+- `financials.ts` — what a project earned against its budget. Margin is net over *income*, not over budget: a budget is a quote, and dividing by it would report a margin on money nobody has paid.
+
+### `lib/time-entries/`
+Weekly timesheets, billable filtering, and the week-boundary helpers.
+
+### `lib/invoices/`
+- `index.ts` — creation (by hand or from time entries), status transitions, payment
+- `serialize.ts` — including the read-time `overdue` derivation
+- Creating from time entries claims those entries inside one transaction, re-asserting `invoiceId: null`, so two concurrent requests cannot bill the same work twice.
+
+### `lib/finance/`
+- `calc.ts` — pure period maths: period boundaries, recurring-charge expansion, category grouping. `occurrenceDates` is the single definition of when a standing charge applies, so the chart, the totals and the table cannot disagree.
+- `series.ts` — chart buckets that follow the period selector
+- `stripe-mapper.ts` — pure Stripe-object → transaction mapping
+- `stripe-sync.ts` — all Stripe I/O: backfill and webhook handling
+- `stripe-key.ts` — per-user AES-256-GCM key storage
+
+### `lib/db/ownership.ts`
+`ownsClient` / `ownsProject`. Foreign keys arriving in a request body are exactly as untrusted as an owner id, and every create that accepts one checks it first.
 
 ### `lib/prompts/`
 Entry point for prompt generation (orchestrates retrieval + pure pipeline):
@@ -399,7 +531,7 @@ score = w_recency   * recency
 |--------|-------------|
 | **recency** | Exponential decay with 30-day half-life. 1.0 at 0 days, ~0.5 at 21 days, ~0 at 90+ days. |
 | **dealValue** | Normalized by max value in the dataset. |
-| **stageUrgency** | `negotiating=1.0`, `proposal_sent=0.75`, `contacted=0.5`, `lead=0.25`, `won/lost=0.0` |
+| **stageUrgency** | `proposal_out=1.0`, `active=0.75`, `contacted=0.5`, `lead=0.25`, `past/lost=0.0` — a quote awaiting an answer is the most time-sensitive thing in the pipeline |
 | **stalenessRisk** | `1.0` if overdue follow-up. `0.8` if 30+ days no contact. Linear decay below 30 days. |
 | **objectiveMatch** | Jaccard similarity between the user's objective and the item's text (lowercase alpha tokens, stop words removed). |
 | **clientUrgency** | Inherits the stageUrgency of the item's parent client. |
@@ -417,7 +549,7 @@ Attaches rendering layers to each scored item:
 #### Stage 6 — Pipeline Aggregate (`context-builder.ts`)
 For global-scope prompts only. Computes a `PipelineAggregate`:
 - `statusCounts` by stage
-- `weightedPipelineValue` (sum of `estimatedValue × stage probability`: lead=0.10, contacted=0.25, proposal_sent=0.50, negotiating=0.75, won=1.0)
+- `weightedPipelineValue` (sum of open project budgets × stage probability: lead=0.10, contacted=0.25, proposal_out=0.50, active=1.0, past/lost=0.0 — shared with the dashboard via `STAGE_PROBABILITY` so the two cannot disagree)
 - `staleClientCount` (no contact in 30+ days)
 - `overdueFollowUpCount`
 
@@ -439,11 +571,11 @@ Assembles the included items and omitted summary into a markdown-formatted `{{co
 ```
 ## Your CRM Context
 
-**Client:** Acme Corp | Stage: negotiating | Value: $12,000
+**Client:** Acme Corp | Stage: Proposal out | Value: $12,000
   Recent note (Jun 1): Had a great call about final contract terms.
   Open task: Send revised SOW (due Jun 10)
 
-**Client:** Bright Agency | Stage: proposal_sent | Value: $5,000
+**Client:** Bright Agency | Stage: Active client | Value: $5,000
   ...
 
 3 older notes omitted.
@@ -603,26 +735,44 @@ Supabase RLS is enabled with a deny-all default policy. Application-level `owner
 
 ## 11. Testing
 
-Tests use **Vitest** and live in `__tests__/` subdirectories next to the code they cover.
+Tests use **Vitest**, and live either in `__tests__/` beside the code they cover
+or under the top-level `__tests__/` directory. 29 files, ~4,600 lines.
 
-```
-lib/
-├── prompt-engine/__tests__/
-│   ├── scorer.test.ts       # Scoring formula: recency, urgency, objective match
-│   └── renderer.test.ts     # Template placeholder substitution, token estimation
-├── prompts/__tests__/
-│   └── pipeline.test.ts     # Full end-to-end buildPrompt() integration test
-└── relationship-summary/__tests__/
-    └── summarizer.test.ts   # Summary generation, key fact extraction, dedup
-```
+They concentrate on business logic rather than rendering: the prompt engine, the
+finance and period maths, the derived client stage, project profitability, and
+the ownership rules that keep one account's data out of another's. Database
+access is mocked at the Prisma boundary, so a test asserts the *query* that was
+built as often as the value returned — `buildClientWhere`, for instance, has a
+test asserting that a stage condition never reaches SQL, because a stage is a
+rule over projects rather than a column.
 
-**`scorer.test.ts`** — Verifies each scoring component (recency decay at 0/21/90 days, stage urgency mappings, Jaccard objective match, staleness risk). Confirms composite scores are sorted correctly.
+Two things are deliberately verified outside the suite, because a unit test
+cannot see them:
 
-**`renderer.test.ts`** — Verifies `{{placeholder}}` substitution, tracks `missingPlaceholders`, and confirms `estimateTokens` returns `Math.ceil(chars / 4)`.
+- **Raw SQL and migrations** are run against [PGlite](https://pglite.dev) with
+  fixtures covering each branch, then re-run with the logic broken to confirm
+  the check actually fails.
+- **Rendering** is checked by bundling the real component and driving headless
+  Chromium — including printing a dark-theme invoice to PDF and reading the
+  colour operators back out of the content stream, to prove the sheet comes out
+  black-on-white.
 
-**`pipeline.test.ts`** — Full pipeline integration test with a fixture dataset of 3 clients, several notes, tasks, and activities. Verifies the output text contains expected content, contextMeta is well-formed, and deduplication counts are accurate.
+### A few worth pointing at
 
-**`summarizer.test.ts`** — Tests the pure relationship summary builder: zero-note clients, status path truncation, keyword-triggered fact extraction, Jaccard dedup of near-duplicate facts, recency windowing.
+| File | What it pins down |
+|------|-------------------|
+| `lib/prompt-engine/__tests__/scorer.test.ts` | Each scoring component — recency decay at 0/21/90 days, stage urgency, Jaccard objective match, staleness — and that composites sort correctly |
+| `lib/prompts/__tests__/pipeline.test.ts` | The whole prompt pipeline over a fixture of three clients with notes, tasks and activities, down to the rendered context block |
+| `lib/finance/__tests__/future-dated.test.ts` | That the horizon stopping recurring charges being projected forward does not also hide a one-off dated next month |
+| `__tests__/lib/clients/stage.test.ts` | Every branch of the derived client stage, the precedence between them, and that each stage is reachable |
+| `__tests__/lib/db/ownership.test.ts` | That a foreign key from a request body is checked against the session owner before it is written |
+| `__tests__/lib/invoices/derive-status.test.ts` | That an invoice due today is not yet overdue — a due date is a whole day, not an instant |
+
+### Known gap
+
+There are **no end-to-end tests**. Nothing exercises a real HTTP request against
+a real database, so route handlers, server actions and Supabase auth are covered
+only indirectly. This is the most significant hole in the suite.
 
 Run all tests:
 ```bash

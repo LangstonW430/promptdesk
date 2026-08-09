@@ -4,6 +4,13 @@
 
 _A lightweight business command center for freelancers, consultants, and small service businesses. AI-powered through intelligent prompt generation — no AI API required._
 
+> **Historical document.** This is the specification the project was built
+> against, kept as a record of the original design. The code has moved on in
+> places — most visibly, clients no longer carry a `status` column (their stage
+> is derived from their projects) and no `estimated_value` (value comes from
+> project budgets). For what the app does *now*, see the
+> [README](../README.md).
+
 ---
 
 ## 0. Design Philosophy
