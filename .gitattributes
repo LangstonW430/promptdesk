@@ -1,0 +1,11 @@
+# Migration files must be byte-identical everywhere.
+#
+# Prisma records a SHA-256 of each migration.sql in _prisma_migrations and
+# re-checks it on every `migrate deploy`. A Windows checkout without this rule
+# gets CRLF, Vercel gets LF, and the two produce different checksums for the
+# same file — so a migration applied from one would be reported as "modified
+# after it was applied" by the other, and the deploy fails.
+#
+# vercel.json runs `prisma migrate deploy` on every build, so that failure would
+# block deploys rather than just being noisy.
+*.sql text eol=lf
