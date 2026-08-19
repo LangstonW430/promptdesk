@@ -16,11 +16,16 @@
 --   3. due_date becomes nullable. Stripe invoices set to charge automatically
 --      carry no due date -- they are collected, not awaited.
 
+-- Every statement here is written to be safe to run twice. The Supabase SQL
+-- Editor does not treat a pasted BEGIN/COMMIT as one unit — it commits as it
+-- goes — so a failure partway through would otherwise leave a state that can
+-- neither be resumed nor re-run.
+
 ALTER TABLE "invoices"
   ALTER COLUMN "client_id" DROP NOT NULL,
   ALTER COLUMN "due_date"  DROP NOT NULL,
-  ADD COLUMN "customer_name"  TEXT,
-  ADD COLUMN "customer_email" TEXT;
+  ADD COLUMN IF NOT EXISTS "customer_name"  TEXT,
+  ADD COLUMN IF NOT EXISTS "customer_email" TEXT;
 
 -- Deleting a client must not erase the record of money they were billed --
 -- the rule transactions already follow. The invoice keeps customer_name, so it
