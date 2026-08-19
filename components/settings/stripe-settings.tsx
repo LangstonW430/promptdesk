@@ -124,7 +124,12 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
                 bill a client. */}
             <ul className="mt-2 flex flex-col gap-1">
               <li>
-                <strong>Read</strong> — Charges, Balance transactions, Subscriptions
+                <strong>Read</strong> — Charges, Balance transactions, PaymentIntents,
+                Subscriptions
+                <span className="text-muted-foreground/70">
+                  {' '}
+                  (to import income)
+                </span>
               </li>
               <li>
                 <strong>Write</strong> — Invoices, Customers, Tax Rates
@@ -138,6 +143,14 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
                 </span>
               </li>
             </ul>
+            {/* PaymentIntents is easy to miss: nothing calls that resource
+                directly, but the charge import expands
+                `data.payment_intent.invoice` to tell a subscription charge from
+                a one-off, and Stripe refuses an expansion you cannot read. */}
+            <p className="mt-2">
+              Write access includes read, so there is no need to tick both for the
+              same resource.
+            </p>
           </div>
         </div>
 
