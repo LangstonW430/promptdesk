@@ -366,6 +366,15 @@ model Transaction {
   /// rather than deleting or un-ticking `isRecurring` when something is
   /// cancelled — those erase the charge from the months it did apply to.
   recurrenceEndedAt DateTime?      @map("recurrence_ended_at") @db.Date
+  /// When the user took this row off their ledger. Hidden rows are excluded
+  /// from the table and every total, but stay in the database: a Stripe-imported
+  /// row cannot simply be deleted, because the next backfill would import the
+  /// same charge again. Null means visible.
+  hiddenAt     DateTime?           @map("hidden_at") @db.Timestamptz(6)
+  /// The subscription this charge belongs to, when Stripe billed it as one.
+  /// Recorded so cancelling in Stripe can end the standing charge here, rather
+  /// than leaving it counting toward MRR forever.
+  stripeSubscriptionId String?     @map("stripe_subscription_id")
   metadata     Json                @default("{}") @db.JsonB  // counterparty, Stripe ids, fee details
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -380,6 +389,7 @@ model Transaction {
   @@index([ownerId, type], map: "transactions_owner_type_idx")
   @@index([clientId], map: "transactions_client_idx")
   @@index([projectId], map: "transactions_project_idx")
+  @@index([ownerId, stripeSubscriptionId], map: "transactions_owner_subscription_idx")
   @@map("transactions")
 }
 

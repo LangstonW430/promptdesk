@@ -5,6 +5,7 @@ import {
 } from '@/lib/clients/pipeline-value'
 import { clientStagesFor } from '@/lib/clients/stage-query'
 import { OPEN_STAGES, type ClientStage } from '@/lib/clients/stage'
+import { VISIBLE_TRANSACTION } from '@/lib/finance/visibility'
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -246,6 +247,7 @@ export async function getRetainerReminders(ownerId: string): Promise<RetainerRem
   const rows = await prisma.transaction.findMany({
     where: {
       ownerId,
+      ...VISIBLE_TRANSACTION,
       type: 'income',
       isRecurring: true,
       frequency: { not: null },

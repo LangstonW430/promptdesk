@@ -20,6 +20,7 @@ import {
   processChargeEvent,
   processInvoiceEvent,
   processCustomerEvent,
+  processSubscriptionEvent,
 } from '@/lib/finance/stripe-sync'
 import { markInvoicePaidFromCheckout } from '@/lib/invoices'
 
@@ -89,6 +90,15 @@ async function dispatchEvent(event: Stripe.Event, ownerId: string): Promise<void
     case 'customer.updated': {
       const customer = event.data.object as Stripe.Customer
       await processCustomerEvent(customer, ownerId)
+      break
+    }
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted': {
+      // Without these, cancelling a subscription in Stripe changed nothing
+      // here: its charges stayed flagged recurring and kept counting toward
+      // MRR forever.
+      const subscription = event.data.object as Stripe.Subscription
+      await processSubscriptionEvent(subscription, ownerId)
       break
     }
     case 'checkout.session.completed': {

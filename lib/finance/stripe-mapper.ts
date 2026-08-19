@@ -31,6 +31,8 @@ export type StripeTransactionData = {
   externalId: string       // Stripe object id or compound key (charge.id + ":fee")
   externalType: 'charge' | 'fee' | 'refund' | 'invoice'
   isRecurring: boolean     // true when the income comes from a Stripe Subscription
+  /** Which subscription billed it, when the payload said. Null otherwise. */
+  stripeSubscriptionId: string | null
   metadata: Record<string, unknown>
 }
 
@@ -58,6 +60,44 @@ function invoiceIsSubscription(inv: string | Stripe.Invoice | null | undefined):
   if (typeof invoice.billing_reason === 'string' && invoice.billing_reason.startsWith('subscription')) return true
   // billing_reason can be null on older invoices; fall back to subscription field.
   return !!invoice.subscription
+}
+
+/** The subscription id on an expanded invoice, when it carries one. */
+function invoiceSubscriptionId(
+  inv: string | Stripe.Invoice | null | undefined,
+): string | null {
+  if (!inv || typeof inv === 'string') return null
+  const sub = (inv as Stripe.Invoice & { subscription?: string | Stripe.Subscription | null })
+    .subscription
+  if (!sub) return null
+  return typeof sub === 'string' ? sub : sub.id
+}
+
+/**
+ * Which subscription billed this charge, when one did.
+ *
+ * Recorded so a later cancellation can find the standing charges it created and
+ * end them. `isSubscriptionCharge` answers whether a charge recurs, but not
+ * *which* subscription it belongs to — and without that, cancelling in Stripe
+ * left every recurring row counting toward MRR with nothing to match on.
+ *
+ * Returns null when the invoice is unexpanded, since the id is genuinely not in
+ * the payload. The backfill expands invoices and fills it in on the next pass;
+ * a null here is missing information, never a claim that the charge is one-off.
+ */
+export function subscriptionIdOf(charge: Stripe.Charge): string | null {
+  const directInv = (charge as unknown as { invoice?: string | Stripe.Invoice | null }).invoice
+  const fromDirect = invoiceSubscriptionId(directInv)
+  if (fromDirect) return fromDirect
+
+  const pi = charge.payment_intent
+  if (pi && typeof pi === 'object') {
+    const piInv = (pi as unknown as { invoice?: string | Stripe.Invoice | null }).invoice
+    const fromPi = invoiceSubscriptionId(piInv)
+    if (fromPi) return fromPi
+  }
+
+  return null
 }
 
 export function isSubscriptionCharge(charge: Stripe.Charge): boolean {
@@ -175,6 +215,7 @@ export function chargeToTransaction(
     externalId: paymentIntentId(charge) ?? charge.id,
     externalType: 'charge',
     isRecurring: recurring,
+    stripeSubscriptionId: subscriptionIdOf(charge),
     metadata: {
       counterpartyName: counterparty.name,
       counterpartyEmail: counterparty.email,
@@ -213,6 +254,7 @@ export function chargeFeeToTransaction(
     externalId: `${charge.id}:fee`,
     externalType: 'fee',
     isRecurring: isSubscriptionCharge(charge),  // mirrors the income row for the same charge
+    stripeSubscriptionId: subscriptionIdOf(charge),
     metadata: {
       chargeId: charge.id,
       feeDetails: bt.fee_details ?? [],
@@ -252,6 +294,7 @@ export function invoiceToTransaction(
     externalType: 'invoice',
     isRecurring: typeof invoice.billing_reason === 'string' &&
       invoice.billing_reason.startsWith('subscription'),
+    stripeSubscriptionId: invoiceSubscriptionId(invoice),
     metadata: {
       counterpartyName: customerName,
       counterpartyEmail: customerEmail,
@@ -286,6 +329,7 @@ export function refundToTransaction(
     externalId: refund.id,
     externalType: 'refund',
     isRecurring: false,  // refunds are adjustments, never MRR
+    stripeSubscriptionId: null,
     metadata: {
       chargeId: charge.id,
       reason: refund.reason ?? null,

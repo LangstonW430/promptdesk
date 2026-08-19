@@ -3,7 +3,7 @@
 import { useTransition } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -37,6 +37,13 @@ interface TransactionFormProps {
   projects: ProjectOption[]
   defaultValues?: Partial<TransactionFormValues>
   transactionId?: string
+  /**
+   * True for a Stripe-imported row. What money changed hands is Stripe's
+   * record, so type, amount and currency are shown but not editable — the
+   * server ignores them for these rows regardless. Everything else on the form
+   * is the user's own bookkeeping and stays editable.
+   */
+  financialsLocked?: boolean
   onSuccess: () => void
   onCancel: () => void
 }
@@ -65,6 +72,7 @@ export function TransactionForm({
   projects,
   defaultValues,
   transactionId,
+  financialsLocked = false,
   onSuccess,
   onCancel,
 }: TransactionFormProps) {
@@ -113,6 +121,18 @@ export function TransactionForm({
           </div>
         )}
 
+        {financialsLocked && (
+          <p className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+            <Lock className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              Imported from Stripe. The amount and type are Stripe&apos;s record
+              and cannot be changed here — everything else is yours to edit. To
+              stop a cancelled subscription counting toward MRR, set{' '}
+              <strong>Stopped on</strong> below.
+            </span>
+          </p>
+        )}
+
         {/* Type */}
         <FormField
           control={form.control}
@@ -123,6 +143,7 @@ export function TransactionForm({
               <FormControl>
                 <Select
                   {...field}
+                  disabled={financialsLocked}
                   onChange={(e) => {
                     field.onChange(e)
                     // Reset category when type changes if it's no longer valid
@@ -163,6 +184,7 @@ export function TransactionForm({
                     step="0.01"
                     placeholder="0.00"
                     className="pl-7"
+                    disabled={financialsLocked}
                   />
                 </div>
               </FormControl>

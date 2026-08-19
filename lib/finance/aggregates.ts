@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/client'
 import { financeTag } from '@/lib/cache-tags'
 import { buildBuckets, bucketSeries, type SeriesPoint, type Granularity } from './series'
 import { getPeriodBoundaries } from './calc'
+import { VISIBLE_TRANSACTION } from './visibility'
 import type { Period } from './types'
 
 /**
@@ -58,7 +59,7 @@ export const getPeriodSeries = ownerCache(
     let earliest: Date | null = null
     if (period === 'allTime') {
       const first = await prisma.transaction.findFirst({
-        where: { ownerId },
+        where: { ownerId, ...VISIBLE_TRANSACTION },
         orderBy: { occurredAt: 'asc' },
         select: { occurredAt: true },
       })
@@ -74,6 +75,7 @@ export const getPeriodSeries = ownerCache(
     // so recurring rows cannot be excluded by date the way one-off rows can.
     const rows = await prisma.transaction.findMany({
       where: {
+        ...VISIBLE_TRANSACTION,
         OR: [
           { ownerId, occurredAt: { gte: from ?? windowStart } },
           { ownerId, isRecurring: true },

@@ -18,6 +18,10 @@ export type SerializedTransaction = {
   frequency: string | null
   /** YYYY-MM-DD, or null while the standing charge is still running. */
   recurrenceEndedAt: string | null
+  /** True when the user has taken this row off their ledger. */
+  isHidden: boolean
+  /** The Stripe subscription that billed this charge, when one did. */
+  stripeSubscriptionId: string | null
   metadata: Record<string, unknown>
   createdAt: string
   updatedAt: string
@@ -40,6 +44,8 @@ type TransactionRow = {
   isRecurring: boolean
   frequency: string | null
   recurrenceEndedAt?: Date | string | null
+  hiddenAt?: Date | null
+  stripeSubscriptionId?: string | null
   metadata: unknown
   createdAt: Date
   updatedAt: Date
@@ -76,6 +82,8 @@ export function serializeTransaction(t: TransactionRow): SerializedTransaction {
           ? t.recurrenceEndedAt.toISOString().slice(0, 10)
           : String(t.recurrenceEndedAt).slice(0, 10))
       : null,
+    isHidden: t.hiddenAt != null,
+    stripeSubscriptionId: t.stripeSubscriptionId ?? null,
     metadata: (t.metadata ?? {}) as Record<string, unknown>,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),

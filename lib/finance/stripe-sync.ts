@@ -15,6 +15,7 @@ import type { Prisma } from '@/lib/generated/prisma/client'
 import { prisma } from '@/lib/db/client'
 import { getStripeForOwner } from './stripe-client'
 import { getPeriodBoundaries } from './calc'
+import { VISIBLE_TRANSACTION } from './visibility'
 import type { RecurringFrequency } from './types'
 import {
   chargeToTransaction,
@@ -105,6 +106,7 @@ async function upsertTransaction(
       externalId: data.externalId,
       externalType: data.externalType,
       isRecurring: data.isRecurring,
+      stripeSubscriptionId: data.stripeSubscriptionId,
       metadata: data.metadata as unknown as Prisma.InputJsonValue,
     },
     update: {
@@ -114,6 +116,14 @@ async function upsertTransaction(
       category: data.category,
       occurredAt: data.occurredAt,
       isRecurring: data.isRecurring,
+      // Only ever fills the id in, never clears it. A webhook payload with an
+      // unexpanded invoice reports null for a charge the backfill already
+      // identified, and writing that through would lose the link a cancellation
+      // needs. `hiddenAt` is likewise absent here: hiding is the user's decision
+      // about their own ledger, and a re-sync must not undo it.
+      ...(data.stripeSubscriptionId && {
+        stripeSubscriptionId: data.stripeSubscriptionId,
+      }),
       metadata: data.metadata as unknown as Prisma.InputJsonValue,
     },
     select: { id: true },
@@ -228,6 +238,7 @@ async function getManualRecurringRates(
   const rows = await prisma.transaction.findMany({
     where: {
       ownerId,
+      ...VISIBLE_TRANSACTION,
       source: 'manual',
       isRecurring: true,
       OR: [{ recurrenceEndedAt: null }, { recurrenceEndedAt: { gte: now } }],
@@ -305,6 +316,7 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
     prisma.transaction.aggregate({
       where: {
         ownerId,
+        ...VISIBLE_TRANSACTION,
         type: 'expense',
         isRecurring: false,
         occurredAt: { gte: expFrom!, lt: expTo! },
@@ -497,6 +509,63 @@ export async function processCustomerEvent(
       data: { stripeCustomerId: customer.id },
     })
   }
+}
+
+/**
+ * Handles customer.subscription.deleted / .updated.
+ *
+ * A cancelled subscription used to change nothing in the app: its charges kept
+ * their `isRecurring` flag, so the standing charge went on counting toward MRR
+ * indefinitely and the row could not even be corrected by hand. This ends the
+ * recurrence instead, which is what the schema asks for — the months the
+ * subscription really did bill for keep counting it.
+ *
+ * `.updated` is handled as well as `.deleted` because a subscription set to
+ * cancel at period end reports it on an update and only emits `.deleted` once
+ * the period actually elapses. Reading `ended_at` / `cancel_at` means the end
+ * date is the one Stripe recorded, not the date the webhook happened to arrive.
+ *
+ * A subscription that is live again (reactivated before its period elapsed)
+ * clears the end date, so it resumes counting.
+ */
+export async function processSubscriptionEvent(
+  subscription: Stripe.Subscription,
+  ownerId: string,
+): Promise<void> {
+  const sub = subscription as Stripe.Subscription & {
+    ended_at?: number | null
+    cancel_at?: number | null
+    canceled_at?: number | null
+    cancel_at_period_end?: boolean
+  }
+
+  const endsAt =
+    sub.ended_at ??
+    sub.cancel_at ??
+    (sub.cancel_at_period_end ? sub.canceled_at ?? null : null)
+
+  // 'canceled' is what the deleted event carries; the rest are still billing.
+  const isOver = subscription.status === 'canceled' || endsAt != null
+
+  if (!isOver) {
+    // Reactivated before its period elapsed: it bills again, so it counts again.
+    await prisma.transaction.updateMany({
+      where: { ownerId, stripeSubscriptionId: subscription.id, isRecurring: true },
+      data: { recurrenceEndedAt: null },
+    })
+    return
+  }
+
+  // Setting `recurrenceEndedAt` rather than clearing `isRecurring` is the rule
+  // the schema states: un-ticking recurring would erase the charge from the
+  // months it genuinely did apply to. Idempotent — a redelivered event writes
+  // the same date.
+  await prisma.transaction.updateMany({
+    where: { ownerId, stripeSubscriptionId: subscription.id, isRecurring: true },
+    data: {
+      recurrenceEndedAt: endsAt != null ? new Date(endsAt * 1000) : new Date(),
+    },
+  })
 }
 
 // ─── Backfill ─────────────────────────────────────────────────────────────────

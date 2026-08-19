@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/client'
 import { ownsClient, ownsProject } from '@/lib/db/ownership'
 import { getPeriodBoundaries, expandRecurring } from './calc'
+import { VISIBLE_TRANSACTION } from './visibility'
 import { serializeTransaction } from './serialize'
 import type { SerializedTransaction } from './serialize'
 import type { Period, TransactionFilters } from './types'
@@ -32,6 +33,7 @@ export async function listTransactions(
   const rows = await prisma.transaction.findMany({
     where: {
       ownerId,
+      ...VISIBLE_TRANSACTION,
       ...(filters.type && { type: filters.type }),
       ...(filters.source && { source: filters.source }),
       ...(filters.category && { category: filters.category }),
@@ -79,6 +81,7 @@ export async function listTransactionsForPeriod(
   const rows = await prisma.transaction.findMany({
     where: {
       ownerId,
+      ...VISIBLE_TRANSACTION,
       ...((from || to) && {
         // A standing charge that began before the window still applies inside
         // it, so it cannot be excluded by date the way a one-off can.
@@ -123,6 +126,32 @@ export async function listTransactionsForPeriod(
   )
 
   return expanded.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+}
+
+/**
+ * The rows the user has hidden, for the "hidden" disclosure under the table.
+ *
+ * Deliberately a separate query rather than a flag on
+ * `listTransactionsForPeriod`. That result is also what the stat cards itemise
+ * their breakdowns from, so folding hidden rows into it would put money back
+ * into the totals that the user just took out — the opposite of what hiding is
+ * for. Keeping them in their own list means a hidden row can only ever be
+ * rendered by the one component that knows what it is.
+ *
+ * Not expanded into occurrences: these are shown to be unhidden, not counted.
+ */
+export async function listHiddenTransactions(
+  ownerId: string,
+): Promise<SerializedTransaction[]> {
+  const rows = await prisma.transaction.findMany({
+    where: { ownerId, hiddenAt: { not: null } },
+    include: {
+      client: { select: { companyName: true, contactName: true } },
+      project: { select: { title: true } },
+    },
+    orderBy: { occurredAt: 'desc' },
+  })
+  return rows.map(serializeTransaction)
 }
 
 // Re-exported from lib/clients so the finance and invoice pickers cannot drift
@@ -255,8 +284,40 @@ export async function deleteTransaction(
     select: { source: true },
   })
   if (!existing) return false
+  // Deleting an imported row does not remove it: the next backfill reads the
+  // same charge from Stripe and writes it straight back. Hiding is what the
+  // caller wants here, and setTransactionHidden is how to get it.
   if (existing.source === 'stripe') return false
 
   const result = await prisma.transaction.deleteMany({ where: { id, ownerId } })
   return result.count > 0
 }
+
+/**
+ * Takes a row off the ledger, or puts it back.
+ *
+ * The counterpart to deletion for Stripe-imported rows, which cannot be deleted
+ * at all — the importer would re-create them. A hidden row keeps its place in
+ * the database so the next backfill still matches it, and drops out of every
+ * read path via VISIBLE_TRANSACTION.
+ *
+ * Works on manual rows too. Nothing about it is Stripe-specific, and a user who
+ * would rather file an old row away than erase it should be able to.
+ *
+ * Returns null when the transaction does not belong to this owner.
+ */
+export async function setTransactionHidden(
+  ownerId: string,
+  id: string,
+  hidden: boolean,
+): Promise<SerializedTransaction | null> {
+  const count = await prisma.transaction.count({ where: { id, ownerId } })
+  if (count === 0) return null
+
+  const row = await prisma.transaction.update({
+    where: { id },
+    data: { hiddenAt: hidden ? new Date() : null },
+  })
+  return serializeTransaction(row)
+}
+

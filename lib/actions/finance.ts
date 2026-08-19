@@ -3,7 +3,12 @@
 import { revalidatePath, updateTag } from 'next/cache'
 import { financeTag, dashboardTag } from '@/lib/cache-tags'
 import { getOwnerId } from '@/lib/auth'
-import { createTransaction, updateTransaction, deleteTransaction } from '@/lib/finance'
+import {
+  createTransaction,
+  updateTransaction,
+  deleteTransaction,
+  setTransactionHidden,
+} from '@/lib/finance'
 import { createTransactionSchema, updateTransactionSchema } from '@/lib/finance/validators'
 import { backfillStripe } from '@/lib/finance/stripe-sync'
 
@@ -61,7 +66,9 @@ export async function deleteTransactionAction(id: string) {
   if (!deleted) {
     return {
       success: false as const,
-      error: 'Transaction not found or cannot delete a Stripe-imported row',
+      error:
+        'Transaction not found, or it came from Stripe — hide it instead, ' +
+        'since deleting an imported row only brings it back on the next sync.',
     }
   }
   revalidatePath('/finance')
@@ -69,6 +76,26 @@ export async function deleteTransactionAction(id: string) {
   updateTag(financeTag(ownerId))
   updateTag(dashboardTag(ownerId))
   return { success: true as const }
+}
+
+/**
+ * Takes a row off the ledger, or puts it back.
+ *
+ * The delete path refuses Stripe rows outright, because deleting one only makes
+ * it come back on the next backfill. This is what the table offers for those
+ * instead, and it is reversible.
+ */
+export async function setTransactionHiddenAction(id: string, hidden: boolean) {
+  const ownerId = await getOwnerId()
+  const transaction = await setTransactionHidden(ownerId, id, hidden)
+  if (!transaction) {
+    return { success: false as const, error: 'Transaction not found' }
+  }
+  revalidatePath('/finance')
+  revalidatePath('/dashboard')
+  updateTag(financeTag(ownerId))
+  updateTag(dashboardTag(ownerId))
+  return { success: true as const, data: transaction }
 }
 
 export async function syncStripeAction() {

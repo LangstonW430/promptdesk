@@ -4,6 +4,7 @@ import {
   chargeToTransaction,
   chargeFeeToTransaction,
   refundToTransaction,
+  subscriptionIdOf,
 } from '../stripe-mapper'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -285,5 +286,80 @@ describe('refundToTransaction', () => {
     const refund = refundToTransaction(makeRefund('re_1', charge.amount), charge, OWNER)
     const net = income.amount - refund.amount
     expect(net).toBe(0)
+  })
+})
+
+// ─── subscriptionIdOf ─────────────────────────────────────────────────────────
+
+describe('subscriptionIdOf', () => {
+  it('reads the subscription id from an expanded invoice on the charge', () => {
+    const charge = makeCharge({
+      invoice: { id: 'in_1', object: 'invoice', subscription: 'sub_abc' },
+    })
+    expect(subscriptionIdOf(charge)).toBe('sub_abc')
+  })
+
+  it('reads it through payment_intent.invoice', () => {
+    const charge = makeCharge({
+      invoice: null,
+      payment_intent: {
+        id: 'pi_1',
+        object: 'payment_intent',
+        invoice: { id: 'in_1', object: 'invoice', subscription: 'sub_xyz' },
+      },
+    })
+    expect(subscriptionIdOf(charge)).toBe('sub_xyz')
+  })
+
+  it('unwraps an expanded subscription object to its id', () => {
+    const charge = makeCharge({
+      invoice: {
+        id: 'in_1',
+        object: 'invoice',
+        subscription: { id: 'sub_expanded', object: 'subscription' },
+      },
+    })
+    expect(subscriptionIdOf(charge)).toBe('sub_expanded')
+  })
+
+  // An unexpanded invoice genuinely does not carry the id. Returning null says
+  // "not known from this payload" — the backfill expands invoices and fills it
+  // in later. It must never be read as "this charge is one-off".
+  it('returns null when the invoice is an unexpanded string id', () => {
+    expect(subscriptionIdOf(makeCharge({ invoice: 'in_1' }))).toBeNull()
+  })
+
+  it('returns null for a one-off charge with no invoice at all', () => {
+    expect(subscriptionIdOf(makeCharge({ invoice: null }))).toBeNull()
+  })
+
+  it('returns null when the invoice carries no subscription', () => {
+    const charge = makeCharge({
+      invoice: { id: 'in_1', object: 'invoice', subscription: null },
+    })
+    expect(subscriptionIdOf(charge)).toBeNull()
+  })
+
+  it('puts the id on the charge row so a cancellation can find it later', () => {
+    const charge = makeCharge({
+      invoice: { id: 'in_1', object: 'invoice', subscription: 'sub_abc' },
+    })
+    expect(chargeToTransaction(charge, OWNER).stripeSubscriptionId).toBe('sub_abc')
+  })
+
+  it('leaves the fee row pointing at the same subscription as its charge', () => {
+    const charge = makeCharge({
+      invoice: { id: 'in_1', object: 'invoice', subscription: 'sub_abc' },
+    })
+    expect(chargeFeeToTransaction(charge, OWNER)?.stripeSubscriptionId).toBe('sub_abc')
+  })
+
+  it('never attributes a refund to a subscription', () => {
+    const charge = makeCharge({
+      invoice: { id: 'in_1', object: 'invoice', subscription: 'sub_abc' },
+    })
+    expect(
+      refundToTransaction(makeRefund(), charge, OWNER).stripeSubscriptionId,
+    ).toBeNull()
   })
 })

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/client'
+import { VISIBLE_TRANSACTION } from '@/lib/finance/visibility'
 
 /**
  * What a project actually earned and cost, against what it was quoted at.
@@ -47,7 +48,7 @@ export async function projectFinancials(
 ): Promise<ProjectFinancials> {
   const rows = await prisma.transaction.groupBy({
     by: ['type'],
-    where: { ownerId, projectId },
+    where: { ownerId, projectId, ...VISIBLE_TRANSACTION },
     _sum: { amount: true },
   })
 

@@ -34,7 +34,17 @@ describe('projectFinancials', () => {
     await projectFinancials(OWNER, PROJECT, null)
 
     const where = transactionGroupBy.mock.calls[0][0].where
-    expect(where).toEqual({ ownerId: OWNER, projectId: PROJECT })
+    expect(where).toMatchObject({ ownerId: OWNER, projectId: PROJECT })
+  })
+
+  // A row the user took off their ledger is off it everywhere. Leaving it in
+  // here would have a project report income against its budget that the Finance
+  // page had already stopped counting.
+  it('leaves out rows the user has hidden', async () => {
+    await projectFinancials(OWNER, PROJECT, null)
+
+    const where = transactionGroupBy.mock.calls[0][0].where
+    expect(where.hiddenAt).toBeNull()
   })
 
   it('sums income and expenses separately', async () => {

@@ -1,6 +1,11 @@
 import { redirect } from 'next/navigation'
 import { getOwnerId } from '@/lib/auth'
-import { listTransactionsForPeriod, fetchClientsForPicker, fetchProjectsForPicker } from '@/lib/finance'
+import {
+  listTransactionsForPeriod,
+  listHiddenTransactions,
+  fetchClientsForPicker,
+  fetchProjectsForPicker,
+} from '@/lib/finance'
 import { getPeriodSeries } from '@/lib/finance/aggregates'
 import { sumFinancials, groupByCategory, groupByClient } from '@/lib/finance/calc'
 import { getSyncState, getActiveMRR } from '@/lib/finance/stripe-sync'
@@ -31,7 +36,7 @@ export default async function FinancePage({
       ? (rawPeriod as Period)
       : 'thisMonth'
 
-  const [activeMRR, series, transactions, clients, projects, syncState] =
+  const [activeMRR, series, transactions, hiddenTransactions, clients, projects, syncState] =
     await Promise.all([
       getActiveMRR(ownerId),
       // Follows the period selector, so the chart and the stat cards above it
@@ -42,6 +47,10 @@ export default async function FinancePage({
       // recurring fee in every month it applies — matching the chart, which
       // was previously the only thing that did.
       listTransactionsForPeriod(ownerId, period),
+      // Kept out of the array above so nothing the user hid can find its way
+      // back into the totals, the chart or the breakdowns. The table lists them
+      // on their own so they can be put back.
+      listHiddenTransactions(ownerId),
       fetchClientsForPicker(ownerId),
       fetchProjectsForPicker(ownerId),
       getSyncState(ownerId),
@@ -109,7 +118,12 @@ export default async function FinancePage({
 
       {/* ── Transactions ───────────────────────────────────────── */}
       <div id="transactions">
-        <TransactionsTable transactions={transactions} clients={clients} projects={projects} />
+        <TransactionsTable
+          transactions={transactions}
+          hiddenTransactions={hiddenTransactions}
+          clients={clients}
+          projects={projects}
+        />
       </div>
     </div>
   )
