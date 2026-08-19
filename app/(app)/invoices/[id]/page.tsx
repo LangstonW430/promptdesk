@@ -73,6 +73,10 @@ export default async function InvoiceDetailPage({
       invoice_total: formatCurrency(invoice.total),
       due_date: new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
       line_items_summary: lineSummary,
+      // Empty until Stripe has finalized the invoice and issued its hosted
+      // page. The template is told to say nothing about payment rather than
+      // invent a method when this is blank.
+      payment_link: invoice.hostedInvoiceUrl ?? '',
     },
   })
 

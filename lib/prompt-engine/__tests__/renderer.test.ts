@@ -217,6 +217,17 @@ describe('BUILT_IN_TEMPLATES — render smoke test', () => {
     today: 'Jun 3, 2026',
     objective: 'grow revenue',
     contextBlock: '--- test context block ---',
+    // Templates that describe one specific record take it through `extras`
+    // rather than the context block. "Full context" has to include those, or
+    // this test passes only because the template asks for nothing.
+    extras: {
+      client_name: 'Acme Ltd',
+      invoice_number: 'ABCD-0001',
+      invoice_total: '$1,200.00',
+      due_date: 'July 3, 2026',
+      line_items_summary: 'Design work (×2 @ $600.00)',
+      payment_link: 'https://invoice.stripe.com/i/test',
+    },
   }
 
   it('renders all templates without throwing', () => {
