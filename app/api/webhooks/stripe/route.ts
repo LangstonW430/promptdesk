@@ -1,31 +1,42 @@
 /**
- * Stripe webhook receiver.
+ * Legacy shared Stripe webhook receiver.
  *
- * Deliberate exception to the "mutations go through server actions" rule:
- * this is an inbound external POST from Stripe's infrastructure, not a
- * browser-originated mutation, so a route handler is the correct primitive.
+ * Superseded by /api/webhooks/stripe/[endpointToken], which is registered
+ * against each user's own Stripe account when they connect their key. This path
+ * stays so an endpoint already configured in someone's Stripe dashboard keeps
+ * delivering until they reconnect, at which point the per-user endpoint takes
+ * over.
  *
- * Security contract:
- *   1. Raw body is read BEFORE any JSON parsing — required for HMAC verification.
- *   2. Signature is verified with Stripe.webhooks.constructEvent before any
- *      data is touched. Unverified events are rejected with 400.
- *   3. We always return 200 after verification even when our handler errors,
- *      to prevent Stripe from retrying and creating duplicate rows.
+ * The owner is no longer guessed. This used to call `resolveWebhookOwner()`,
+ * which returned whichever owner had synced most recently and would happily
+ * attribute one Stripe account's events to a different user. Here the owner is
+ * only resolved when exactly one user has Stripe configured — which is the only
+ * case where a single shared secret could ever have meant one specific person.
+ * Anything else is refused rather than guessed at.
  */
 
 import Stripe from 'stripe'
 import { prisma } from '@/lib/db/client'
-import {
-  resolveWebhookOwner,
-  processChargeEvent,
-  processInvoiceEvent,
-  processCustomerEvent,
-  processSubscriptionEvent,
-} from '@/lib/finance/stripe-sync'
-import { markInvoicePaidFromCheckout } from '@/lib/invoices'
+import { handleStripeEvent } from '@/lib/finance/webhook-handler'
+
+/**
+ * The one user this shared endpoint can only possibly mean.
+ *
+ * Null when nobody has connected Stripe, and — importantly — also null when
+ * more than one has. A shared secret cannot distinguish between them, so there
+ * is no answer to give, and inventing one writes money to the wrong ledger.
+ */
+async function resolveSoleStripeOwner(): Promise<string | null> {
+  const users = await prisma.user.findMany({
+    where: { stripeKey: { not: null } },
+    select: { id: true },
+    take: 2,
+  })
+  return users.length === 1 ? users[0].id : null
+}
 
 export async function POST(req: Request): Promise<Response> {
-  // ── 1. Raw body — must be read before any parsing ─────────────────────────
+  // ── 1. Raw body — must be read before any parsing ──────────────────────────
   const body = await req.text()
   const sig = req.headers.get('stripe-signature') ?? ''
 
@@ -34,8 +45,7 @@ export async function POST(req: Request): Promise<Response> {
     return new Response('STRIPE_WEBHOOK_SECRET is not configured', { status: 400 })
   }
 
-  // ── 2. Signature verification (static method — no API key required) ────────
-  // Stripe.webhooks is a static property; constructEvent does pure HMAC crypto.
+  // ── 2. Signature verification ──────────────────────────────────────────────
   let event: Stripe.Event
   try {
     event = Stripe.webhooks.constructEvent(body, sig, secret)
@@ -45,74 +55,24 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // ── 3. Resolve owner ───────────────────────────────────────────────────────
-  // Single-operator tool: the owner is whoever configured the Stripe sync.
-  const ownerId = await resolveWebhookOwner()
+  const ownerId = await resolveSoleStripeOwner()
   if (!ownerId) {
-    // No sync configured yet — acknowledge so Stripe doesn't retry.
+    // Acknowledged so Stripe stops retrying something that cannot be delivered.
+    // Logged because for a multi-user deployment this means events are being
+    // dropped and each user needs to reconnect onto their own endpoint.
+    console.warn(
+      '[stripe-webhook] shared endpoint received an event with no unambiguous ' +
+        'owner. Reconnect Stripe in Settings to register a per-user endpoint.',
+    )
     return new Response('OK', { status: 200 })
   }
 
-  // ── 4. Handle event — best-effort ─────────────────────────────────────────
-  // Errors are logged but we still return 200 to prevent Stripe retrying and
-  // producing duplicates. The upsert logic is idempotent, so the next backfill
-  // or retry will reconcile any missed events.
+  // ── 4. Handle — best effort, always acknowledged ───────────────────────────
   try {
-    await dispatchEvent(event, ownerId)
-    await prisma.stripeSyncState.upsert({
-      where: { ownerId },
-      create: { ownerId, status: 'idle', lastEventAt: new Date() },
-      update: { lastEventAt: new Date() },
-    })
+    await handleStripeEvent(event, ownerId)
   } catch (err) {
     console.error('[stripe-webhook] handler error for', event.type, err)
   }
 
   return new Response('OK', { status: 200 })
-}
-
-async function dispatchEvent(event: Stripe.Event, ownerId: string): Promise<void> {
-  switch (event.type) {
-    case 'charge.succeeded':
-    case 'charge.updated':
-    case 'charge.refunded': {
-      const charge = event.data.object as Stripe.Charge
-      await processChargeEvent(charge, ownerId)
-      break
-    }
-    case 'invoice.paid': {
-      const invoice = event.data.object as Stripe.Invoice
-      // processInvoiceEvent skips internally when invoice.charge is set,
-      // because charge.succeeded will fire and create the income row.
-      await processInvoiceEvent(invoice, ownerId)
-      break
-    }
-    case 'customer.created':
-    case 'customer.updated': {
-      const customer = event.data.object as Stripe.Customer
-      await processCustomerEvent(customer, ownerId)
-      break
-    }
-    case 'customer.subscription.updated':
-    case 'customer.subscription.deleted': {
-      // Without these, cancelling a subscription in Stripe changed nothing
-      // here: its charges stayed flagged recurring and kept counting toward
-      // MRR forever.
-      const subscription = event.data.object as Stripe.Subscription
-      await processSubscriptionEvent(subscription, ownerId)
-      break
-    }
-    case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session
-      const { invoiceId, ownerId } = session.metadata ?? {}
-      if (invoiceId && ownerId) {
-        const paymentIntentId =
-          typeof session.payment_intent === 'string'
-            ? session.payment_intent
-            : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null
-        await markInvoicePaidFromCheckout(invoiceId, ownerId, paymentIntentId)
-      }
-      break
-    }
-    // Other event types are acknowledged (200) and ignored.
-  }
 }

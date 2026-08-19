@@ -25,6 +25,17 @@ function formatDate(iso: string) {
   })
 }
 
+/**
+ * What to call an invoice in a list.
+ *
+ * Stripe assigns the number at finalization, so a draft genuinely has none yet.
+ * "Draft" is the honest label yet — inventing a placeholder number would
+ * suggest a reference the client could quote.
+ */
+function invoiceLabel(inv: SerializedInvoice): string {
+  return inv.number ?? 'Draft'
+}
+
 export function InvoiceList({
   invoices,
   isArchivedView = false,
@@ -64,7 +75,7 @@ export function InvoiceList({
           return next
         })
         setArchiveError(
-          `Couldn't ${archived ? 'archive' : 'restore'} ${invoice.invoiceNumberFormatted}. ${result.error ?? 'Please try again.'}`,
+          `Couldn't ${archived ? 'archive' : 'restore'} ${invoiceLabel(invoice)}. ${result.error ?? 'Please try again.'}`,
         )
         return
       }
@@ -145,16 +156,16 @@ export function InvoiceList({
                     href={`/invoices/${inv.id}`}
                     className="font-medium text-foreground transition-colors hover:text-primary"
                   >
-                    {inv.invoiceNumberFormatted}
+                    {invoiceLabel(inv)}
                   </Link>
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">{inv.clientName}</td>
                 <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{formatDate(inv.issueDate)}</td>
-                <td className={`px-4 py-3 hidden sm:table-cell ${inv.status === 'overdue' ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
+                <td className={`px-4 py-3 hidden sm:table-cell ${inv.isOverdue ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
                   {formatDate(inv.dueDate)}
                 </td>
                 <td className="px-4 py-3">
-                  <StatusBadge status={inv.status} />
+                  <StatusBadge status={inv.status} isOverdue={inv.isOverdue} />
                 </td>
                 <td className="px-4 py-3 text-right font-medium tabular-nums">
                   {formatCurrency(inv.total)}
@@ -167,8 +178,8 @@ export function InvoiceList({
                   <button
                     type="button"
                     onClick={() => handleArchiveToggle(inv)}
-                    aria-label={`${isArchivedView ? 'Restore' : 'Archive'} invoice ${inv.invoiceNumberFormatted}`}
-                    title={`${isArchivedView ? 'Restore' : 'Archive'} ${inv.invoiceNumberFormatted}`}
+                    aria-label={`${isArchivedView ? 'Restore' : 'Archive'} invoice ${invoiceLabel(inv)}`}
+                    title={`${isArchivedView ? 'Restore' : 'Archive'} ${invoiceLabel(inv)}`}
                     className="flex size-7 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-all hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
                   >
                     {isArchivedView ? (

@@ -413,27 +413,16 @@ export async function getActiveMRR(ownerId: string): Promise<ActiveMRRResult> {
 }
 
 // ─── Webhook event processors ─────────────────────────────────────────────────
-// Called by the route handler for real-time events. All three reuse the same
-// private upsertTransaction / linkTransactionsByEmail helpers as the backfill.
-
-/**
- * Finds the ownerId for incoming webhook events.
- * For a single-operator deployment there is exactly one StripeSyncState row.
- * Falls back to any existing Stripe transaction if no sync has been run yet.
- */
-export async function resolveWebhookOwner(): Promise<string | null> {
-  const state = await prisma.stripeSyncState.findFirst({
-    select: { ownerId: true },
-    orderBy: { lastBackfillAt: 'desc' },
-  })
-  if (state) return state.ownerId
-
-  const tx = await prisma.transaction.findFirst({
-    where: { source: 'stripe' },
-    select: { ownerId: true },
-  })
-  return tx?.ownerId ?? null
-}
+// Called by lib/finance/webhook-handler.ts for real-time events. All of these
+// reuse the same private upsertTransaction / linkTransactionsByEmail helpers as
+// the backfill.
+//
+// `resolveWebhookOwner()` used to live here, returning whichever owner had
+// synced most recently so that a single shared webhook secret had somebody to
+// attribute events to. It could attribute one Stripe account's events to a
+// different user, so it is gone: the owner now comes from the token in the
+// endpoint URL, and the legacy shared route resolves an owner only when exactly
+// one exists.
 
 /**
  * Handles charge.succeeded / charge.updated / charge.refunded.

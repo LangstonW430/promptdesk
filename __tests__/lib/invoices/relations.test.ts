@@ -5,6 +5,7 @@ const projectCount = vi.fn()
 const invoiceCreate = vi.fn()
 const invoiceAggregate = vi.fn()
 const userFindUnique = vi.fn()
+const transaction = vi.fn()
 
 vi.mock('@/lib/db/client', () => ({
   prisma: {
@@ -32,7 +33,37 @@ vi.mock('@/lib/db/client', () => ({
         return invoiceAggregate
       },
     },
+    get $transaction() {
+      return transaction
+    },
   },
+}))
+
+// Raising an invoice now goes to Stripe before it touches the database. These
+// tests are about the ownership checks that run first, so Stripe is stubbed —
+// what matters is whether the checks let execution get this far.
+vi.mock('@/lib/invoices/stripe-invoices', () => ({
+  stripeFor: vi.fn(async () => ({})),
+  ensureStripeCustomer: vi.fn(async () => 'cus_test'),
+  createStripeInvoice: vi.fn(async () => ({
+    id: 'in_test',
+    object: 'invoice',
+    status: 'draft',
+    number: null,
+    customer: 'cus_test',
+    hosted_invoice_url: null,
+    invoice_pdf: null,
+    subtotal: 10_000,
+    total: 10_000,
+    total_taxes: null,
+    due_date: null,
+    lines: { object: 'list', data: [] },
+  })),
+  finalizeAndSendInvoice: vi.fn(),
+  retrieveInvoice: vi.fn(),
+  removeStripeInvoice: vi.fn(),
+  describeStripeError: (err: unknown) =>
+    err instanceof Error ? err.message : 'Stripe request failed',
 }))
 
 const { createInvoice } = await import('@/lib/invoices')
@@ -75,6 +106,13 @@ beforeEach(() => {
   projectCount.mockReset().mockResolvedValue(1)
   invoiceCreate.mockReset().mockResolvedValue(created)
   invoiceAggregate.mockReset().mockResolvedValue({ _max: { invoiceNumber: 0 } })
+  // Run the interactive callback against the same mocked delegates.
+  transaction.mockReset().mockImplementation((fn) =>
+    fn({
+      invoice: { create: invoiceCreate },
+      timeEntry: { updateMany: vi.fn() },
+    }),
+  )
 })
 
 describe('createInvoice — relation ownership', () => {

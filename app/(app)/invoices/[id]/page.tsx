@@ -65,15 +65,16 @@ export default async function InvoiceDetailPage({
     today: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     contextBlock: '',
     extras: {
-      invoice_number: invoice.invoiceNumberFormatted,
+      // A draft has no number from Stripe yet, and the cover email is usually
+      // drafted before sending — so the prompt says so rather than printing an
+      // empty reference the client would be asked to quote.
+      invoice_number: invoice.number ?? 'the attached invoice',
       client_name: invoice.clientName,
       invoice_total: formatCurrency(invoice.total),
       due_date: new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
       line_items_summary: lineSummary,
     },
   })
-
-  const publicUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/invoice/${invoice.publicToken}`
 
   return (
     <div className="flex flex-col gap-6">
@@ -97,10 +98,9 @@ export default async function InvoiceDetailPage({
         {/* Actions sidebar — hidden when printing */}
         <div className="print:hidden">
           <InvoiceActions
-          missingDetails={missingDetails}
-          clientId={invoice.clientId}
             invoice={invoice}
-            publicUrl={publicUrl}
+            missingDetails={missingDetails}
+            clientId={invoice.clientId}
             promptText={promptResult.text}
           />
         </div>

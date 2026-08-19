@@ -15,6 +15,10 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
   const [connected, setConnected] = useState(initialConnected)
   const [key, setKey] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // Things that worked but are limited — a key that imports transactions yet
+  // cannot raise invoices, or a deployment Stripe cannot reach. Neither should
+  // fail the save, and neither should pass silently.
+  const [warnings, setWarnings] = useState<string[]>([])
   const [saved, setSaved] = useState(false)
   const [isSaving, startSave] = useTransition()
   const [isRemoving, startRemove] = useTransition()
@@ -22,6 +26,7 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
   function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    setWarnings([])
     setSaved(false)
     startSave(async () => {
       const result = await saveStripeKeyAction(key)
@@ -31,14 +36,25 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
       }
       setConnected(true)
       setKey('')
+      setWarnings(result.warnings)
       setSaved(true)
+      // Warnings need reading, so they stay put. Only the success note clears.
       setTimeout(() => setSaved(false), 3000)
     })
   }
 
   function handleRemove() {
-    if (!confirm('Remove your Stripe key? Existing imported transactions will remain.')) return
+    if (
+      !confirm(
+        'Remove your Stripe key? Invoices already raised stay live in Stripe and ' +
+          'your clients can still pay them, but this app will stop updating them. ' +
+          'Existing imported transactions remain.',
+      )
+    ) {
+      return
+    }
     setError(null)
+    setWarnings([])
     setSaved(false)
     startRemove(async () => {
       await removeStripeKeyAction()
@@ -54,7 +70,8 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
         <div>
           <h2 className="text-sm font-semibold">Stripe</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Import your Stripe charges as income transactions automatically.
+            Bill clients through Stripe and import your charges as income
+            automatically. Stripe raises, sends and collects on every invoice.
           </p>
         </div>
 
@@ -87,20 +104,41 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
             spellCheck={false}
             className="font-mono text-sm"
           />
-          <p className="text-xs text-muted-foreground">
-            Create a{' '}
-            <a
-              href="https://dashboard.stripe.com/apikeys"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:text-foreground"
-            >
-              restricted key
-              <ExternalLink className="size-3" />
-            </a>{' '}
-            with <strong>Charges, Customers, Balance transactions, and Subscriptions</strong> set
-            to <strong>Read</strong>. Never use your full secret key.
-          </p>
+          <div className="text-xs text-muted-foreground">
+            <p>
+              Create a{' '}
+              <a
+                href="https://dashboard.stripe.com/apikeys"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:text-foreground"
+              >
+                restricted key
+                <ExternalLink className="size-3" />
+              </a>{' '}
+              with these permissions. Never use your full secret key.
+            </p>
+            {/* The old copy asked only for Read scopes, which is enough to
+                import transactions but cannot raise an invoice — so anyone who
+                followed it hit a permission error at the moment they tried to
+                bill a client. */}
+            <ul className="mt-2 flex flex-col gap-1">
+              <li>
+                <strong>Read</strong> — Charges, Balance transactions, Subscriptions
+              </li>
+              <li>
+                <strong>Write</strong> — Invoices, Customers, Tax Rates
+                <span className="text-muted-foreground/70"> (to bill clients)</span>
+              </li>
+              <li>
+                <strong>Write</strong> — Webhook Endpoints
+                <span className="text-muted-foreground/70">
+                  {' '}
+                  (so payments update automatically)
+                </span>
+              </li>
+            </ul>
+          </div>
         </div>
 
         {/* Feedback */}
@@ -114,6 +152,17 @@ export function StripeSettings({ connected: initialConnected, hint }: StripeSett
           <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400">
             <CheckCircle2 className="size-4 shrink-0" />
             Connected! Your transactions have been imported — check the Finance page.
+          </div>
+        )}
+        {warnings.length > 0 && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/20 dark:text-amber-300">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+            <div className="flex flex-col gap-1.5">
+              <p className="font-medium">Connected, with limitations</p>
+              {warnings.map((w) => (
+                <p key={w} className="leading-relaxed">{w}</p>
+              ))}
+            </div>
           </div>
         )}
 

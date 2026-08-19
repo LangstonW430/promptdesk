@@ -58,13 +58,14 @@ export function InvoiceView({ invoice, showFrom }: Props) {
       <div className="flex items-start justify-between p-8 border-b border-border print:p-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            {invoice.invoiceNumberFormatted}
+            {/* Stripe assigns the number at finalization, so a draft has none. */}
+            {invoice.number ?? 'Draft invoice'}
           </h1>
           {invoice.projectTitle && (
             <p className="mt-1 text-sm text-muted-foreground">{invoice.projectTitle}</p>
           )}
         </div>
-        <StatusBadge status={invoice.status} />
+        <StatusBadge status={invoice.status} isOverdue={invoice.isOverdue} />
       </div>
 
       {/* ── From / To / Dates ───────────────────────────────────────── */}
@@ -115,7 +116,7 @@ export function InvoiceView({ invoice, showFrom }: Props) {
             <FieldLabel>Due Date</FieldLabel>
             <p
               className={
-                invoice.status === 'overdue'
+                invoice.isOverdue
                   ? 'print-overdue mt-1 text-sm font-medium text-red-600 dark:text-red-400'
                   : 'mt-1 text-sm font-medium text-foreground'
               }

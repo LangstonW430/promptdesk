@@ -37,6 +37,33 @@ vi.mock('@/lib/db/client', () => ({
   },
 }))
 
+// The invoice is raised in Stripe before any of this touches the database.
+// These tests are about claiming time entries transactionally, so Stripe is
+// stubbed with a fixed draft.
+vi.mock('@/lib/invoices/stripe-invoices', () => ({
+  stripeFor: vi.fn(async () => ({})),
+  ensureStripeCustomer: vi.fn(async () => 'cus_test'),
+  createStripeInvoice: vi.fn(async () => ({
+    id: 'in_test',
+    object: 'invoice',
+    status: 'draft',
+    number: null,
+    customer: 'cus_test',
+    hosted_invoice_url: null,
+    invoice_pdf: null,
+    subtotal: 40_000,
+    total: 40_000,
+    total_taxes: null,
+    due_date: null,
+    lines: { object: 'list', data: [] },
+  })),
+  finalizeAndSendInvoice: vi.fn(),
+  retrieveInvoice: vi.fn(),
+  removeStripeInvoice: vi.fn(),
+  describeStripeError: (err: unknown) =>
+    err instanceof Error ? err.message : 'Stripe request failed',
+}))
+
 const { createInvoiceFromTimeEntries } = await import('@/lib/invoices')
 
 const OWNER = 'owner-abc-123'

@@ -30,6 +30,22 @@ model User {
   defaultAi      String?  @map("default_ai")
   stripeKey      String?  @map("stripe_key")       // AES-256-GCM encrypted; never store plaintext
   stripeKeyHint  String?  @map("stripe_key_hint")  // last-4 chars for display only (not sensitive)
+  /// Per-user Stripe webhook endpoint, registered against the user's own Stripe
+  /// account when they connect their key.
+  ///
+  /// There used to be one deployment-wide STRIPE_WEBHOOK_SECRET and a
+  /// `resolveWebhookOwner()` that picked whichever owner had synced most
+  /// recently — so an event from one account could be recorded against another
+  /// user entirely. That was survivable only because invoice payments carried an
+  /// ownerId in their metadata. With Stripe owning the invoice lifecycle, status
+  /// arrives by webhook alone, and a misattributed event corrupts data.
+  ///
+  /// `webhookToken` is the unguessable path segment the endpoint posts to, which
+  /// is what identifies the owner. It is not a credential: the request is still
+  /// only trusted after its signature verifies against `stripeWebhookSecret`.
+  webhookToken          String?  @unique @map("webhook_token")
+  stripeWebhookId       String?  @map("stripe_webhook_id")      // we_... , so it can be deleted on disconnect
+  stripeWebhookSecret   String?  @map("stripe_webhook_secret")  // AES-256-GCM encrypted, same as stripeKey
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   settings     Json     @default("{}") @db.JsonB
 
@@ -395,20 +411,50 @@ model Transaction {
 
 // ============ INVOICES ============
 
+/// Stripe's invoice statuses, not our own.
+///
+/// Stripe owns the lifecycle now, so mirroring anything else would mean holding
+/// a status the payment processor disagrees with. `open` replaces the old
+/// `sent`; `overdue` is gone as a stored value because it was only ever derived
+/// from `dueDate` (an open invoice past its due date), and `uncollectible` and
+/// `void` are states Stripe can reach that we previously had no word for.
 enum InvoiceStatus {
   draft
-  sent
+  open
   paid
-  overdue
+  uncollectible
+  void
 }
 
 model Invoice {
   id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ownerId       String        @map("owner_id") @db.Uuid
-  invoiceNumber Int           @map("invoice_number")
-  publicToken   String        @unique @map("public_token")
+  /// The Stripe invoice this row mirrors. Null only on legacy rows created
+  /// before invoicing moved to Stripe — those are kept readable as records but
+  /// cannot be sent or paid. Its presence is what distinguishes the two.
+  stripeInvoiceId  String?    @unique @map("stripe_invoice_id")
+  /// The Stripe customer billed. Mirrors Client.stripeCustomerId at the time of
+  /// creation, so the invoice still says who it went to if the client's Stripe
+  /// record is later relinked.
+  stripeCustomerId String?    @map("stripe_customer_id")
+  /// Stripe's invoice number, e.g. "9CF1B4A0-0001". Assigned at finalization —
+  /// null while the invoice is still a draft. Numbering is Stripe's job now:
+  /// ours could not survive an invoice being voided in the Stripe dashboard.
+  number           String?
+  /// Stripe's hosted invoice page — where the client actually pays. This is the
+  /// link to send them; it replaces the public token page we used to host.
+  hostedInvoiceUrl String?    @map("hosted_invoice_url")
+  /// Stripe's rendered PDF. Replaces the print stylesheet.
+  invoicePdf       String?    @map("invoice_pdf")
+  /// Legacy: the number our own counter assigned, and the token its public page
+  /// was served under. Both nullable now and never written for new invoices.
+  invoiceNumber Int?          @map("invoice_number")
+  publicToken   String?       @unique @map("public_token")
   clientId      String        @map("client_id") @db.Uuid
   projectId     String?       @map("project_id") @db.Uuid
+  /// A cached copy of what Stripe holds, for rendering the list and detail
+  /// pages without a round-trip per invoice. Never authoritative: every write
+  /// goes to Stripe first and lands here from the response or the webhook.
   lineItems     Json          @map("line_items") @db.JsonB
   status        InvoiceStatus @default(draft)
   /// The percentage behind `tax`. Stored alongside the amount so the document
@@ -428,9 +474,9 @@ model Invoice {
   total         Decimal       @db.Decimal(12, 2)
   notes         String?
   transactionId String?       @unique @map("transaction_id") @db.Uuid
-  // Separate axis from `status`: status is where the invoice stands
-  // (draft/sent/paid/overdue), isArchived is whether it should still appear in
-  // the working list. Mirrors Client and Project.
+  // Separate axis from `status`: status is where the invoice stands in Stripe,
+  // isArchived is whether it should still appear in the working list. Mirrors
+  // Client and Project.
   isArchived    Boolean       @default(false) @map("is_archived")
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -443,6 +489,7 @@ model Invoice {
 
   @@unique([ownerId, invoiceNumber], map: "invoices_owner_number_unique")
   @@index([ownerId, status], map: "invoices_owner_status_idx")
+  @@index([stripeCustomerId], map: "invoices_stripe_customer_idx")
   @@index([clientId],        map: "invoices_client_idx")
   @@index([ownerId, createdAt(sort: Desc)], map: "invoices_owner_created_idx")
   @@index([ownerId, isArchived], map: "invoices_owner_archived_idx")

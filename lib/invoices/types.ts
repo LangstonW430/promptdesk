@@ -6,14 +6,37 @@ export type LineItem = {
   amount: number
 }
 
-export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue'
+/**
+ * Stripe's statuses. `open` is what used to be `sent`; `overdue` is no longer a
+ * status at all but a derived property of an open invoice past its due date —
+ * see `isOverdue` on the serialized shape.
+ */
+export type InvoiceStatus = 'draft' | 'open' | 'paid' | 'uncollectible' | 'void'
 
 export type SerializedInvoice = {
   id: string
   ownerId: string
-  invoiceNumber: number
-  invoiceNumberFormatted: string
-  publicToken: string
+  /** Stripe's invoice id. Null on legacy invoices raised before the move. */
+  stripeInvoiceId: string | null
+  /**
+   * True for an invoice that predates Stripe invoicing. It is a record only:
+   * it cannot be sent, paid or edited, because there is nothing in Stripe to
+   * act on.
+   */
+  isLegacy: boolean
+  /**
+   * Stripe's number once finalized, or the legacy "INV-0001" for older rows.
+   * Null while an invoice is still a draft — Stripe assigns it at finalization.
+   */
+  number: string | null
+  /** Stripe's hosted payment page. This is the link to send the client. */
+  hostedInvoiceUrl: string | null
+  /** Stripe's rendered PDF. */
+  invoicePdf: string | null
+  /** Open and past its due date. Derived, never stored. */
+  isOverdue: boolean
+  /** Legacy public page token. Null for every Stripe-hosted invoice. */
+  publicToken: string | null
   clientId: string
   clientName: string
   clientAddress: string | null
@@ -40,9 +63,11 @@ export type SerializedInvoice = {
 }
 
 /**
- * Everything the "From" block needs. Only the public view carries it — the
- * owner already knows who they are, and there is no reason to ship their own
- * billing details to their own browser on every list render.
+ * Everything the "From" block needs.
+ *
+ * Only the legacy public view carries it. New invoices are rendered and hosted
+ * by Stripe, which takes these details from the connected account rather than
+ * from us.
  */
 export type SerializedInvoicePublic = SerializedInvoice & {
   ownerBusinessName: string | null

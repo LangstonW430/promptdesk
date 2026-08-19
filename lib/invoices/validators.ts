@@ -30,9 +30,10 @@ export const createFromEntriesSchema = z.object({
   notes: z.string().nullable().optional(),
 })
 
-export const updateInvoiceStatusSchema = z.object({
-  status: z.enum(['draft', 'sent', 'paid', 'overdue']),
-})
+// updateInvoiceStatusSchema is gone. Status is Stripe's to set — finalizing,
+// sending, payment, voiding and write-off all happen there and arrive by
+// webhook. An endpoint that let the app write its own status could only ever
+// produce a value the payment processor disagreed with.
 
 export const archiveInvoiceSchema = z.object({
   archived: z.boolean(),
@@ -40,5 +41,4 @@ export const archiveInvoiceSchema = z.object({
 
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>
 export type CreateFromEntriesInput = z.infer<typeof createFromEntriesSchema>
-export type UpdateInvoiceStatusInput = z.infer<typeof updateInvoiceStatusSchema>
 export type ArchiveInvoiceInput = z.infer<typeof archiveInvoiceSchema>

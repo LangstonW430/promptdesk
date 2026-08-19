@@ -1,7 +1,35 @@
-import { randomBytes } from 'crypto'
+/**
+ * Invoicing, on top of Stripe.
+ *
+ * Stripe is the system of record. It assigns the number, hosts the page the
+ * client pays on, renders the PDF, sends the email and chases the payment. What
+ * lives here is a mirror row holding the things Stripe has never heard of —
+ * which client, which project, which time entries — plus a cached copy of the
+ * amounts so a list page does not need one API call per invoice.
+ *
+ * The ordering rule throughout: **Stripe first, then the mirror.** If the
+ * mirror write fails after Stripe succeeded, the worst case is an orphaned
+ * draft in the Stripe dashboard, which is visible and harmless. The other order
+ * would show the user an invoice that does not exist and cannot be paid.
+ *
+ * Rows created before this move have a null `stripeInvoiceId`. They stay
+ * readable as records but cannot be sent, paid or edited, because there is
+ * nothing in Stripe to act on.
+ */
+
 import { prisma } from '@/lib/db/client'
 import { ownsClient, ownsProject } from '@/lib/db/ownership'
 import { serializeInvoice, serializeInvoicePublic } from './serialize'
+import {
+  stripeFor,
+  ensureStripeCustomer,
+  createStripeInvoice,
+  finalizeAndSendInvoice,
+  retrieveInvoice,
+  removeStripeInvoice,
+  describeStripeError,
+} from './stripe-invoices'
+import { toInvoiceMirror, isEditable } from './stripe-mapper'
 import type { CreateInvoiceInput, CreateFromEntriesInput } from './validators'
 import type { LineItem } from './types'
 
@@ -9,23 +37,6 @@ const WITH_JOIN = {
   client:  { select: { companyName: true, contactName: true, address: true } },
   project: { select: { title: true } },
 } as const
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function nextInvoiceNumber(ownerId: string): Promise<number> {
-  const agg = await prisma.invoice.aggregate({
-    where: { ownerId },
-    _max: { invoiceNumber: true },
-  })
-  return (agg._max.invoiceNumber ?? 0) + 1
-}
-
-function calcTotals(lineItems: LineItem[], taxPct: number | null | undefined) {
-  const subtotal = lineItems.reduce((s, li) => s + li.amount, 0)
-  const taxAmount = taxPct ? Math.round(subtotal * taxPct) / 100 : null
-  const total = subtotal + (taxAmount ?? 0)
-  return { subtotal, taxAmount, total }
-}
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 
@@ -43,8 +54,6 @@ export async function listInvoices(
     include: WITH_JOIN,
     orderBy: { createdAt: 'desc' },
   })
-  // `overdue` is derived in serializeInvoice — see the note there for why this
-  // no longer writes to the database on a read path.
   const now = new Date()
   return rows.map((row) => serializeInvoice(row, now))
 }
@@ -58,6 +67,13 @@ export async function getInvoice(ownerId: string, id: string) {
   return serializeInvoice(row)
 }
 
+/**
+ * A legacy invoice by its public token.
+ *
+ * Only legacy rows have a token: Stripe hosts the page for everything raised
+ * since. Kept so links already in clients' inboxes still resolve to the
+ * document they were sent, rather than 404ing the moment this shipped.
+ */
 export async function getInvoiceByPublicToken(publicToken: string) {
   const row = await prisma.invoice.findUnique({
     where: { publicToken },
@@ -107,7 +123,7 @@ export async function fetchBillableEntries(ownerId: string, entryIds: string[]) 
   return rows
 }
 
-// ── Mutations ─────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
  * The payment terms an invoice is created under.
@@ -128,43 +144,131 @@ async function termsFor(
   return user?.defaultPaymentTerms ?? null
 }
 
+/** Sum of the line amounts, for the pre-flight check before calling Stripe. */
+function sumLines(lineItems: readonly LineItem[]): number {
+  return lineItems.reduce((s, li) => s + li.amount, 0)
+}
+
+// ── Mutations ─────────────────────────────────────────────────────────────────
+
+interface DraftInput {
+  clientId: string
+  projectId: string | null
+  lineItems: LineItem[]
+  issueDate: string
+  dueDate: string
+  tax?: number | null
+  notes?: string | null
+  paymentTerms?: string | null
+  purchaseOrder?: string | null
+}
+
+/**
+ * Raises a draft invoice in Stripe and mirrors it.
+ *
+ * Shared by both entry points so the manual builder and the time-entry
+ * conversion cannot drift apart in what they send Stripe. `claimEntryIds`, when
+ * given, marks those time entries as billed in the same database transaction as
+ * the mirror insert.
+ */
+async function createDraft(
+  ownerId: string,
+  input: DraftInput,
+  claimEntryIds?: string[],
+) {
+  const issueDate = new Date(input.issueDate)
+  const dueDate = new Date(input.dueDate)
+  const terms = await termsFor(ownerId, input.paymentTerms)
+
+  const stripe = await stripeFor(ownerId)
+  const customerId = await ensureStripeCustomer(stripe, ownerId, input.clientId)
+
+  const stripeInvoice = await createStripeInvoice(stripe, {
+    customerId,
+    lineItems: input.lineItems,
+    issueDate,
+    dueDate,
+    taxRate: input.tax ?? null,
+    notes: input.notes ?? null,
+    paymentTerms: terms,
+    purchaseOrder: input.purchaseOrder ?? null,
+    // Carried on the Stripe object so a webhook can find our row directly.
+    // Without it the handler would have to keep a lookup table in step with
+    // Stripe, and a missed write there would silently drop payment updates.
+    metadata: { promptdeskOwnerId: ownerId },
+  })
+
+  const mirror = toInvoiceMirror(stripeInvoice)
+
+  const row = await prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.create({
+      data: {
+        ownerId,
+        stripeInvoiceId:  mirror.stripeInvoiceId,
+        stripeCustomerId: mirror.stripeCustomerId,
+        number:           mirror.number,
+        hostedInvoiceUrl: mirror.hostedInvoiceUrl,
+        invoicePdf:       mirror.invoicePdf,
+        clientId:         input.clientId,
+        projectId:        input.projectId,
+        lineItems:        mirror.lineItems,
+        status:           mirror.status,
+        issueDate,
+        dueDate:          mirror.dueDate ?? dueDate,
+        subtotal:         mirror.subtotal,
+        tax:              mirror.tax,
+        taxRate:          input.tax ?? null,
+        total:            mirror.total,
+        paymentTerms:     terms,
+        purchaseOrder:    input.purchaseOrder ?? null,
+        notes:            input.notes ?? null,
+      },
+      include: WITH_JOIN,
+    })
+
+    if (claimEntryIds?.length) {
+      // Re-assert `invoiceId: null` so two concurrent calls cannot both claim
+      // the same entries; the loser updates fewer rows and rolls back.
+      const claimed = await tx.timeEntry.updateMany({
+        where: { id: { in: claimEntryIds }, ownerId, invoiceId: null },
+        data: { invoiceId: invoice.id },
+      })
+      if (claimed.count !== claimEntryIds.length) {
+        throw new Error('Some entries were invoiced by another request — try again')
+      }
+    }
+
+    return invoice
+  })
+
+  return serializeInvoice(row)
+}
+
 export async function createInvoice(ownerId: string, input: CreateInvoiceInput) {
   // clientId and projectId arrive from the request body. Unchecked, an invoice
-  // could be created against another owner's client — and both the invoice list
-  // and the public invoice page render that client's name.
+  // could be raised against another owner's client — and Stripe would email it
+  // to them.
   if (!(await ownsClient(ownerId, input.clientId))) {
     throw new Error('Client not found')
   }
   if (input.projectId && !(await ownsProject(ownerId, input.projectId, input.clientId))) {
     throw new Error('Project not found for this client')
   }
+  if (sumLines(input.lineItems) <= 0) {
+    throw new Error('Invoice total must be greater than $0')
+  }
 
-  const { subtotal, taxAmount, total } = calcTotals(input.lineItems, input.tax)
-  const invoiceNumber = await nextInvoiceNumber(ownerId)
-  const publicToken = randomBytes(24).toString('hex')
-
-  const row = await prisma.invoice.create({
-    data: {
-      ownerId,
-      invoiceNumber,
-      publicToken,
-      clientId:   input.clientId,
-      projectId:  input.projectId ?? null,
-      lineItems:  input.lineItems,
-      status:     'draft',
-      issueDate:  new Date(input.issueDate),
-      dueDate:    new Date(input.dueDate),
-      subtotal,
-      tax:        taxAmount,
-      taxRate:    input.tax ?? null,
-      total,
-      paymentTerms:  await termsFor(ownerId, input.paymentTerms),
-      purchaseOrder: input.purchaseOrder ?? null,
-      notes:      input.notes ?? null,
-    },
-    include: WITH_JOIN,
+  return createDraft(ownerId, {
+    clientId:      input.clientId,
+    projectId:     input.projectId ?? null,
+    lineItems:     input.lineItems,
+    issueDate:     input.issueDate,
+    dueDate:       input.dueDate,
+    tax:           input.tax,
+    notes:         input.notes,
+    paymentTerms:  input.paymentTerms,
+    purchaseOrder: input.purchaseOrder,
   })
-  return serializeInvoice(row)
 }
 
 export async function createInvoiceFromTimeEntries(
@@ -183,193 +287,228 @@ export async function createInvoiceFromTimeEntries(
     const r = e.rate != null
       ? (typeof e.rate === 'object' ? e.rate.toNumber() : Number(e.rate))
       : 0
-    const dateStr = e.date instanceof Date ? e.date.toISOString().slice(0, 10) : String(e.date).slice(0, 10)
+    const dateStr = e.date instanceof Date
+      ? e.date.toISOString().slice(0, 10)
+      : String(e.date).slice(0, 10)
     return {
       id: e.id,
-      description: e.description
-        ? `${dateStr}: ${e.description}`
-        : dateStr,
+      description: e.description ? `${dateStr}: ${e.description}` : dateStr,
       quantity: h,
       unitPrice: r,
       amount: Math.round(h * r * 100) / 100,
     }
   })
 
-  const { subtotal, taxAmount, total } = calcTotals(lineItems, input.tax)
-  if (total <= 0) throw new Error('Total is $0 — set a rate on each entry before invoicing')
+  if (sumLines(lineItems) <= 0) {
+    throw new Error('Total is $0 — set a rate on each entry before invoicing')
+  }
 
-  const invoiceNumber = await nextInvoiceNumber(ownerId)
-  const publicToken = randomBytes(24).toString('hex')
-
-  const projectId = entries[0].projectId ?? null
-  const terms = await termsFor(ownerId, input.paymentTerms)
-
-  // Creating the invoice and claiming its time entries has to be one unit: the
-  // create used to sit alone inside `$transaction([...])` with the updateMany
-  // issued separately afterwards, so a failure between the two (or a request
-  // that died in the gap) left an invoice billing entries that were still
-  // marked unbilled — free to be pulled onto a second invoice.
-  const row = await prisma.$transaction(async (tx) => {
-    const invoice = await tx.invoice.create({
-      data: {
-        ownerId,
-        invoiceNumber,
-        publicToken,
-        clientId,
-        projectId,
-        lineItems,
-        status:    'draft',
-        issueDate: new Date(input.issueDate),
-        dueDate:   new Date(input.dueDate),
-        subtotal,
-        tax:       taxAmount,
-        taxRate:   input.tax ?? null,
-        total,
-        paymentTerms:  terms,
-        purchaseOrder: input.purchaseOrder ?? null,
-        notes:     input.notes ?? null,
-      },
-      include: WITH_JOIN,
-    })
-
-    // Re-assert `invoiceId: null` so two concurrent calls cannot both claim the
-    // same entries; the loser updates 0 rows and rolls back.
-    const claimed = await tx.timeEntry.updateMany({
-      where: { id: { in: entries.map((e) => e.id) }, ownerId, invoiceId: null },
-      data: { invoiceId: invoice.id },
-    })
-    if (claimed.count !== entries.length) {
-      throw new Error('Some entries were invoiced by another request — try again')
-    }
-
-    return invoice
-  })
-
-  return serializeInvoice(row)
+  return createDraft(
+    ownerId,
+    {
+      clientId,
+      projectId:     entries[0].projectId ?? null,
+      lineItems,
+      issueDate:     input.issueDate,
+      dueDate:       input.dueDate,
+      tax:           input.tax,
+      notes:         input.notes,
+      paymentTerms:  input.paymentTerms,
+      purchaseOrder: input.purchaseOrder,
+    },
+    entries.map((e) => e.id),
+  )
 }
 
-export async function updateInvoiceStatus(
-  ownerId: string,
-  id: string,
-  status: 'draft' | 'sent' | 'overdue',
-) {
-  const existing = await prisma.invoice.findFirst({ where: { id, ownerId } })
+/**
+ * Finalizes the invoice in Stripe and emails it to the client.
+ *
+ * This is the only "send" there is now — Stripe delivers it, and the link in
+ * that email is Stripe's hosted page. Replaces the old status flip to `sent`,
+ * which only ever changed a value in our own database and left the operator to
+ * email the invoice themselves.
+ */
+export async function sendInvoice(ownerId: string, id: string) {
+  const existing = await prisma.invoice.findFirst({
+    where: { id, ownerId },
+    select: { stripeInvoiceId: true, status: true },
+  })
   if (!existing) return null
-  if (existing.status === 'paid') throw new Error('Cannot change status of a paid invoice')
+  if (!existing.stripeInvoiceId) {
+    throw new Error(
+      'This invoice predates the Stripe integration and cannot be sent. ' +
+        'Raise a new one to bill through Stripe.',
+    )
+  }
+  if (existing.status !== 'draft') {
+    throw new Error('This invoice has already been finalized')
+  }
 
+  const stripe = await stripeFor(ownerId)
+  const sent = await finalizeAndSendInvoice(stripe, existing.stripeInvoiceId)
+  return applyMirror(id, sent)
+}
+
+/**
+ * Re-reads an invoice from Stripe and updates the mirror.
+ *
+ * The webhook is the normal path; this is the manual one, for when an invoice
+ * was changed in the Stripe dashboard or a webhook was missed. Cheap enough to
+ * offer as a button and safe to run at any time.
+ */
+export async function refreshInvoice(ownerId: string, id: string) {
+  const existing = await prisma.invoice.findFirst({
+    where: { id, ownerId },
+    select: { stripeInvoiceId: true },
+  })
+  if (!existing?.stripeInvoiceId) return null
+
+  const stripe = await stripeFor(ownerId)
+  const fresh = await retrieveInvoice(stripe, existing.stripeInvoiceId)
+  return applyMirror(id, fresh)
+}
+
+/**
+ * Writes Stripe's copy of an invoice over ours.
+ *
+ * Only ever touches the fields Stripe owns. clientId, projectId, the time-entry
+ * links and the archive flag are ours and are never overwritten from a Stripe
+ * payload — Stripe does not know what they should be.
+ */
+async function applyMirror(
+  id: string,
+  stripeInvoice: Parameters<typeof toInvoiceMirror>[0],
+) {
+  const mirror = toInvoiceMirror(stripeInvoice)
   const row = await prisma.invoice.update({
     where: { id },
-    data: { status },
+    data: {
+      number:           mirror.number,
+      hostedInvoiceUrl: mirror.hostedInvoiceUrl,
+      invoicePdf:       mirror.invoicePdf,
+      status:           mirror.status,
+      lineItems:        mirror.lineItems,
+      subtotal:         mirror.subtotal,
+      tax:              mirror.tax,
+      total:            mirror.total,
+      ...(mirror.dueDate && { dueDate: mirror.dueDate }),
+    },
     include: WITH_JOIN,
   })
   return serializeInvoice(row)
 }
 
-export async function markInvoicePaid(ownerId: string, id: string) {
+/**
+ * Records payment of an invoice, from the Stripe webhook.
+ *
+ * Creates the income transaction as well as updating the status, so a paid
+ * invoice shows up in Finance attributed to the right client and project.
+ *
+ * Idempotent on every path Stripe can retry:
+ *   - an invoice already carrying a transaction is left alone
+ *   - a transaction already imported for the same Stripe invoice is linked
+ *     rather than duplicated
+ * The charge sync keys income on the payment intent, and this keys on the
+ * invoice id, so the unique (ownerId, source, externalId) constraint cannot
+ * catch a collision between the two — the explicit lookup below is what stops
+ * an invoice payment being counted twice.
+ */
+export async function markInvoicePaidFromStripe(
+  ownerId: string,
+  stripeInvoiceId: string,
+  stripeInvoice: Parameters<typeof toInvoiceMirror>[0],
+): Promise<void> {
   const existing = await prisma.invoice.findFirst({
-    where: { id, ownerId },
-    include: { client: { select: { id: true, companyName: true, contactName: true } } },
+    where: { stripeInvoiceId, ownerId },
+    include: { client: { select: { companyName: true, contactName: true } } },
   })
-  if (!existing) return null
-  if (existing.status === 'paid') throw new Error('Invoice is already paid')
-  if (existing.transactionId) throw new Error('Invoice already has a linked transaction')
+  if (!existing) return
 
-  const clientName = existing.client.companyName ?? existing.client.contactName ?? 'Client'
-  const total = typeof existing.total === 'object' ? existing.total.toNumber() : Number(existing.total)
-  const invoiceNumberFormatted = `INV-${String(existing.invoiceNumber).padStart(4, '0')}`
+  const mirror = toInvoiceMirror(stripeInvoice)
 
-  const tx = await prisma.transaction.create({
+  await prisma.invoice.update({
+    where: { id: existing.id },
     data: {
-      ownerId,
-      type:        'income',
-      source:      'manual',
-      amount:      total,
-      currency:    'usd',
-      description: `Payment for ${invoiceNumberFormatted} — ${clientName}`,
-      category:    'Client work',
-      occurredAt:  new Date(),
-      clientId:    existing.clientId,
-      // Carried through so the work this invoice billed for reports the money
-      // it brought in. Without it, settling an invoice silently detached the
-      // payment from its project.
-      projectId:   existing.projectId,
-      isRecurring: false,
+      number:           mirror.number,
+      hostedInvoiceUrl: mirror.hostedInvoiceUrl,
+      invoicePdf:       mirror.invoicePdf,
+      status:           mirror.status,
+      lineItems:        mirror.lineItems,
+      subtotal:         mirror.subtotal,
+      tax:              mirror.tax,
+      total:            mirror.total,
     },
   })
 
-  const row = await prisma.invoice.update({
-    where: { id },
-    data: { status: 'paid', transactionId: tx.id },
-    include: WITH_JOIN,
-  })
-  return serializeInvoice(row)
-}
-
-export async function markInvoicePaidFromCheckout(
-  invoiceId: string,
-  ownerId: string,
-  paymentIntentId: string | null,
-) {
-  const existing = await prisma.invoice.findFirst({
-    where: { id: invoiceId, ownerId },
-    include: { client: { select: { id: true, companyName: true, contactName: true } } },
-  })
-  if (!existing) return
-  if (existing.status === 'paid') return
+  if (mirror.status !== 'paid') return
   if (existing.transactionId) return
 
-  // Idempotency: if a stripe transaction already exists for this payment intent, link it
-  if (paymentIntentId) {
-    const existingTx = await prisma.transaction.findFirst({
-      where: { ownerId, source: 'stripe', externalId: paymentIntentId },
-    })
-    if (existingTx) {
-      await prisma.invoice.update({
-        where: { id: invoiceId },
-        data: { status: 'paid', transactionId: existingTx.id },
-      })
-      return
-    }
-  }
+  const clientName =
+    existing.client.companyName ?? existing.client.contactName ?? 'Client'
+  const reference = mirror.number ?? stripeInvoiceId
 
-  const clientName = existing.client.companyName ?? existing.client.contactName ?? 'Client'
-  const total = typeof existing.total === 'object' ? existing.total.toNumber() : Number(existing.total)
-  const invoiceNumberFormatted = `INV-${String(existing.invoiceNumber).padStart(4, '0')}`
+  const alreadyImported = await prisma.transaction.findFirst({
+    where: { ownerId, source: 'stripe', externalId: stripeInvoiceId },
+    select: { id: true },
+  })
+  if (alreadyImported) {
+    await prisma.invoice.update({
+      where: { id: existing.id },
+      data: { transactionId: alreadyImported.id },
+    })
+    return
+  }
 
   const tx = await prisma.transaction.create({
     data: {
       ownerId,
-      type:        'income',
-      source:      'stripe',
-      amount:      total,
-      currency:    'usd',
-      description: `Payment for ${invoiceNumberFormatted} — ${clientName}`,
-      category:    'Client work',
-      occurredAt:  new Date(),
-      clientId:    existing.clientId,
-      projectId:   existing.projectId,
-      externalId:  paymentIntentId,
-      externalType: 'payment_intent',
-      isRecurring: false,
+      type:         'income',
+      source:       'stripe',
+      amount:       mirror.total,
+      currency:     'usd',
+      description:  `Payment for ${reference} — ${clientName}`,
+      category:     'Client work',
+      occurredAt:   new Date(),
+      clientId:     existing.clientId,
+      projectId:    existing.projectId,
+      externalId:   stripeInvoiceId,
+      externalType: 'invoice',
+      isRecurring:  false,
     },
   })
 
   await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: { status: 'paid', transactionId: tx.id },
+    where: { id: existing.id },
+    data: { transactionId: tx.id },
   })
+}
+
+/**
+ * Updates the mirror from any non-payment invoice webhook.
+ *
+ * Finalization, sending, voiding and write-off all just move the status and the
+ * hosted URLs, none of which touch Finance.
+ */
+export async function syncInvoiceFromStripe(
+  ownerId: string,
+  stripeInvoiceId: string,
+  stripeInvoice: Parameters<typeof toInvoiceMirror>[0],
+): Promise<void> {
+  const existing = await prisma.invoice.findFirst({
+    where: { stripeInvoiceId, ownerId },
+    select: { id: true },
+  })
+  if (!existing) return
+  await applyMirror(existing.id, stripeInvoice)
 }
 
 /**
  * Archive or unarchive an invoice.
  *
- * Purely a visibility flag — unlike deletion, this is allowed for paid
- * invoices, which are the ones most worth filing away once settled. The
- * invoice keeps its number, its public token stays live for anyone holding
- * the link, and any linked transaction is untouched, the same way archiving a
- * client leaves their transactions in Finance.
- *
- * Returns null when the invoice does not belong to this owner.
+ * Purely a visibility flag in our list — unlike deletion, allowed for paid
+ * invoices, which are the ones most worth filing away once settled. Nothing is
+ * sent to Stripe: the invoice is still live there, its hosted link still works,
+ * and any linked transaction is untouched.
  */
 export async function setInvoiceArchived(
   ownerId: string,
@@ -387,13 +526,52 @@ export async function setInvoiceArchived(
   return serializeInvoice(row)
 }
 
-export async function deleteInvoice(ownerId: string, id: string) {
-  const existing = await prisma.invoice.findFirst({ where: { id, ownerId } })
-  if (!existing) return false
+/**
+ * Deletes a draft, or voids a finalized invoice.
+ *
+ * Which one happens is Stripe's rule, not ours: a draft can be deleted
+ * outright, a finalized invoice cannot be, because the client may already hold
+ * the link. Voiding leaves it on record, marked void, and the mirror row stays
+ * with it — deleting our copy of an invoice that still exists in Stripe would
+ * mean the next webhook had nothing to update.
+ *
+ * Returns 'deleted' or 'voided' so the caller can say which happened.
+ */
+export async function deleteInvoice(
+  ownerId: string,
+  id: string,
+): Promise<'deleted' | 'voided' | null> {
+  const existing = await prisma.invoice.findFirst({
+    where: { id, ownerId },
+    select: { stripeInvoiceId: true, status: true },
+  })
+  if (!existing) return null
   if (existing.status === 'paid') throw new Error('Cannot delete a paid invoice')
 
-  // Unlink any time entries
-  await prisma.timeEntry.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } })
-  await prisma.invoice.delete({ where: { id } })
-  return true
+  // Legacy rows have nothing in Stripe, so the old behaviour still applies.
+  if (!existing.stripeInvoiceId) {
+    await prisma.timeEntry.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } })
+    await prisma.invoice.delete({ where: { id } })
+    return 'deleted'
+  }
+
+  const stripe = await stripeFor(ownerId)
+  const voided = await removeStripeInvoice(
+    stripe,
+    existing.stripeInvoiceId,
+    existing.status,
+  )
+
+  if (!voided) {
+    await prisma.timeEntry.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } })
+    await prisma.invoice.delete({ where: { id } })
+    return 'deleted'
+  }
+
+  // Voided, not gone: the entries stay attached, because they really were
+  // billed on a document the client may have seen.
+  await applyMirror(id, voided)
+  return 'voided'
 }
+
+export { describeStripeError, isEditable }

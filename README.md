@@ -33,7 +33,7 @@ PromptDesk is a single-tenant CRM where each user account holds its own isolated
 - **Manage prompt templates** — users can customize built-in templates or create their own with `{{placeholder}}` syntax.
 - **Run projects** — the work itself, with budgets, hourly rates, deliverable checklists, and a per-project profit-and-loss showing what came in against what was quoted.
 - **Track time** — a weekly timesheet and a running timer, per project, with billable/non-billable split. Unbilled entries turn straight into an invoice.
-- **Invoice clients** — a proper document with both parties' addresses, tax number, payment terms and itemisation, on a public link the client opens and pays by card through Stripe Checkout.
+- **Invoice clients** — build the invoice from logged time or by hand, then Stripe raises it: it numbers the invoice, emails the client, hosts the page they pay on, renders the PDF and chases the payment. Paid invoices come back as income against the right client and project.
 - **See the money** — income and expenses over a selectable period, with recurring charges projected forward, Stripe transactions synced in, and category and per-client breakdowns.
 
 ---
@@ -168,9 +168,9 @@ User profile (name, business name/type, preferred AI tool), billing details prin
 
 | Route | Description |
 |-------|-------------|
-| `/invoice/[publicToken]` | The invoice a client opens. Unguessable 24-byte token, `noindex`, 404s for drafts. Offers card payment via Stripe Checkout when the invoice has been sent. |
-| `POST /api/invoice/[publicToken]/checkout` | Creates the Stripe Checkout session. |
-| `POST /api/webhooks/stripe` | Signature-verified Stripe events — charges, refunds, customers, completed checkouts. |
+| `/invoice/[publicToken]` | **Legacy.** The read-only record of an invoice raised before Stripe invoicing. Unguessable 24-byte token, `noindex`, 404s for drafts. Kept so links already in clients' inboxes still resolve; new invoices are hosted by Stripe. |
+| `POST /api/webhooks/stripe/[endpointToken]` | Per-user endpoint. The token identifies the owner; the signature is verified against that user's own secret. |
+| `POST /api/webhooks/stripe` | **Legacy** shared endpoint, verified against `STRIPE_WEBHOOK_SECRET`. Resolves an owner only when exactly one user has Stripe connected. |
 
 ---
 
@@ -362,18 +362,24 @@ A piece of work for a client. The client's pipeline stage is derived from these.
 | invoiceId | UUID? | Set when the entry is billed; re-asserted null on claim so two invoices cannot take the same entry |
 
 ### Invoice
+A mirror of a Stripe invoice, not the invoice itself.
+
 | Column | Type | Notes |
 |--------|------|-------|
 | ownerId, clientId | UUID | FKs |
 | projectId | UUID? | Which work was billed |
-| invoiceNumber | Int | Sequential per owner, unique with it. Rendered `INV-0042`. |
-| publicToken | String | 24 random bytes; the client's link |
-| lineItems | JSON | Description, quantity, unit price, amount |
-| status | Enum | `draft \| sent \| paid \| overdue` — `overdue` is *derived at read time*, never written |
+| stripeInvoiceId | String? | Unique. **Null identifies a legacy row** raised before the move — readable, but not sendable or payable |
+| stripeCustomerId | String? | The customer billed, frozen at creation |
+| number | String? | Stripe's number, assigned at finalization. Null while a draft |
+| hostedInvoiceUrl | String? | Where the client pays. Replaces the public token page |
+| invoicePdf | String? | Stripe's rendered PDF. Replaces the print stylesheet |
+| invoiceNumber, publicToken | Int?, String? | **Legacy.** Our old counter and client link. Never written for new invoices |
+| lineItems | JSON | Cached from Stripe for list rendering. Never authoritative |
+| status | Enum | `draft \| open \| paid \| uncollectible \| void` — Stripe's lifecycle. `overdue` is *derived at read time* from an open invoice past its due date, and is not a status |
 | issueDate, dueDate | Date | |
-| subtotal, tax, taxRate, total | Decimal | The rate is stored alongside the amount so the document can say "Tax (8.5%)" |
+| subtotal, tax, taxRate, total | Decimal | Amounts are Stripe's; `taxRate` is ours, stored so the document can say "Tax (8.5%)" |
 | paymentTerms | String? | e.g. "Net 30", copied from the user's default and frozen at creation |
-| purchaseOrder | String? | The client's reference |
+| purchaseOrder | String? | The client's reference, sent to Stripe as a custom field |
 | transactionId | UUID? | The income row created when it was paid |
 
 ### Transaction
@@ -387,7 +393,9 @@ Income and expenses, whether entered by hand or synced from Stripe.
 | clientId, projectId | UUID? | Both `SET NULL` on delete — removing a project must not delete the record of money |
 | source | String | `manual \| stripe` |
 | externalId, externalType | String? | Unique with `(ownerId, source)`. Charges key on their **payment intent** so a card payment cannot be counted twice. |
-| isRecurring, frequency, recurrenceEndedAt | | A standing charge is entered once and projected forward, not re-entered monthly |
+| isRecurring, frequency, recurrenceEndedAt | | A standing charge is entered once and projected forward, not re-entered monthly. Ending a recurrence is how a cancellation is recorded — un-ticking `isRecurring` would erase the charge from the months it did apply to |
+| stripeSubscriptionId | String? | Which subscription billed the charge, so cancelling in Stripe can end the standing charge here |
+| hiddenAt | DateTime? | The user took this row off their ledger. Excluded from every read path. Imported rows cannot be deleted — the next backfill re-imports them — so hiding is what the table offers instead |
 
 ### StripeSyncState
 One row per owner: sync status, last backfill, last event, last error.
@@ -464,16 +472,27 @@ Standard CRUD: `createTask`, `listTasks`, `updateTask`, `deleteTask`. Tasks can 
 Weekly timesheets, billable filtering, and the week-boundary helpers.
 
 ### `lib/invoices/`
-- `index.ts` — creation (by hand or from time entries), status transitions, payment
-- `serialize.ts` — including the read-time `overdue` derivation
-- Creating from time entries claims those entries inside one transaction, re-asserting `invoiceId: null`, so two concurrent requests cannot bill the same work twice.
+Stripe is the system of record; the `invoices` table is a mirror holding what Stripe has never heard of — which client, which project, which time entries.
+
+- `stripe-mapper.ts` — pure, unit-tested mapping both ways: money in cents, fractional hours against Stripe's integer quantities, a due date as a day count, Stripe's status narrowed to our enum.
+- `stripe-invoices.ts` — every Stripe call. Never writes to our database.
+- `index.ts` — creation (by hand or from time entries), send, refresh, void, and recording payment from the webhook.
+- `serialize.ts` — including the read-time `isOverdue` derivation. Stripe has no overdue status, so it is a property of an open invoice past its due date rather than a value we store.
+
+**Ordering rule: Stripe first, then the mirror.** If the mirror write fails after Stripe succeeded, the worst case is an orphaned draft in the Stripe dashboard — visible and harmless. The other order shows the user an invoice that does not exist and cannot be paid.
+
+Creating from time entries claims those entries inside one transaction, re-asserting `invoiceId: null`, so two concurrent requests cannot bill the same work twice.
+
+Rows with a null `stripeInvoiceId` predate the move. They stay readable as records but cannot be sent, paid or edited — there is nothing in Stripe to act on.
 
 ### `lib/finance/`
 - `calc.ts` — pure period maths: period boundaries, recurring-charge expansion, category grouping. `occurrenceDates` is the single definition of when a standing charge applies, so the chart, the totals and the table cannot disagree.
 - `series.ts` — chart buckets that follow the period selector
 - `stripe-mapper.ts` — pure Stripe-object → transaction mapping
-- `stripe-sync.ts` — all Stripe I/O: backfill and webhook handling
-- `stripe-key.ts` — per-user AES-256-GCM key storage
+- `stripe-sync.ts` — all Stripe I/O: backfill and event processing
+- `stripe-key.ts` — per-user AES-256-GCM key storage, and per-user webhook endpoint registration
+- `webhook-handler.ts` — what a verified event does, shared by both webhook routes so they cannot drift
+- `visibility.ts` — the single `hiddenAt: null` filter every read path spreads, so a row the user hid leaves the table, the totals, the chart and project P&L together
 
 ### `lib/db/ownership.ts`
 `ownsClient` / `ownsProject`. Foreign keys arriving in a request body are exactly as untrusted as an owner id, and every create that accepts one checks it first.
@@ -808,17 +827,29 @@ SENTRY_ORG=
 SENTRY_PROJECT=
 NEXT_PUBLIC_SENTRY_DSN=
 
-# Stripe (optional — required for revenue import)
-STRIPE_RESTRICTED_KEY=    # Restricted read-only key (rk_live_... / rk_test_...)
-STRIPE_WEBHOOK_SECRET=    # Webhook signing secret (whsec_...)
+# Stripe (optional — required for revenue import and invoicing)
+STRIPE_ENCRYPTION_KEY=    # 64 hex chars; encrypts per-user keys and webhook secrets
+STRIPE_RESTRICTED_KEY=    # Fallback key when no per-user key is saved (rk_live_... / rk_test_...)
+STRIPE_WEBHOOK_SECRET=    # Legacy shared-endpoint signing secret (whsec_...); per-user secrets live in the DB
 STRIPE_API_VERSION=       # Pin: 2026-05-27.dahlia
 ```
 
 ### Stripe Setup
 
-PromptDesk uses a **read-only** Stripe integration to import charges as income transactions. It never writes to Stripe.
+Stripe does two jobs here, and they need different permissions:
 
-**Key type:** Use a [Restricted key](https://dashboard.stripe.com/apikeys) (`rk_live_...`), **not** the full secret key. Required read permissions: Charges, Customers, Balance transactions.
+1. **Revenue import** (read-only) — charges, refunds and subscriptions become income and expense transactions.
+2. **Invoicing** (read/write) — Stripe *is* the invoice system. It assigns the number, hosts the page the client pays on, renders the PDF, emails it and chases payment. PromptDesk keeps a mirror row linking each Stripe invoice to a client, project and time entries.
+
+**Key type:** Use a [Restricted key](https://dashboard.stripe.com/apikeys) (`rk_live_...`), **not** the full secret key.
+
+| Permission | Scope | Needed for |
+|---|---|---|
+| Charges, Balance transactions, Subscriptions | Read | Revenue import |
+| Invoices, Customers, Tax Rates | Write | Raising and sending invoices |
+| Webhook Endpoints | Write | Automatic status and payment updates |
+
+A read-only key still works — transactions import as before, and Settings says plainly which features are unavailable rather than failing later at the moment you try to bill a client.
 
 **Connecting without touching code:** Users paste their restricted key in **Settings → Stripe**. The key is encrypted with AES-256-GCM using `STRIPE_ENCRYPTION_KEY` before being stored in the database.
 
@@ -828,17 +859,33 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 # → set the output as STRIPE_ENCRYPTION_KEY in .env.local / Vercel env vars
 ```
 
-`STRIPE_RESTRICTED_KEY` (env var) is now optional — it is only used as a fallback when no per-user key is saved in the database. Self-hosted single-user deployments can still use it directly.
+`STRIPE_RESTRICTED_KEY` (env var) is optional — used only as a fallback when no per-user key is saved. Self-hosted single-user deployments can still use it directly.
 
-**Security model:** The encryption key (`STRIPE_ENCRYPTION_KEY`) never touches the database. The Stripe key is encrypted with a fresh random IV per write. The last-4 chars of the key are stored unencrypted for display only.
+**Security model:** The encryption key (`STRIPE_ENCRYPTION_KEY`) never touches the database. The Stripe key is encrypted with a fresh random IV per write. The last-4 chars are stored unencrypted for display only. Webhook signing secrets get identical treatment.
 
 **Revenue recognition:** Income is recorded at the charge event. Payouts are the same money moving to your bank account and are intentionally excluded to prevent double-counting.
 
 **PCI:** Only `last4` and `brand` are stored for display. Full card numbers and raw bank details are never persisted.
 
+### Webhooks
+
+Each user gets their **own endpoint**, registered against their own Stripe account when they save their key. It posts to `/api/webhooks/stripe/[token]`, where the token identifies the owner, and its signing secret is stored encrypted per user.
+
+This replaced a single shared endpoint whose handler resolved the owner by picking whichever user had synced most recently — which could attribute one Stripe account's events to a different user. That mattered little while invoice payments carried an `ownerId` in their metadata, but Stripe now owns the invoice lifecycle and status arrives by webhook alone.
+
+The token is **not** a credential. It selects which signing secret to verify against; nothing is trusted until that signature checks out.
+
+Endpoint registration needs `NEXT_PUBLIC_APP_URL` set to a publicly reachable URL. Without one — or with a key lacking Webhook Endpoints: Write — invoicing still works, but statuses only update when you press **Refresh from Stripe** on an invoice.
+
+`/api/webhooks/stripe` (no token) remains for endpoints configured before this change. It resolves an owner only when exactly one user has Stripe connected, and refuses rather than guessing otherwise.
+
+**Handled events:** `charge.succeeded`, `charge.updated`, `charge.refunded`, `invoice.finalized`, `invoice.sent`, `invoice.updated`, `invoice.paid`, `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.voided`, `invoice.marked_uncollectible`, `customer.created`, `customer.updated`, `customer.subscription.updated`, `customer.subscription.deleted`.
+
+**Security note:** Every inbound request is verified with HMAC-SHA256 (`Stripe.webhooks.constructEvent`). Requests with a missing or invalid `stripe-signature` header are rejected with `400` before any data is read or written. Tests live in `lib/finance/__tests__/webhook-signature.test.ts`.
+
 ### Testing Stripe webhooks locally
 
-Install the [Stripe CLI](https://stripe.com/docs/stripe-cli), then forward events to your local dev server:
+Stripe cannot reach `localhost`, so endpoint registration is skipped in local development. Use the [Stripe CLI](https://stripe.com/docs/stripe-cli) against the legacy shared route instead:
 
 ```bash
 stripe listen --forward-to localhost:3000/api/webhooks/stripe
@@ -847,12 +894,8 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 The CLI prints a signing secret (`whsec_...`) — set it as `STRIPE_WEBHOOK_SECRET` in `.env.local`. Trigger a test event in another terminal:
 
 ```bash
-stripe trigger charge.succeeded
+stripe trigger invoice.paid
 ```
-
-Handled events: `charge.succeeded`, `charge.updated`, `charge.refunded`, `invoice.paid`, `customer.created`, `customer.updated`.
-
-**Security note:** The webhook handler verifies every inbound request using HMAC-SHA256 (`Stripe.webhooks.constructEvent`). Requests with a missing or invalid `stripe-signature` header are rejected with `400` before any data is read or written. Signature verification tests live in `lib/finance/__tests__/webhook-signature.test.ts`.
 
 ### `next.config.ts`
 - React Compiler enabled for automatic memoization

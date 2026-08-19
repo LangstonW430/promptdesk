@@ -5,6 +5,7 @@ const projectCount = vi.fn()
 const invoiceCreate = vi.fn()
 const invoiceAggregate = vi.fn()
 const userFindUnique = vi.fn()
+const transaction = vi.fn()
 
 vi.mock('@/lib/db/client', () => ({
   prisma: {
@@ -31,7 +32,44 @@ vi.mock('@/lib/db/client', () => ({
         return invoiceAggregate
       },
     },
+    get $transaction() {
+      return transaction
+    },
   },
+}))
+
+// Terms, tax rate and PO are ours: they are written to our row and passed to
+// Stripe, but what comes back from Stripe never overwrites them. Stubbing the
+// Stripe call keeps these assertions on the row we build.
+vi.mock('@/lib/invoices/stripe-invoices', () => ({
+  stripeFor: vi.fn(async () => ({})),
+  ensureStripeCustomer: vi.fn(async () => 'cus_test'),
+  // Stands in for Stripe applying the tax rate: it computes the tax on the
+  // $100 subtotal, so a request with no rate really does come back untaxed.
+  createStripeInvoice: vi.fn(
+    async (_stripe: unknown, input: { taxRate?: number | null }) => {
+      const taxCents = input.taxRate ? Math.round(10_000 * (input.taxRate / 100)) : null
+      return {
+        id: 'in_test',
+        object: 'invoice',
+        status: 'draft',
+        number: null,
+        customer: 'cus_test',
+        hosted_invoice_url: null,
+        invoice_pdf: null,
+        subtotal: 10_000,
+        total: 10_000 + (taxCents ?? 0),
+        total_taxes: taxCents == null ? null : [{ amount: taxCents }],
+        due_date: null,
+        lines: { object: 'list', data: [] },
+      }
+    },
+  ),
+  finalizeAndSendInvoice: vi.fn(),
+  retrieveInvoice: vi.fn(),
+  removeStripeInvoice: vi.fn(),
+  describeStripeError: (err: unknown) =>
+    err instanceof Error ? err.message : 'Stripe request failed',
 }))
 
 const { createInvoice } = await import('@/lib/invoices')
@@ -79,6 +117,13 @@ beforeEach(() => {
   invoiceCreate.mockReset().mockResolvedValue(created)
   invoiceAggregate.mockReset().mockResolvedValue({ _max: { invoiceNumber: 0 } })
   userFindUnique.mockReset().mockResolvedValue({ defaultPaymentTerms: null })
+  // Run the interactive callback against the same mocked delegates.
+  transaction.mockReset().mockImplementation((fn) =>
+    fn({
+      invoice: { create: invoiceCreate },
+      timeEntry: { updateMany: vi.fn() },
+    }),
+  )
 })
 
 describe('createInvoice — tax rate', () => {
@@ -88,6 +133,11 @@ describe('createInvoice — tax rate', () => {
     const data = dataOf()
     // Both, not either: the amount cannot be read back into a rate, and the
     // rate alone does not survive a change to the subtotal.
+    //
+    // The rate is ours — it is what the user asked for, and Stripe never
+    // reports it back. The amount is Stripe's, computed from the tax rate they
+    // applied, so the invoice never states a figure the payment processor
+    // disagrees with.
     expect(data.taxRate).toBe(8.5)
     expect(data.tax).toBe(8.5)
   })

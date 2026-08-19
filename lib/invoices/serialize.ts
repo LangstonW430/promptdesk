@@ -16,8 +16,12 @@ function toDateStr(d: Date | string): string {
 export type InvoiceRow = {
   id: string
   ownerId: string
-  invoiceNumber: number
-  publicToken: string
+  stripeInvoiceId: string | null
+  number: string | null
+  hostedInvoiceUrl: string | null
+  invoicePdf: string | null
+  invoiceNumber: number | null
+  publicToken: string | null
   clientId: string
   projectId: string | null
   lineItems: unknown
@@ -49,42 +53,46 @@ export type InvoiceRowPublic = InvoiceRow & {
   }
 }
 
-function formatInvoiceNumber(n: number): string {
+function formatLegacyNumber(n: number): string {
   return `INV-${String(n).padStart(4, '0')}`
 }
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * `overdue` is derived at read time rather than persisted.
+ * Overdue is derived at read time, and is no longer a status.
  *
- * It is purely a function of `status === 'sent'` and the due date having
- * passed, so writing it back to the database bought nothing and forced a write
- * transaction ahead of every invoice read. Deriving it also keeps the public
- * invoice page consistent with the owner's list — the old write-on-read only
- * ran on the authenticated paths, so a public invoice could still show "sent"
- * after its due date.
+ * Stripe's lifecycle has no overdue state — an unpaid invoice past its due date
+ * is still `open` — so storing one would mean holding a status Stripe disagrees
+ * with. It was always derived anyway: purely a function of the invoice being
+ * unpaid and the due date having passed.
  *
- * A manually-set `overdue` status is preserved: this only ever promotes
- * `sent`, never demotes.
+ * A due date is a whole day, not an instant. `dueDate` is a Postgres DATE, so
+ * it arrives as midnight UTC — comparing `due < now` would mark an invoice
+ * overdue at 00:00 on the very day it falls due, and a client opening the link
+ * that morning would see it flagged late when it is not.
  */
-function deriveStatus(status: string, dueDate: Date | string, now: Date): InvoiceStatus {
-  if (status !== 'sent') return status as InvoiceStatus
+function deriveOverdue(status: string, dueDate: Date | string, now: Date): boolean {
+  if (status !== 'open') return false
   const due = dueDate instanceof Date ? dueDate : new Date(dueDate)
-
-  // A due date is a whole day, not an instant. `dueDate` is a Postgres DATE, so
-  // it arrives as midnight UTC — comparing `due < now` marked an invoice
-  // overdue at 00:00 on the very day it fell due, and a client opening the link
-  // that morning saw a red OVERDUE chip on an invoice that was not yet late.
-  return now.getTime() >= due.getTime() + ONE_DAY_MS ? 'overdue' : 'sent'
+  return now.getTime() >= due.getTime() + ONE_DAY_MS
 }
 
 export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): SerializedInvoice {
   return {
     id: row.id,
     ownerId: row.ownerId,
-    invoiceNumber: row.invoiceNumber,
-    invoiceNumberFormatted: formatInvoiceNumber(row.invoiceNumber),
+    stripeInvoiceId: row.stripeInvoiceId,
+    isLegacy: row.stripeInvoiceId == null,
+    // Stripe's number once finalized; a draft has none yet. Legacy rows keep
+    // showing the number our own counter gave them, so an invoice a client
+    // already holds is still findable by the reference printed on it.
+    number:
+      row.number ??
+      (row.invoiceNumber != null ? formatLegacyNumber(row.invoiceNumber) : null),
+    hostedInvoiceUrl: row.hostedInvoiceUrl,
+    invoicePdf: row.invoicePdf,
+    isOverdue: deriveOverdue(row.status, row.dueDate, now),
     publicToken: row.publicToken,
     clientId: row.clientId,
     clientName: row.client.companyName ?? row.client.contactName ?? 'Unknown',
@@ -92,7 +100,7 @@ export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): Seria
     projectId: row.projectId,
     projectTitle: row.project?.title ?? null,
     lineItems: row.lineItems as LineItem[],
-    status: deriveStatus(row.status, row.dueDate, now),
+    status: row.status as InvoiceStatus,
     issueDate: toDateStr(row.issueDate),
     dueDate: toDateStr(row.dueDate),
     subtotal: toNum(row.subtotal) ?? 0,
