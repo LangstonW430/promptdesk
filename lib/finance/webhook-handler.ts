@@ -39,16 +39,19 @@ export async function handleStripeEvent(
     case 'invoice.paid':
     case 'invoice.payment_succeeded': {
       const invoice = event.data.object as Stripe.Invoice
-      if (invoice.id) {
-        // Records the income transaction as well as the status. Skips both if a
-        // transaction is already linked, so the two paid events Stripe sends for
-        // one payment cannot bank the money twice.
-        await markInvoicePaidFromStripe(ownerId, invoice.id, invoice)
+      // Records the income transaction as well as the status, keyed on the
+      // PaymentIntent so the charge event and this one resolve to a single row.
+      const wasOurs = invoice.id
+        ? await markInvoicePaidFromStripe(ownerId, invoice.id, invoice)
+        : false
+
+      // The finance-side import exists for invoices raised outside PromptDesk —
+      // in the Stripe dashboard, or by a subscription. Running it over one of
+      // ours as well would key the same payment a second way and double-count
+      // it, so it only runs when the invoice is not ours.
+      if (!wasOurs) {
+        await processInvoiceEvent(invoice, ownerId)
       }
-      // Also runs the finance-side import, which recognises revenue for invoices
-      // raised outside PromptDesk. It no-ops when a backing charge exists,
-      // because charge.succeeded handles that case.
-      await processInvoiceEvent(invoice, ownerId)
       break
     }
     case 'invoice.finalized':

@@ -29,7 +29,7 @@ import {
   removeStripeInvoice,
   describeStripeError,
 } from './stripe-invoices'
-import { toInvoiceMirror, isEditable } from './stripe-mapper'
+import { toInvoiceMirror, isEditable, invoicePaymentIntentId } from './stripe-mapper'
 import type { CreateInvoiceInput, CreateFromEntriesInput } from './validators'
 import type { LineItem } from './types'
 
@@ -404,25 +404,27 @@ async function applyMirror(
  * Creates the income transaction as well as updating the status, so a paid
  * invoice shows up in Finance attributed to the right client and project.
  *
+ * Returns true when this was one of our invoices, so the caller knows not to
+ * also run the generic finance import over the same event.
+ *
  * Idempotent on every path Stripe can retry:
  *   - an invoice already carrying a transaction is left alone
- *   - a transaction already imported for the same Stripe invoice is linked
- *     rather than duplicated
- * The charge sync keys income on the payment intent, and this keys on the
- * invoice id, so the unique (ownerId, source, externalId) constraint cannot
- * catch a collision between the two — the explicit lookup below is what stops
- * an invoice payment being counted twice.
+ *   - the income row keys on the PaymentIntent that settled it, which is the
+ *     same key `charge.succeeded` uses, so the two webhooks Stripe sends for
+ *     one card payment resolve to a single row whichever arrives first
+ *   - an out-of-band payment has no intent and keys on the invoice id, where
+ *     no charge event exists to collide with
  */
 export async function markInvoicePaidFromStripe(
   ownerId: string,
   stripeInvoiceId: string,
   stripeInvoice: Parameters<typeof toInvoiceMirror>[0],
-): Promise<void> {
+): Promise<boolean> {
   const existing = await prisma.invoice.findFirst({
     where: { stripeInvoiceId, ownerId },
     include: { client: { select: { companyName: true, contactName: true } } },
   })
-  if (!existing) return
+  if (!existing) return false
 
   const mirror = toInvoiceMirror(stripeInvoice)
 
@@ -440,23 +442,36 @@ export async function markInvoicePaidFromStripe(
     },
   })
 
-  if (mirror.status !== 'paid') return
-  if (existing.transactionId) return
+  if (mirror.status !== 'paid') return true
+  if (existing.transactionId) return true
 
   const clientName =
     existing.client.companyName ?? existing.client.contactName ?? 'Client'
   const reference = mirror.number ?? stripeInvoiceId
 
+  // The same key charge.succeeded uses, so one payment cannot become two rows.
+  const externalId = invoicePaymentIntentId(stripeInvoice) ?? stripeInvoiceId
+
   const alreadyImported = await prisma.transaction.findFirst({
-    where: { ownerId, source: 'stripe', externalId: stripeInvoiceId },
+    where: { ownerId, source: 'stripe', externalId },
     select: { id: true },
   })
   if (alreadyImported) {
+    // charge.succeeded got here first. Attribute it to the client and the
+    // project the invoice was raised for — the charge sync only knows the
+    // counterparty email, so this is strictly better information.
+    await prisma.transaction.update({
+      where: { id: alreadyImported.id },
+      data: {
+        clientId:  existing.clientId,
+        projectId: existing.projectId,
+      },
+    })
     await prisma.invoice.update({
       where: { id: existing.id },
       data: { transactionId: alreadyImported.id },
     })
-    return
+    return true
   }
 
   const tx = await prisma.transaction.create({
@@ -471,7 +486,7 @@ export async function markInvoicePaidFromStripe(
       occurredAt:   new Date(),
       clientId:     existing.clientId,
       projectId:    existing.projectId,
-      externalId:   stripeInvoiceId,
+      externalId,
       externalType: 'invoice',
       isRecurring:  false,
     },
@@ -481,6 +496,8 @@ export async function markInvoicePaidFromStripe(
     where: { id: existing.id },
     data: { transactionId: tx.id },
   })
+
+  return true
 }
 
 /**

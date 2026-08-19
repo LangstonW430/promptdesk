@@ -16,6 +16,7 @@ import { prisma } from '@/lib/db/client'
 import { getStripeForOwner } from './stripe-client'
 import { getPeriodBoundaries } from './calc'
 import { VISIBLE_TRANSACTION } from './visibility'
+import { invoicePaymentIntentId } from '@/lib/invoices/stripe-mapper'
 import type { RecurringFrequency } from './types'
 import {
   chargeToTransaction,
@@ -466,6 +467,12 @@ export async function processInvoiceEvent(
   // avoid double-counting when charge.succeeded also fires for the same payment.
   const backingCharge = (invoice as unknown as { charge?: string | null }).charge
   if (backingCharge) return
+
+  // On current API versions `charge` is gone entirely and the backing payment
+  // lives in `invoice.payments`. Without this the guard above silently stopped
+  // working: a card-paid invoice would be banked here AND by charge.succeeded,
+  // which keys on the same PaymentIntent under a different external id.
+  if (invoicePaymentIntentId(invoice)) return
 
   const data = invoiceToTransaction(invoice, ownerId)
   const txId = await upsertTransaction(data)

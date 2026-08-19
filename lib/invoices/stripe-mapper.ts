@@ -193,6 +193,33 @@ export function toInvoiceMirror(invoice: Stripe.Invoice): InvoiceMirror {
 }
 
 /**
+ * The PaymentIntent that settled this invoice, when there is one.
+ *
+ * This is the key that stops an invoice payment being counted twice. A card
+ * payment fires two webhooks for one movement of money — `charge.succeeded`,
+ * which the finance sync records against the payment intent, and
+ * `invoice.paid`, which lands in the invoice module. Recording the second
+ * against the invoice id instead would put the same payment in Finance twice,
+ * and an invoice payment is usually the largest number in the month.
+ *
+ * Keying both on the payment intent makes the unique
+ * (ownerId, source, externalId) constraint resolve them to one row, whichever
+ * event arrives first.
+ *
+ * Null for an invoice paid out of band (marked paid in the Stripe dashboard,
+ * settled by bank transfer), which genuinely has no intent — those key on the
+ * invoice id, and no charge event exists to collide with.
+ */
+export function invoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
+  for (const payment of invoice.payments?.data ?? []) {
+    const intent = payment.payment?.payment_intent
+    if (!intent) continue
+    return typeof intent === 'string' ? intent : intent.id
+  }
+  return null
+}
+
+/**
  * Whether an invoice in this state has been settled.
  *
  * `paid` is the obvious one. A zero-total invoice Stripe marks paid on

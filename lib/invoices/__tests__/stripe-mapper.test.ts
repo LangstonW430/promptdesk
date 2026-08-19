@@ -9,6 +9,7 @@ import {
   stripeLinesToLineItems,
   daysUntilDue,
   toInvoiceMirror,
+  invoicePaymentIntentId,
   isEditable,
   isSettled,
 } from '../stripe-mapper'
@@ -260,6 +261,66 @@ describe('stripeLinesToLineItems', () => {
     )
     expect(items).toHaveLength(1)
     expect(items[0].description).toBe('')
+  })
+})
+
+describe('invoicePaymentIntentId', () => {
+  // The key that stops one card payment being banked twice. `charge.succeeded`
+  // records income against the payment intent; without this, `invoice.paid`
+  // would record the same money against the invoice id instead.
+  it('finds the intent on the invoice payment', () => {
+    const invoice = makeInvoice({
+      payments: {
+        object: 'list',
+        data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_123' } }],
+      },
+    })
+    expect(invoicePaymentIntentId(invoice)).toBe('pi_123')
+  })
+
+  it('unwraps an expanded payment intent to its id', () => {
+    const invoice = makeInvoice({
+      payments: {
+        object: 'list',
+        data: [
+          {
+            payment: {
+              type: 'payment_intent',
+              payment_intent: { id: 'pi_expanded', object: 'payment_intent' },
+            },
+          },
+        ],
+      },
+    })
+    expect(invoicePaymentIntentId(invoice)).toBe('pi_expanded')
+  })
+
+  it('skips payment entries that carry no intent', () => {
+    const invoice = makeInvoice({
+      payments: {
+        object: 'list',
+        data: [
+          { payment: { type: 'payment_record' } },
+          { payment: { type: 'payment_intent', payment_intent: 'pi_456' } },
+        ],
+      },
+    })
+    expect(invoicePaymentIntentId(invoice)).toBe('pi_456')
+  })
+
+  // An invoice settled by bank transfer, or marked paid in the dashboard, has
+  // no intent at all — and no charge event to collide with, so keying on the
+  // invoice id is correct there.
+  it('returns null for an out-of-band payment', () => {
+    const invoice = makeInvoice({
+      payments: { object: 'list', data: [{ payment: { type: 'payment_record' } }] },
+    })
+    expect(invoicePaymentIntentId(invoice)).toBeNull()
+  })
+
+  it('returns null when the invoice has no payments at all', () => {
+    expect(invoicePaymentIntentId(makeInvoice())).toBeNull()
+    expect(invoicePaymentIntentId(makeInvoice({ payments: undefined }))).toBeNull()
   })
 })
 
