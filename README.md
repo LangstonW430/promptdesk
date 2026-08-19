@@ -366,7 +366,9 @@ A mirror of a Stripe invoice, not the invoice itself.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| ownerId, clientId | UUID | FKs |
+| ownerId | UUID | FK |
+| clientId | UUID? | **Nullable.** An invoice raised in the Stripe dashboard may be billed to someone not in the CRM. `SET NULL` on client delete — removing a client must not erase the record of money they were billed |
+| customerName, customerEmail | String? | Who Stripe says it is for, so an unattributed invoice still shows a name and can be matched later |
 | projectId | UUID? | Which work was billed |
 | stripeInvoiceId | String? | Unique. **Null identifies a legacy row** raised before the move — readable, but not sendable or payable |
 | stripeCustomerId | String? | The customer billed, frozen at creation |
@@ -376,7 +378,8 @@ A mirror of a Stripe invoice, not the invoice itself.
 | invoiceNumber, publicToken | Int?, String? | **Legacy.** Our old counter and client link. Never written for new invoices |
 | lineItems | JSON | Cached from Stripe for list rendering. Never authoritative |
 | status | Enum | `draft \| open \| paid \| uncollectible \| void` — Stripe's lifecycle. `overdue` is *derived at read time* from an open invoice past its due date, and is not a status |
-| issueDate, dueDate | Date | |
+| issueDate | Date | From Stripe's `created` |
+| dueDate | Date? | **Nullable.** Stripe invoices that charge automatically carry no due date — they are collected, not awaited. `isOverdue` is false for those |
 | subtotal, tax, taxRate, total | Decimal | Amounts are Stripe's; `taxRate` is ours, stored so the document can say "Tax (8.5%)" |
 | paymentTerms | String? | e.g. "Net 30", copied from the user's default and frozen at creation |
 | purchaseOrder | String? | The client's reference, sent to Stripe as a custom field |
@@ -484,6 +487,23 @@ Stripe is the system of record; the `invoices` table is a mirror holding what St
 Creating from time entries claims those entries inside one transaction, re-asserting `invoiceId: null`, so two concurrent requests cannot bill the same work twice.
 
 Rows with a null `stripeInvoiceId` predate the move. They stay readable as records but cannot be sent, paid or edited — there is nothing in Stripe to act on.
+
+**Importing invoices raised in Stripe.** `importStripeInvoices` paginates `invoices.list` and upserts a mirror row per invoice, so anything created in the Stripe dashboard or by a subscription appears in the list and is manageable from it. It only ever writes the fields Stripe owns — `projectId`, `isArchived` and the time-entry links are untouched — which is what makes re-running it safe.
+
+The client link uses two signals, in `lib/invoices/match-client.ts`: the Stripe customer id already recorded on a client (an established link, so it wins), then the billing email. When neither hits, the invoice is stored unattributed and shown with Stripe's own customer name plus a picker to link it by hand. Matching on an email **back-fills** `Client.stripeCustomerId`, so the next invoice for that person matches on the stronger signal. A client is never created from an invoice — the same rule `linkTransactionsByEmail` follows, for the same reason. A link is only ever filled in, never cleared, so a re-import cannot undo one you set by hand.
+
+**What can be done to an invoice, and when.** Stripe's rules, not ours:
+
+| Action | Valid when |
+|---|---|
+| Send / resend reminder (`sendInvoice`) | open |
+| Mark paid out of band (`pay({paid_out_of_band})`) | open |
+| Write off (`markUncollectible`) | open |
+| Void (`voidInvoice`) | open |
+| Delete (`invoices.del`) | draft only |
+| Edit memo, footer, PO, due date (`invoices.update`) | draft + open |
+
+Amounts and line items cannot be changed once an invoice is finalized. Stripe treats it as an issued financial document; the dashboard cannot do it either, and voids and reissues instead.
 
 ### `lib/finance/`
 - `calc.ts` — pure period maths: period boundaries, recurring-charge expansion, category grouping. `occurrenceDates` is the single definition of when a standing charge applies, so the chart, the totals and the table cannot disagree.

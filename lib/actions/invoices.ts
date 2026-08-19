@@ -10,11 +10,19 @@ import {
   setInvoiceArchived,
   deleteInvoice,
   describeStripeError,
+  importStripeInvoices,
+  linkInvoiceToClient,
+  remindInvoice,
+  markInvoicePaidOutOfBand,
+  writeOffInvoice,
+  editInvoice,
 } from '@/lib/invoices'
 import {
   createInvoiceSchema,
   createFromEntriesSchema,
   archiveInvoiceSchema,
+  linkInvoiceSchema,
+  editInvoiceSchema,
 } from '@/lib/invoices/validators'
 
 export async function createInvoiceAction(data: unknown) {
@@ -91,6 +99,115 @@ export async function refreshInvoiceAction(id: string) {
     revalidatePath('/invoices')
     revalidatePath(`/invoices/${id}`)
     revalidatePath('/finance')
+    return { success: true as const, data: invoice }
+  } catch (err) {
+    return { success: false as const, error: describeStripeError(err) }
+  }
+}
+
+/**
+ * Pulls every invoice from Stripe into the list.
+ *
+ * Invoices raised in the Stripe dashboard, by a subscription, or by anything
+ * that never went through this app were previously invisible here.
+ */
+export async function importStripeInvoicesAction() {
+  const ownerId = await getOwnerId()
+  try {
+    const result = await importStripeInvoices(ownerId)
+    revalidatePath('/invoices')
+    return { success: true as const, data: result }
+  } catch (err) {
+    return { success: false as const, error: describeStripeError(err) }
+  }
+}
+
+/** Attaches an unattributed invoice to a client, or detaches it. */
+export async function linkInvoiceToClientAction(id: string, data: unknown) {
+  const ownerId = await getOwnerId()
+  const parsed = linkInvoiceSchema.safeParse(data)
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0].message }
+  }
+  try {
+    const invoice = await linkInvoiceToClient(ownerId, id, parsed.data.clientId)
+    if (!invoice) return { success: false as const, error: 'Invoice not found' }
+    revalidatePath('/invoices')
+    revalidatePath(`/invoices/${id}`)
+    return { success: true as const, data: invoice }
+  } catch (err) {
+    return {
+      success: false as const,
+      error: err instanceof Error ? err.message : 'Failed to link invoice',
+    }
+  }
+}
+
+/** Re-sends the invoice email. Stripe's reminder is the same call as the send. */
+export async function remindInvoiceAction(id: string) {
+  const ownerId = await getOwnerId()
+  try {
+    const invoice = await remindInvoice(ownerId, id)
+    if (!invoice) return { success: false as const, error: 'Invoice not found' }
+    revalidatePath(`/invoices/${id}`)
+    return { success: true as const, data: invoice }
+  } catch (err) {
+    return { success: false as const, error: describeStripeError(err) }
+  }
+}
+
+/** Records payment that arrived outside Stripe — bank transfer, cheque. */
+export async function markInvoicePaidOutOfBandAction(id: string) {
+  const ownerId = await getOwnerId()
+  try {
+    const invoice = await markInvoicePaidOutOfBand(ownerId, id)
+    if (!invoice) return { success: false as const, error: 'Invoice not found' }
+    revalidatePath('/invoices')
+    revalidatePath(`/invoices/${id}`)
+    revalidatePath('/finance')
+    return { success: true as const, data: invoice }
+  } catch (err) {
+    return { success: false as const, error: describeStripeError(err) }
+  }
+}
+
+/** Writes the invoice off as uncollectible. Distinct from voiding. */
+export async function writeOffInvoiceAction(id: string) {
+  const ownerId = await getOwnerId()
+  try {
+    const invoice = await writeOffInvoice(ownerId, id)
+    if (!invoice) return { success: false as const, error: 'Invoice not found' }
+    revalidatePath('/invoices')
+    revalidatePath(`/invoices/${id}`)
+    return { success: true as const, data: invoice }
+  } catch (err) {
+    return { success: false as const, error: describeStripeError(err) }
+  }
+}
+
+/**
+ * Edits the fields Stripe still allows.
+ *
+ * Amounts and line items are not among them once an invoice is finalized —
+ * Stripe treats it as an issued document, and the dashboard voids and reissues
+ * rather than editing.
+ */
+export async function editInvoiceAction(id: string, data: unknown) {
+  const ownerId = await getOwnerId()
+  const parsed = editInvoiceSchema.safeParse(data)
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0].message }
+  }
+  try {
+    const invoice = await editInvoice(ownerId, id, {
+      notes: parsed.data.notes,
+      paymentTerms: parsed.data.paymentTerms,
+      purchaseOrder: parsed.data.purchaseOrder,
+      dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : undefined,
+    })
+    if (!invoice) return { success: false as const, error: 'Invoice not found' }
+    revalidatePath('/invoices')
+    revalidatePath(`/invoices/${id}`)
     return { success: true as const, data: invoice }
   } catch (err) {
     return { success: false as const, error: describeStripeError(err) }

@@ -28,8 +28,15 @@ import {
   retrieveInvoice,
   removeStripeInvoice,
   describeStripeError,
+  eachInvoice,
+  resendInvoice,
+  payInvoiceOutOfBand,
+  markInvoiceUncollectible,
+  updateStripeInvoice,
+  type InvoiceEditableFields,
 } from './stripe-invoices'
 import { toInvoiceMirror, isEditable, invoicePaymentIntentId } from './stripe-mapper'
+import { matchClientForInvoice } from './match-client'
 import type { CreateInvoiceInput, CreateFromEntriesInput } from './validators'
 import type { LineItem } from './types'
 
@@ -445,8 +452,14 @@ export async function markInvoicePaidFromStripe(
   if (mirror.status !== 'paid') return true
   if (existing.transactionId) return true
 
+  // Falls back to Stripe's own customer name: an imported invoice may have no
+  // CRM client at all, and the transaction description should still say who
+  // paid rather than a bare "Client".
   const clientName =
-    existing.client.companyName ?? existing.client.contactName ?? 'Client'
+    existing.client?.companyName ??
+    existing.client?.contactName ??
+    existing.customerName ??
+    'Client'
   const reference = mirror.number ?? stripeInvoiceId
 
   // The same key charge.succeeded uses, so one payment cannot become two rows.
@@ -517,6 +530,218 @@ export async function syncInvoiceFromStripe(
   })
   if (!existing) return
   await applyMirror(existing.id, stripeInvoice)
+}
+
+// ── Importing invoices raised in Stripe ───────────────────────────────────────
+
+export interface ImportResult {
+  imported: number   // rows created
+  updated: number    // existing rows refreshed
+  linked: number     // matched to a CRM client
+  unattributed: number
+}
+
+/**
+ * Pulls every invoice from the Stripe account into the mirror.
+ *
+ * Invoices raised in the Stripe dashboard, by a subscription, or by anything
+ * else never passed through this app, so nothing here knew about them. This is
+ * what makes them appear in the list and manageable from it.
+ *
+ * Only ever writes the fields Stripe owns. `projectId`, `isArchived` and the
+ * time-entry links are ours; a re-import leaves them exactly as they were,
+ * which is what makes this safe to run repeatedly.
+ *
+ * The client link follows the same two-signal rule as the finance sync — Stripe
+ * customer id, then billing email — and is only ever *filled in*, never
+ * cleared. Somebody who linked an invoice by hand does not want the next sync
+ * to unlink it because the email did not match.
+ */
+export async function importStripeInvoices(ownerId: string): Promise<ImportResult> {
+  const stripe = await stripeFor(ownerId)
+  const result: ImportResult = { imported: 0, updated: 0, linked: 0, unattributed: 0 }
+
+  await eachInvoice(stripe, async (stripeInvoice) => {
+    if (!stripeInvoice.id) return
+    const mirror = toInvoiceMirror(stripeInvoice)
+
+    const existing = await prisma.invoice.findFirst({
+      where: { stripeInvoiceId: mirror.stripeInvoiceId, ownerId },
+      select: { id: true, clientId: true },
+    })
+
+    // Only look for a client when we do not already have one. This is what
+    // stops a re-import from undoing a manual link.
+    const clientId =
+      existing?.clientId ??
+      (await matchClientForInvoice(ownerId, {
+        stripeCustomerId: mirror.stripeCustomerId,
+        email: mirror.customerEmail,
+      }))
+
+    if (clientId) result.linked += 1
+    else result.unattributed += 1
+
+    const stripeOwned = {
+      stripeCustomerId: mirror.stripeCustomerId,
+      customerName:     mirror.customerName,
+      customerEmail:    mirror.customerEmail,
+      number:           mirror.number,
+      hostedInvoiceUrl: mirror.hostedInvoiceUrl,
+      invoicePdf:       mirror.invoicePdf,
+      status:           mirror.status,
+      lineItems:        mirror.lineItems,
+      subtotal:         mirror.subtotal,
+      tax:              mirror.tax,
+      total:            mirror.total,
+      issueDate:        mirror.issueDate,
+      dueDate:          mirror.dueDate,
+    }
+
+    if (existing) {
+      await prisma.invoice.update({
+        where: { id: existing.id },
+        data: { ...stripeOwned, ...(clientId && !existing.clientId && { clientId }) },
+      })
+      result.updated += 1
+    } else {
+      await prisma.invoice.create({
+        data: {
+          ownerId,
+          stripeInvoiceId: mirror.stripeInvoiceId,
+          clientId,
+          ...stripeOwned,
+        },
+      })
+      result.imported += 1
+    }
+  })
+
+  return result
+}
+
+/**
+ * Attaches an unattributed invoice to a client by hand.
+ *
+ * The escape hatch for everything the automatic match cannot know — a client
+ * who was billed at a personal address, or who is not in the CRM until now.
+ * Also back-fills the client's Stripe customer id, so their next invoice
+ * matches automatically.
+ */
+export async function linkInvoiceToClient(
+  ownerId: string,
+  id: string,
+  clientId: string | null,
+) {
+  const existing = await prisma.invoice.findFirst({
+    where: { id, ownerId },
+    select: { stripeCustomerId: true },
+  })
+  if (!existing) return null
+
+  if (clientId) {
+    if (!(await ownsClient(ownerId, clientId))) throw new Error('Client not found')
+
+    if (existing.stripeCustomerId) {
+      const client = await prisma.client.findUnique({
+        where: { id: clientId },
+        select: { stripeCustomerId: true },
+      })
+      if (!client?.stripeCustomerId) {
+        await prisma.client.update({
+          where: { id: clientId },
+          data: { stripeCustomerId: existing.stripeCustomerId },
+        })
+      }
+    }
+  }
+
+  const row = await prisma.invoice.update({
+    where: { id },
+    data: { clientId },
+    include: WITH_JOIN,
+  })
+  return serializeInvoice(row)
+}
+
+// ── Lifecycle actions ─────────────────────────────────────────────────────────
+
+/**
+ * Runs a Stripe lifecycle call and mirrors whatever state it produced.
+ *
+ * Every one of these follows the same shape — check the row is ours and has a
+ * Stripe counterpart, call Stripe, write the result back — so they share it
+ * rather than repeating the ownership and legacy checks five times.
+ */
+async function runStripeAction(
+  ownerId: string,
+  id: string,
+  action: (stripe: Awaited<ReturnType<typeof stripeFor>>, stripeInvoiceId: string) => Promise<Parameters<typeof toInvoiceMirror>[0]>,
+) {
+  const existing = await prisma.invoice.findFirst({
+    where: { id, ownerId },
+    select: { stripeInvoiceId: true },
+  })
+  if (!existing) return null
+  if (!existing.stripeInvoiceId) {
+    throw new Error(
+      'This invoice predates the Stripe integration, so there is nothing in ' +
+        'Stripe to act on.',
+    )
+  }
+
+  const stripe = await stripeFor(ownerId)
+  const updated = await action(stripe, existing.stripeInvoiceId)
+  return applyMirror(id, updated)
+}
+
+/** Re-sends the invoice email. Stripe's reminder is the same call as the send. */
+export async function remindInvoice(ownerId: string, id: string) {
+  return runStripeAction(ownerId, id, (stripe, sid) => resendInvoice(stripe, sid))
+}
+
+/** Records a payment that arrived outside Stripe — bank transfer, cheque. */
+export async function markInvoicePaidOutOfBand(ownerId: string, id: string) {
+  return runStripeAction(ownerId, id, (stripe, sid) => payInvoiceOutOfBand(stripe, sid))
+}
+
+/** Writes the invoice off. Distinct from voiding — see the Stripe helper. */
+export async function writeOffInvoice(ownerId: string, id: string) {
+  return runStripeAction(ownerId, id, (stripe, sid) =>
+    markInvoiceUncollectible(stripe, sid),
+  )
+}
+
+/**
+ * Edits the fields Stripe still allows on an existing invoice.
+ *
+ * Amounts and line items are not among them once an invoice is finalized, and
+ * that is Stripe's rule rather than ours — the dashboard voids and reissues
+ * instead. The local `taxRate`, which Stripe never reports back, is written
+ * here too so the document can still say "Tax (8.5%)".
+ */
+export async function editInvoice(
+  ownerId: string,
+  id: string,
+  fields: InvoiceEditableFields,
+) {
+  const updated = await runStripeAction(ownerId, id, (stripe, sid) =>
+    updateStripeInvoice(stripe, sid, fields),
+  )
+  if (!updated) return null
+
+  // applyMirror only writes what Stripe owns, so the fields Stripe does not
+  // report back have to be persisted separately.
+  const row = await prisma.invoice.update({
+    where: { id },
+    data: {
+      ...(fields.notes !== undefined && { notes: fields.notes }),
+      ...(fields.paymentTerms !== undefined && { paymentTerms: fields.paymentTerms }),
+      ...(fields.purchaseOrder !== undefined && { purchaseOrder: fields.purchaseOrder }),
+    },
+    include: WITH_JOIN,
+  })
+  return serializeInvoice(row)
 }
 
 /**

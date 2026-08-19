@@ -251,6 +251,114 @@ export async function removeStripeInvoice(
   return stripe.invoices.voidInvoice(stripeInvoiceId, { expand: ['lines'] })
 }
 
+/**
+ * Every invoice in the account, oldest first, streamed to a callback.
+ *
+ * `autoPagingEach` rather than collecting into an array: an account with years
+ * of history would otherwise be held in memory all at once, and the caller
+ * writes each row as it arrives anyway.
+ *
+ * The customer is expanded because a draft invoice has null `customer_name` and
+ * `customer_email` — Stripe only copies those onto the invoice at finalization,
+ * and without them a draft would import with no name and match no client.
+ */
+export async function eachInvoice(
+  stripe: Stripe,
+  onInvoice: (invoice: Stripe.Invoice) => Promise<void>,
+): Promise<void> {
+  await stripe.invoices
+    .list({ limit: 100, expand: ['data.customer', 'data.lines'] })
+    .autoPagingEach(async (invoice) => {
+      await onInvoice(invoice)
+    })
+}
+
+// ─── Lifecycle actions ────────────────────────────────────────────────────────
+
+/**
+ * Re-sends the invoice email — the "remind" button.
+ *
+ * Stripe's own reminder is the same call that delivered it the first time, so
+ * this is `sendInvoice` again rather than a distinct endpoint. Only valid on an
+ * open invoice: a draft has not been finalized, and a paid or voided one has
+ * nothing to chase.
+ */
+export async function resendInvoice(
+  stripe: Stripe,
+  stripeInvoiceId: string,
+): Promise<Stripe.Invoice> {
+  return stripe.invoices.sendInvoice(stripeInvoiceId, { expand: ['lines'] })
+}
+
+/**
+ * Records payment that happened outside Stripe — a bank transfer, a cheque.
+ *
+ * `paid_out_of_band` tells Stripe the money arrived without it processing a
+ * charge, so it marks the invoice paid without trying to collect. Without this
+ * flag the call would attempt to charge the customer's saved payment method,
+ * which is emphatically not what "I already got paid" means.
+ */
+export async function payInvoiceOutOfBand(
+  stripe: Stripe,
+  stripeInvoiceId: string,
+): Promise<Stripe.Invoice> {
+  return stripe.invoices.pay(stripeInvoiceId, {
+    paid_out_of_band: true,
+    expand: ['lines'],
+  })
+}
+
+/**
+ * Writes the invoice off as never going to be paid.
+ *
+ * Distinct from voiding: void says the invoice should not have been issued,
+ * uncollectible says it was issued correctly and the money is not coming. The
+ * difference matters to an accountant, so both are offered.
+ */
+export async function markInvoiceUncollectible(
+  stripe: Stripe,
+  stripeInvoiceId: string,
+): Promise<Stripe.Invoice> {
+  return stripe.invoices.markUncollectible(stripeInvoiceId, { expand: ['lines'] })
+}
+
+/**
+ * Updates the fields Stripe still allows once an invoice exists.
+ *
+ * Line items and amounts are deliberately absent. Stripe treats a finalized
+ * invoice as an issued financial document and will not let its totals change —
+ * the dashboard cannot do it either; it voids and reissues. Memo, footer,
+ * purchase order and due date remain editable, which covers the corrections
+ * people actually need after sending.
+ */
+export interface InvoiceEditableFields {
+  notes?: string | null
+  paymentTerms?: string | null
+  purchaseOrder?: string | null
+  dueDate?: Date | null
+}
+
+export async function updateStripeInvoice(
+  stripe: Stripe,
+  stripeInvoiceId: string,
+  fields: InvoiceEditableFields,
+): Promise<Stripe.Invoice> {
+  const params: Stripe.InvoiceUpdateParams = { expand: ['lines'] }
+
+  if (fields.notes !== undefined) params.description = fields.notes ?? ''
+  if (fields.paymentTerms !== undefined) params.footer = fields.paymentTerms ?? ''
+  if (fields.purchaseOrder !== undefined) {
+    params.custom_fields = fields.purchaseOrder
+      ? [{ name: 'PO Number', value: fields.purchaseOrder.slice(0, 30) }]
+      : null
+  }
+  if (fields.dueDate !== undefined && fields.dueDate) {
+    params.due_date = Math.floor(fields.dueDate.getTime() / 1000)
+  }
+
+  return stripe.invoices.update(stripeInvoiceId, params)
+}
+
 /** Convenience wrapper so callers do not each reach for the client module. */
 export async function stripeFor(ownerId: string): Promise<Stripe> {
   return getStripeForOwner(ownerId)

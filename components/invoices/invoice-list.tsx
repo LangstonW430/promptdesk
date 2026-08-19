@@ -159,10 +159,21 @@ export function InvoiceList({
                     {invoiceLabel(inv)}
                   </Link>
                 </td>
-                <td className="px-4 py-3 text-muted-foreground">{inv.clientName}</td>
+                <td className="px-4 py-3 text-muted-foreground">
+                  {inv.clientName ?? (
+                    <span className="text-muted-foreground/50 italic">Unattributed</span>
+                  )}
+                  {/* Imported from Stripe and matched no client. The detail page
+                      is where it gets linked. */}
+                  {!inv.clientId && inv.clientName && (
+                    <span className="ml-1.5 text-xs text-muted-foreground/50">
+                      (not linked)
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{formatDate(inv.issueDate)}</td>
                 <td className={`px-4 py-3 hidden sm:table-cell ${inv.isOverdue ? 'text-red-600 font-medium' : 'text-muted-foreground'}`}>
-                  {formatDate(inv.dueDate)}
+                  {inv.dueDate ? formatDate(inv.dueDate) : <span className="text-muted-foreground/50">—</span>}
                 </td>
                 <td className="px-4 py-3">
                   <StatusBadge status={inv.status} isOverdue={inv.isOverdue} />

@@ -15,6 +15,9 @@ import {
   ExternalLink,
   FileDown,
   Archive,
+  Bell,
+  Banknote,
+  FileX,
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -23,7 +26,11 @@ import {
   sendInvoiceAction,
   refreshInvoiceAction,
   deleteInvoiceAction,
+  remindInvoiceAction,
+  markInvoicePaidOutOfBandAction,
+  writeOffInvoiceAction,
 } from '@/lib/actions/invoices'
+import { ClientLinkPicker, type ClientOption } from './client-link-picker'
 import type { SerializedInvoice } from '@/lib/invoices/types'
 
 /** "a, b and c" — a list a person would read aloud. */
@@ -40,7 +47,10 @@ type Props = {
    * list of things to add. Empty when the invoice is complete.
    */
   missingDetails: string[]
-  clientId: string
+  /** Null for an imported invoice that matched no CRM client. */
+  clientId: string | null
+  /** Offered when the invoice is unattributed, so it can be linked by hand. */
+  clients: ClientOption[]
 }
 
 export function InvoiceActions({
@@ -48,6 +58,7 @@ export function InvoiceActions({
   promptText,
   missingDetails,
   clientId,
+  clients,
 }: Props) {
   const router = useRouter()
   const [isPending, start] = useTransition()
@@ -57,8 +68,37 @@ export function InvoiceActions({
   const [promptCopied, setPromptCopied] = useState(false)
 
   const isDraft = invoice.status === 'draft'
+  const isOpen = invoice.status === 'open'
   const isPaid = invoice.status === 'paid'
   const isClosed = invoice.status === 'void' || invoice.status === 'uncollectible'
+
+  /** Runs a one-argument invoice action and reports the outcome. */
+  function run(
+    action: (id: string) => Promise<{ success: boolean; error?: string }>,
+    successNotice: string,
+  ) {
+    setError(null)
+    setNotice(null)
+    start(async () => {
+      const res = await action(invoice.id)
+      if (!res.success) {
+        setError(res.error ?? 'Failed')
+        return
+      }
+      setNotice(successNotice)
+      router.refresh()
+    })
+  }
+
+  /** Same, behind a confirmation — for the ones that change what a client owes. */
+  function confirmThen(
+    message: string,
+    action: (id: string) => Promise<{ success: boolean; error?: string }>,
+    successNotice: string,
+  ) {
+    if (!confirm(message)) return
+    run(action, successNotice)
+  }
 
   async function handleSend() {
     setError(null)
@@ -195,10 +235,18 @@ export function InvoiceActions({
             </p>
             <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
               <Link href="/settings" className="underline underline-offset-2">Settings</Link>
-              {' · '}
-              <Link href={`/clients/${clientId}/edit`} className="underline underline-offset-2">
-                Edit client
-              </Link>
+              {/* No client to edit on an imported invoice that matched none. */}
+              {clientId && (
+                <>
+                  {' · '}
+                  <Link
+                    href={`/clients/${clientId}/edit`}
+                    className="underline underline-offset-2"
+                  >
+                    Edit client
+                  </Link>
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -254,6 +302,61 @@ export function InvoiceActions({
           </div>
         )}
 
+        {/* Everything you would reach for on an unpaid, already-sent invoice. */}
+        {isOpen && (
+          <>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              disabled={isPending}
+              onClick={() => run(remindInvoiceAction, 'Reminder sent.')}
+            >
+              {isPending ? <Loader2 className="size-4 animate-spin" /> : <Bell className="size-4" />}
+              Send reminder
+            </Button>
+            <p className="-mt-1 text-xs text-muted-foreground leading-relaxed">
+              Re-sends the invoice email. Stripe&apos;s reminder is the same message
+              it delivered originally.
+            </p>
+
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              disabled={isPending}
+              onClick={() =>
+                confirmThen(
+                  'Mark this invoice paid? Use this only when the money arrived ' +
+                    'outside Stripe — a bank transfer or cheque. Stripe will not ' +
+                    'try to charge the client.',
+                  markInvoicePaidOutOfBandAction,
+                  'Marked paid.',
+                )
+              }
+            >
+              {isPending ? <Loader2 className="size-4 animate-spin" /> : <Banknote className="size-4" />}
+              Mark paid (outside Stripe)
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              disabled={isPending}
+              onClick={() =>
+                confirmThen(
+                  'Write this invoice off as uncollectible? It stays on record as ' +
+                    'issued but unpaid. Use void instead if it should never have ' +
+                    'been sent.',
+                  writeOffInvoiceAction,
+                  'Written off as uncollectible.',
+                )
+              }
+            >
+              {isPending ? <Loader2 className="size-4 animate-spin" /> : <FileX className="size-4" />}
+              Write off as uncollectible
+            </Button>
+          </>
+        )}
+
         {!isDraft && (
           <>
             <Button
@@ -276,6 +379,22 @@ export function InvoiceActions({
           </>
         )}
       </div>
+
+      {/* Client linking — only worth showing when nothing is attached */}
+      {!invoice.clientId && (
+        <div className="rounded-xl border border-border p-4 flex flex-col gap-3">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Not linked to a client
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {invoice.clientEmail
+              ? `This invoice was imported from Stripe and billed to ${invoice.clientEmail}, which does not match any client in your CRM.`
+              : 'This invoice was imported from Stripe and has no billing email to match on.'}{' '}
+            Linking it files its payment against that client and their projects.
+          </p>
+          <ClientLinkPicker invoiceId={invoice.id} clients={clients} />
+        </div>
+      )}
 
       {/* Share / Export — all of it Stripe's, now */}
       {!isDraft && (

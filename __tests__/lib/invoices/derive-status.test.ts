@@ -24,6 +24,8 @@ const row = (overrides: Partial<InvoiceRow> = {}): InvoiceRow => ({
   invoiceNumber: null,
   publicToken: null,
   clientId: 'c1',
+  customerName: null,
+  customerEmail: null,
   projectId: null,
   lineItems: [],
   status: 'open',

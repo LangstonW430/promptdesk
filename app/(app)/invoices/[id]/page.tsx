@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { getCurrentUser } from '@/lib/auth'
-import { getInvoice } from '@/lib/invoices'
+import { getInvoice, fetchClientsForPicker } from '@/lib/invoices'
 import { prisma } from '@/lib/db/client'
 import { renderTemplate } from '@/lib/prompt-engine'
 import { invoiceCoverEmail } from '@/lib/prompt-engine/templates/invoice-cover-email'
@@ -27,9 +27,13 @@ export default async function InvoiceDetailPage({
   }
 
   const { id } = await params
-  const [invoice, user] = await Promise.all([
+  // Clients are needed only to offer a manual link on an unattributed invoice,
+  // but fetching them alongside costs one query and keeps the page a single
+  // round of awaits.
+  const [invoice, user, clients] = await Promise.all([
     getInvoice(ownerId, id),
     getCurrentUser(),
+    fetchClientsForPicker(ownerId),
   ])
 
   if (!invoice) notFound()
@@ -69,9 +73,15 @@ export default async function InvoiceDetailPage({
       // drafted before sending — so the prompt says so rather than printing an
       // empty reference the client would be asked to quote.
       invoice_number: invoice.number ?? 'the attached invoice',
-      client_name: invoice.clientName,
+      client_name: invoice.clientName ?? 'there',
       invoice_total: formatCurrency(invoice.total),
-      due_date: new Date(invoice.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+      // Stripe invoices that charge automatically have no due date, so the
+      // prompt says the terms rather than a fabricated deadline.
+      due_date: invoice.dueDate
+        ? new Date(invoice.dueDate).toLocaleDateString('en-US', {
+            month: 'long', day: 'numeric', year: 'numeric',
+          })
+        : 'on receipt',
       line_items_summary: lineSummary,
       // Empty until Stripe has finalized the invoice and issued its hosted
       // page. The template is told to say nothing about payment rather than
@@ -105,6 +115,7 @@ export default async function InvoiceDetailPage({
             invoice={invoice}
             missingDetails={missingDetails}
             clientId={invoice.clientId}
+            clients={clients}
             promptText={promptResult.text}
           />
         </div>

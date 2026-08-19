@@ -10,6 +10,7 @@ import {
   daysUntilDue,
   toInvoiceMirror,
   invoicePaymentIntentId,
+  invoiceCounterparty,
   isEditable,
   isSettled,
 } from '../stripe-mapper'
@@ -30,7 +31,10 @@ function makeInvoice(overrides: Record<string, unknown> = {}): Stripe.Invoice {
     object: 'invoice',
     status: 'open',
     number: 'ABCD-0001',
+    created: 1_754_006_400, // 2025-08-01T00:00:00Z
     customer: 'cus_test',
+    customer_name: null,
+    customer_email: null,
     hosted_invoice_url: 'https://invoice.stripe.com/i/test',
     invoice_pdf: 'https://pay.stripe.com/invoice/test/pdf',
     subtotal: 10_000,
@@ -261,6 +265,82 @@ describe('stripeLinesToLineItems', () => {
     )
     expect(items).toHaveLength(1)
     expect(items[0].description).toBe('')
+  })
+})
+
+describe('invoiceCounterparty', () => {
+  it('reads the name and email straight off a finalized invoice', () => {
+    const invoice = makeInvoice({
+      customer_name: 'Acme Ltd',
+      customer_email: 'billing@acme.com',
+    })
+    expect(invoiceCounterparty(invoice)).toEqual({
+      name: 'Acme Ltd',
+      email: 'billing@acme.com',
+    })
+  })
+
+  // Stripe only copies these onto the invoice at finalization, so a draft has
+  // nulls. Without the customer fallback an imported draft would show a blank
+  // row and match no client.
+  it('falls back to the expanded customer on a draft', () => {
+    const invoice = makeInvoice({
+      status: 'draft',
+      customer_name: null,
+      customer_email: null,
+      customer: {
+        id: 'cus_1',
+        object: 'customer',
+        name: 'Acme Ltd',
+        email: 'billing@acme.com',
+      },
+    })
+    expect(invoiceCounterparty(invoice)).toEqual({
+      name: 'Acme Ltd',
+      email: 'billing@acme.com',
+    })
+  })
+
+  it('prefers the invoice fields over the customer when both exist', () => {
+    const invoice = makeInvoice({
+      customer_name: 'Acme Ltd (billing dept)',
+      customer_email: 'ap@acme.com',
+      customer: { id: 'cus_1', object: 'customer', name: 'Acme', email: 'hi@acme.com' },
+    })
+    expect(invoiceCounterparty(invoice).email).toBe('ap@acme.com')
+  })
+
+  it('ignores a deleted customer rather than reading its stale fields', () => {
+    const invoice = makeInvoice({
+      customer_name: null,
+      customer_email: null,
+      customer: { id: 'cus_1', object: 'customer', deleted: true, name: 'Gone' },
+    })
+    expect(invoiceCounterparty(invoice)).toEqual({ name: null, email: null })
+  })
+
+  it('copes with an unexpanded customer id', () => {
+    const invoice = makeInvoice({
+      customer: 'cus_1',
+      customer_name: null,
+      customer_email: null,
+    })
+    expect(invoiceCounterparty(invoice)).toEqual({ name: null, email: null })
+  })
+
+  it('carries the counterparty onto the mirror', () => {
+    const mirror = toInvoiceMirror(
+      makeInvoice({ customer_name: 'Acme Ltd', customer_email: 'billing@acme.com' }),
+    )
+    expect(mirror.customerName).toBe('Acme Ltd')
+    expect(mirror.customerEmail).toBe('billing@acme.com')
+  })
+})
+
+describe('issue date', () => {
+  it('comes from invoice.created', () => {
+    expect(toInvoiceMirror(makeInvoice({ created: 1_754_006_400 })).issueDate.toISOString())
+      .toBe('2025-08-01T00:00:00.000Z')
   })
 })
 

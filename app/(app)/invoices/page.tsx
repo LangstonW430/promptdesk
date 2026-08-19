@@ -4,6 +4,7 @@ import { Plus, Archive } from 'lucide-react'
 import { getOwnerId } from '@/lib/auth'
 import { listInvoices } from '@/lib/invoices'
 import { InvoiceList } from '@/components/invoices/invoice-list'
+import { ImportInvoicesButton } from '@/components/invoices/import-button'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -49,6 +50,7 @@ export default async function InvoicesPage({
             <Archive className="size-4" />
             {archived ? 'Active' : 'Archived'}
           </Link>
+          {!archived && <ImportInvoicesButton />}
           {!archived && (
             <Link href="/invoices/new" className={cn(buttonVariants(), 'gap-1.5')}>
               <Plus className="size-4" />

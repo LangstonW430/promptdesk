@@ -22,12 +22,14 @@ export type InvoiceRow = {
   invoicePdf: string | null
   invoiceNumber: number | null
   publicToken: string | null
-  clientId: string
+  clientId: string | null
+  customerName: string | null
+  customerEmail: string | null
   projectId: string | null
   lineItems: unknown
   status: string
   issueDate: Date | string
-  dueDate: Date | string
+  dueDate: Date | string | null
   subtotal: DecimalLike
   tax: DecimalLike
   taxRate: DecimalLike
@@ -39,7 +41,7 @@ export type InvoiceRow = {
   isArchived?: boolean
   createdAt: Date | string
   updatedAt: Date | string
-  client: { companyName: string | null; contactName: string | null; address: string | null }
+  client: { companyName: string | null; contactName: string | null; address: string | null } | null
   project: { title: string } | null
 }
 
@@ -72,8 +74,15 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000
  * overdue at 00:00 on the very day it falls due, and a client opening the link
  * that morning would see it flagged late when it is not.
  */
-function deriveOverdue(status: string, dueDate: Date | string, now: Date): boolean {
+function deriveOverdue(
+  status: string,
+  dueDate: Date | string | null,
+  now: Date,
+): boolean {
   if (status !== 'open') return false
+  // Stripe invoices that charge automatically carry no due date. Nothing is
+  // being awaited, so nothing can be late.
+  if (!dueDate) return false
   const due = dueDate instanceof Date ? dueDate : new Date(dueDate)
   return now.getTime() >= due.getTime() + ONE_DAY_MS
 }
@@ -95,14 +104,22 @@ export function serializeInvoice(row: InvoiceRow, now: Date = new Date()): Seria
     isOverdue: deriveOverdue(row.status, row.dueDate, now),
     publicToken: row.publicToken,
     clientId: row.clientId,
-    clientName: row.client.companyName ?? row.client.contactName ?? 'Unknown',
-    clientAddress: row.client.address,
+    // An invoice raised in Stripe may be billed to somebody who is not in the
+    // CRM. Stripe's own customer name is the fallback, so the row still says
+    // who it is for; null only when Stripe had no name either.
+    clientName:
+      row.client?.companyName ??
+      row.client?.contactName ??
+      row.customerName ??
+      null,
+    clientEmail: row.customerEmail,
+    clientAddress: row.client?.address ?? null,
     projectId: row.projectId,
     projectTitle: row.project?.title ?? null,
     lineItems: row.lineItems as LineItem[],
     status: row.status as InvoiceStatus,
     issueDate: toDateStr(row.issueDate),
-    dueDate: toDateStr(row.dueDate),
+    dueDate: row.dueDate ? toDateStr(row.dueDate) : null,
     subtotal: toNum(row.subtotal) ?? 0,
     tax: toNum(row.tax),
     taxRate: toNum(row.taxRate),

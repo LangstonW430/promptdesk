@@ -135,6 +135,9 @@ export function daysUntilDue(issueDate: Date, dueDate: Date): number {
 export interface InvoiceMirror {
   stripeInvoiceId: string
   stripeCustomerId: string | null
+  /** Who Stripe says this is billed to, for invoices with no CRM client. */
+  customerName: string | null
+  customerEmail: string | null
   number: string | null
   hostedInvoiceUrl: string | null
   invoicePdf: string | null
@@ -143,7 +146,36 @@ export interface InvoiceMirror {
   subtotal: number
   tax: number | null
   total: number
+  issueDate: Date
   dueDate: Date | null
+}
+
+/**
+ * The billing name and email on an invoice.
+ *
+ * Stripe fills `customer_name` / `customer_email` from the customer record at
+ * finalization, but leaves them null on a draft — so an unfinalized invoice has
+ * to be read through its expanded customer instead. Without this fallback, an
+ * imported draft would show a blank row and match no client.
+ */
+export function invoiceCounterparty(invoice: Stripe.Invoice): {
+  name: string | null
+  email: string | null
+} {
+  const customer =
+    invoice.customer && typeof invoice.customer === 'object'
+      ? (invoice.customer as Stripe.Customer & { deleted?: boolean })
+      : null
+
+  const name =
+    invoice.customer_name ??
+    (customer && !customer.deleted ? customer.name ?? null : null)
+
+  const email =
+    invoice.customer_email ??
+    (customer && !customer.deleted ? customer.email ?? null : null)
+
+  return { name, email }
 }
 
 /**
@@ -174,12 +206,16 @@ export function toInvoiceMirror(invoice: Stripe.Invoice): InvoiceMirror {
   // Stripe the moment a discount or credit is applied on their side.
   const total = toDollars(invoice.total ?? 0)
 
+  const party = invoiceCounterparty(invoice)
+
   return {
     stripeInvoiceId: invoice.id!,
     stripeCustomerId:
       typeof invoice.customer === 'string'
         ? invoice.customer
         : (invoice.customer?.id ?? null),
+    customerName: party.name,
+    customerEmail: party.email,
     number: invoice.number ?? null,
     hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
     invoicePdf: invoice.invoice_pdf ?? null,
@@ -188,6 +224,9 @@ export function toInvoiceMirror(invoice: Stripe.Invoice): InvoiceMirror {
     subtotal,
     tax,
     total,
+    // `created` is always set; `due_date` is null on invoices Stripe charges
+    // automatically rather than waiting on.
+    issueDate: new Date(invoice.created * 1000),
     dueDate: invoice.due_date ? new Date(invoice.due_date * 1000) : null,
   }
 }

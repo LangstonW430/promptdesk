@@ -37,15 +37,26 @@ export type SerializedInvoice = {
   isOverdue: boolean
   /** Legacy public page token. Null for every Stripe-hosted invoice. */
   publicToken: string | null
-  clientId: string
-  clientName: string
+  /**
+   * Null for an invoice raised in Stripe that matched no CRM client. It is
+   * shown unattributed and can be linked by hand.
+   */
+  clientId: string | null
+  /**
+   * The CRM client's name, or Stripe's own customer name when there is no
+   * client. Null only when Stripe had no name either.
+   */
+  clientName: string | null
+  /** Stripe's billing email — what the automatic client match runs on. */
+  clientEmail: string | null
   clientAddress: string | null
   projectId: string | null
   projectTitle: string | null
   lineItems: LineItem[]
   status: InvoiceStatus
   issueDate: string
-  dueDate: string
+  /** Null on Stripe invoices that charge automatically rather than being awaited. */
+  dueDate: string | null
   subtotal: number
   tax: number | null
   /** The percentage behind `tax`; null on invoices raised before it was stored. */

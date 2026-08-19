@@ -98,7 +98,12 @@ export function InvoiceView({ invoice, showFrom }: Props) {
 
         <div>
           <FieldLabel>Bill To</FieldLabel>
-          <p className="mt-1 text-sm font-medium text-foreground">{invoice.clientName}</p>
+          <p className="mt-1 text-sm font-medium text-foreground">
+            {invoice.clientName ?? 'Unattributed'}
+          </p>
+          {invoice.clientEmail && (
+            <p className="text-sm text-muted-foreground">{invoice.clientEmail}</p>
+          )}
           {invoice.clientAddress && (
             <p className="whitespace-pre-line text-sm text-muted-foreground">
               {invoice.clientAddress}
@@ -121,7 +126,8 @@ export function InvoiceView({ invoice, showFrom }: Props) {
                   : 'mt-1 text-sm font-medium text-foreground'
               }
             >
-              {formatDate(invoice.dueDate)}
+              {/* Stripe invoices that charge automatically carry no due date. */}
+              {invoice.dueDate ? formatDate(invoice.dueDate) : 'On receipt'}
             </p>
             {invoice.paymentTerms && (
               <p className="text-sm text-muted-foreground">{invoice.paymentTerms}</p>

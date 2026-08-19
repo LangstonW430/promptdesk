@@ -39,6 +39,27 @@ export const archiveInvoiceSchema = z.object({
   archived: z.boolean(),
 })
 
+/** Null detaches the invoice from its client, leaving it unattributed. */
+export const linkInvoiceSchema = z.object({
+  clientId: z.string().uuid('Select a client').nullable(),
+})
+
+/**
+ * The fields Stripe still permits on an existing invoice.
+ *
+ * Deliberately excludes line items and amounts: Stripe treats a finalized
+ * invoice as an issued financial document and refuses to change its totals.
+ * Accepting them here would produce a form whose submit fails at the API.
+ */
+export const editInvoiceSchema = z.object({
+  notes: z.string().max(1500).nullable().optional(),
+  paymentTerms: z.string().max(120).nullable().optional(),
+  purchaseOrder: z.string().max(120).nullable().optional(),
+  dueDate: z.string().date().nullable().optional(),
+})
+
 export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>
 export type CreateFromEntriesInput = z.infer<typeof createFromEntriesSchema>
 export type ArchiveInvoiceInput = z.infer<typeof archiveInvoiceSchema>
+export type LinkInvoiceInput = z.infer<typeof linkInvoiceSchema>
+export type EditInvoiceInput = z.infer<typeof editInvoiceSchema>
