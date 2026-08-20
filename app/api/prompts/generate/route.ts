@@ -6,6 +6,7 @@ export const maxDuration = 30
 import { z } from 'zod'
 import { getOwnerId } from '@/lib/auth'
 import { generatePrompt } from '@/lib/prompts'
+import { rateLimit } from '@/lib/rate-limit'
 
 const generateSchema = z.object({
   template_key: z.string().min(1),
@@ -23,6 +24,20 @@ function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
 }
 
+/**
+ * The most expensive endpoint in the app — retrieval, scoring and budgeting,
+ * with `maxDuration` raised to 30 s to fit it. Authenticated, so this is not
+ * about anonymous abuse; it is that one account should not be able to hold the
+ * function concurrency limit open for everyone else, deliberately or by a
+ * client stuck in a retry loop.
+ */
+function tooManyRequests(retryAfterSeconds: number) {
+  return NextResponse.json(
+    { error: 'Too many requests. Try again shortly.' },
+    { status: 429, headers: { 'retry-after': String(retryAfterSeconds) } },
+  )
+}
+
 function serverError(err: unknown) {
   console.error('[POST /api/prompts/generate]', err)
   return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -35,6 +50,12 @@ export async function POST(req: NextRequest) {
   } catch {
     return unauthorized()
   }
+
+  const limit = rateLimit('prompts:generate', ownerId, {
+    limit: 20,
+    windowMs: 60_000,
+  })
+  if (!limit.ok) return tooManyRequests(limit.retryAfterSeconds)
 
   let body: unknown
   try {

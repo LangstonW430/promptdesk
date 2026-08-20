@@ -29,12 +29,29 @@ import Stripe from 'stripe'
 import { prisma } from '@/lib/db/client'
 import { decryptKey } from '@/lib/finance/stripe-key'
 import { handleStripeEvent } from '@/lib/finance/webhook-handler'
+import { clientIp, rateLimit } from '@/lib/rate-limit'
 
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ endpointToken: string }> },
 ): Promise<Response> {
   const { endpointToken } = await params
+
+  // ── 0. Cost of guessing ────────────────────────────────────────────────────
+  // The token is not a credential — the signature check below is what protects
+  // the data, and a wrong token is refused before anything is read. But a
+  // caller can still tell a valid token from an invalid one by whether they get
+  // 400 or 404, and walking the space unmetered is free reconnaissance plus a
+  // database lookup per attempt. Generous enough that Stripe's own delivery and
+  // retry rates never approach it.
+  const ip = clientIp(req.headers)
+  const attempts = rateLimit('stripe-webhook', ip, { limit: 120, windowMs: 60_000 })
+  if (!attempts.ok) {
+    return new Response('Too many requests', {
+      status: 429,
+      headers: { 'retry-after': String(attempts.retryAfterSeconds) },
+    })
+  }
 
   // ── 1. Raw body — must be read before any parsing ──────────────────────────
   const body = await req.text()

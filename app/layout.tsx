@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { headers } from 'next/headers'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { THEME_INIT_SCRIPT } from '@/lib/theme'
@@ -19,7 +20,12 @@ export const metadata: Metadata = {
   description: 'AI-assisted CRM for solo freelancers and small service businesses',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Set by the proxy, which also emits the CSP that requires it. Absent only
+  // where the proxy did not run — the matcher skips static assets, none of
+  // which render this — in which case the script tag simply carries no nonce.
+  const nonce = (await headers()).get('x-nonce') ?? undefined
+
   return (
     <html
       lang="en"
@@ -33,7 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Blocking and inline, before anything paints. Deferring this means a
             white flash on every navigation for anyone using dark mode. */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="h-full">
         <TooltipProvider>{children}</TooltipProvider>

@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation'
+import { getCurrentUser } from '@/lib/auth'
 import { ClientFormSheet } from '@/components/clients/client-form-sheet'
 
 /**
@@ -13,7 +15,14 @@ import { ClientFormSheet } from '@/components/clients/client-form-sheet'
  * Interception keeps the children slot on `/clients`, so this has to render the
  * create form itself rather than defer to `clients/new/page.tsx`. That page
  * still serves hard navigations and reloads.
+ *
+ * Carries the same session check as that page. Neither renders data, but a
+ * route under (app) that no longer needs an authenticated user is the exception
+ * worth stating explicitly, not the default worth leaving implicit.
  */
-export default function NewClientModal() {
+export default async function NewClientModal() {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
   return <ClientFormSheet />
 }

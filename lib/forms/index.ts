@@ -216,6 +216,24 @@ export async function getFormByPublicToken(token: string): Promise<PublicFormDat
   }
 }
 
+/**
+ * Bounds on what an unauthenticated submitter can store.
+ *
+ * This is the one write path in the app that never has a session behind it, so
+ * it is the one place where "the request body is as large as the caller likes"
+ * is a stranger's decision rather than a customer's. The public routes that
+ * reach it are currently removed; these belong to the function rather than to
+ * the route, so restoring the route does not restore the gap.
+ */
+const MAX_SUBMISSION_FIELD = 200
+const MAX_ANSWERS = 100
+const MAX_ANSWERS_BYTES = 50_000
+
+function boundedField(value: string | undefined): string | null {
+  if (!value) return null
+  return value.slice(0, MAX_SUBMISSION_FIELD)
+}
+
 export async function createFormSubmission(
   formId: string,
   data: { submitterName?: string; submitterEmail?: string; answers: Record<string, unknown> },
@@ -224,12 +242,20 @@ export async function createFormSubmission(
   const form = await prisma.form.findUnique({ where: { id: formId }, select: { isActive: true } })
   if (!form || !form.isActive) throw new Error('Form is not active')
 
+  const answers = data.answers ?? {}
+  if (Object.keys(answers).length > MAX_ANSWERS) {
+    throw new Error('Submission has too many answers')
+  }
+  if (JSON.stringify(answers).length > MAX_ANSWERS_BYTES) {
+    throw new Error('Submission is too large')
+  }
+
   await prisma.formSubmission.create({
     data: {
       formId,
-      submitterName: data.submitterName ?? null,
-      submitterEmail: data.submitterEmail ?? null,
-      answers: data.answers as object,
+      submitterName: boundedField(data.submitterName),
+      submitterEmail: boundedField(data.submitterEmail),
+      answers: answers as object,
     },
   })
 }

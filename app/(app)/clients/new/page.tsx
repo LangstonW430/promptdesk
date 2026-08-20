@@ -1,8 +1,19 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
+import { getCurrentUser } from '@/lib/auth'
 import { ClientForm } from '@/components/clients/client-form'
 
-export default function NewClientPage() {
+/**
+ * The form renders no data of its own, so this check is not what keeps anything
+ * secret — the create action calls `getOwnerId()` and would refuse anyway. It
+ * is here because every other page under (app) carries it, and "this one is
+ * only a form" is a property of today's markup, not of the route.
+ */
+export default async function NewClientPage() {
+  const user = await getCurrentUser()
+  if (!user) redirect('/login')
+
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6">

@@ -25,7 +25,7 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
     "lucide-react": "^1.17.0",
-    "next": "16.2.6",
+    "next": "16.3.1",
     "pg": "^8.21.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -46,12 +46,15 @@
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.3.1",
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   }
 }
