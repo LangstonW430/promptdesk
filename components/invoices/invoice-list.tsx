@@ -161,13 +161,25 @@ export function InvoiceList({
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">
                   {inv.clientName ?? (
-                    <span className="text-muted-foreground/50 italic">Unattributed</span>
+                    <span className="italic text-muted-foreground/50">No customer name</span>
                   )}
-                  {/* Imported from Stripe and matched no client. The detail page
-                      is where it gets linked. */}
-                  {!inv.clientId && inv.clientName && (
-                    <span className="ml-1.5 text-xs text-muted-foreground/50">
-                      (not linked)
+                  {/* Imported from Stripe, billed to somebody who matches no
+                      client in the CRM. Says which, rather than just "not
+                      linked", because the useful question is what to do about
+                      it — and the answer is on the invoice's own page. */}
+                  {!inv.clientId && (
+                    <span
+                      className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground/60"
+                      title={
+                        'From Stripe. ' +
+                        (inv.clientEmail
+                          ? `Billed to ${inv.clientEmail}, which matches no client in your CRM. `
+                          : 'No billing email to match on. ') +
+                        'Open the invoice to link it to a client — its payments will then ' +
+                        'be attributed to them and their projects.'
+                      }
+                    >
+                      · not a client yet
                     </span>
                   )}
                 </td>
