@@ -7,6 +7,9 @@ const eslintConfig = defineConfig([
   ...nextTs,
   globalIgnores([
     ".next/**",
+    // The E2E harness builds into its own directory so a test run cannot
+    // collide with a running `npm run dev`.
+    ".next-e2e/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

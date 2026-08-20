@@ -17,8 +17,9 @@ An AI-assisted CRM for solo freelancers and small service businesses. PromptDesk
 9. [Authentication & Security](#9-authentication--security)
 10. [Components](#10-components)
 11. [Testing](#11-testing)
-12. [Configuration & Environment](#12-configuration--environment)
-13. [Development Commands](#13-development-commands)
+12. [End-to-End Tests](#12-end-to-end-tests)
+13. [Configuration & Environment](#13-configuration--environment)
+14. [Development Commands](#14-development-commands)
 
 ---
 
@@ -775,7 +776,9 @@ Supabase RLS is enabled with a deny-all default policy. Application-level `owner
 ## 11. Testing
 
 Tests use **Vitest**, and live either in `__tests__/` beside the code they cover
-or under the top-level `__tests__/` directory. 29 files, ~4,600 lines.
+or under the top-level `__tests__/` directory. 30 files, 450 tests, under two
+seconds. The end-to-end suite is separate — see
+[section 12](#12-end-to-end-tests).
 
 They concentrate on business logic rather than rendering: the prompt engine, the
 finance and period maths, the derived client stage, project profitability, and
@@ -790,7 +793,8 @@ cannot see them:
 
 - **Raw SQL and migrations** are run against [PGlite](https://pglite.dev) with
   fixtures covering each branch, then re-run with the logic broken to confirm
-  the check actually fails.
+  the check actually fails. The end-to-end suite now does this continuously:
+  it builds its database by replaying the migration history.
 - **Rendering** is checked by bundling the real component and driving headless
   Chromium — including printing a dark-theme invoice to PDF and reading the
   colour operators back out of the content stream, to prove the sheet comes out
@@ -807,12 +811,6 @@ cannot see them:
 | `__tests__/lib/db/ownership.test.ts` | That a foreign key from a request body is checked against the session owner before it is written |
 | `__tests__/lib/invoices/derive-status.test.ts` | That an invoice due today is not yet overdue — a due date is a whole day, not an instant |
 
-### Known gap
-
-There are **no end-to-end tests**. Nothing exercises a real HTTP request against
-a real database, so route handlers, server actions and Supabase auth are covered
-only indirectly. This is the most significant hole in the suite.
-
 Run all tests:
 ```bash
 npm run test
@@ -825,7 +823,97 @@ npm run test:watch
 
 ---
 
-## 12. Configuration & Environment
+## 12. End-to-End Tests
+
+```bash
+npm run test:e2e
+```
+
+Real HTTP requests, to the real application, against a real Postgres. Nothing
+inside the app is mocked, stubbed or reconfigured: it is started the way
+`npm run dev` starts it, reads `DATABASE_URL`, and is reached over a socket.
+62 tests in about 70 seconds, and no Docker, no services and no credentials —
+`npm run test:e2e` is the whole setup, on a laptop and in CI alike.
+
+### How the stack comes up
+
+```
+  PGlite ──▶ stub Supabase Auth ──▶ Next.js dev server ──▶ tests
+  (real Postgres,   (answers          (the app, started    (fetch + a
+   over TCP)         getUser())        unmodified)          pg connection)
+```
+
+- **Postgres** is [PGlite](https://pglite.dev) — Postgres compiled to
+  WebAssembly — put behind a TCP socket by `@electric-sql/pglite-socket`, so
+  `pg`, Prisma and the Prisma CLI all connect to an ordinary `postgresql://`
+  URL. The schema is built by **replaying every migration in order**, not by
+  pushing `schema.prisma`, so a history that cannot build the database fails the
+  suite before a single request is made.
+- **Supabase Auth** is a ~120-line stub. `supabase.auth.getUser()` is an HTTP
+  call to the Auth server, not a local JWT decode — that is exactly why it can
+  be trusted server-side — so something has to answer it. What is faked is
+  Supabase; cookie parsing, session validation, the proxy's redirect and every
+  `getOwnerId()` call are the shipped code. Users are read from `auth.users`, so
+  seeding a user is all it takes to sign in as them.
+- **The app** runs in a child process on an assigned port, writing to
+  `.next-e2e` so a test run cannot collide with a dev server. Dev mode rather
+  than `build && start` because `NEXT_PUBLIC_*` values are inlined at compile
+  time and these ports only exist at run time.
+
+Tests hold a database connection alongside the HTTP client. Behaviour is
+asserted through requests; the connection is for arranging what a route has no
+API for, and for checking what actually landed in a column — a response echoing
+the object it was handed proves nothing about what was stored.
+
+### What it covers
+
+| File | What it pins down |
+|------|-------------------|
+| `e2e/specs/isolation.e2e.ts` | One account's data staying out of another's — reads, writes, and foreign keys in a request body pointed at somebody else's row |
+| `e2e/specs/auth-gate.e2e.ts` | The proxy redirect and `getOwnerId()`; expired sessions, deleted users, and cookies that are not sessions |
+| `e2e/specs/migrations.e2e.ts` | That the migration history reproduces `schema.prisma` exactly, that the `auth.users` trigger fires, and that RLS covers every owned table |
+| `e2e/specs/stripe-webhook.e2e.ts` | Genuine HMAC verification, per-user secrets, and that one account's event cannot touch another's invoice |
+| `e2e/specs/cascades.e2e.ts` | What deleting something takes with it: work is disposable, money is not |
+| `e2e/specs/clients.e2e.ts` | A client from created to deleted, and validation refusing to store what it rejects |
+| `e2e/specs/prompts.e2e.ts` | Generation over real retrieval, with the client's own words in the output |
+| `e2e/specs/tags.e2e.ts` | The duplicate-label 409, which is a unique constraint and so needs a database to raise it |
+
+### What it found
+
+Written to close a stated gap; it closed four defects on the way in, none of
+which any unit test could have seen.
+
+- **Stripe webhooks had never been reachable.** `/api/webhooks` was not in the
+  proxy's public prefixes, so every delivery from Stripe — arriving, correctly,
+  with no session — was redirected to `/login` and the handler never ran.
+  Invoice status only ever moved when somebody pressed *Refresh from Stripe*.
+- **`prisma migrate deploy` could not build the database.** No migration ever
+  created the `invoices` table; it had been `db push`ed in June and the
+  migration that enables RLS on it says so in a comment. A fresh deployment
+  failed at that migration. `time_entries.invoice_id`, `transactions.frequency`
+  and the `RecurringFrequency` enum were missing for the same reason.
+- **Deleting a client with any work under it returned a 500.**
+  `tasks.project_id` and `time_entries.project_id` were `ON DELETE SET NULL`
+  behind columns a later migration made `NOT NULL`. `schema.prisma` had said
+  `onDelete: Cascade` all along; only the database disagreed.
+- **The proxy's prefetch optimisation is dead code.** Next strips every flight
+  header, `next-router-prefetch` among them, before middleware runs, so the
+  branch that skips the auth round-trip never executes. Harmless — it fails
+  closed — but it is not saving the work its comment describes.
+
+The drift check is the durable half of that: `prisma migrate diff` between the
+migrated database and `schema.prisma` must come back empty, so a change that
+reaches production by `db push` cannot go unrecorded again.
+
+### Still not covered
+
+Nothing drives a browser, so rendering, client-side state and server actions
+reached through form submission are still only checked by hand. The suite goes
+through the HTTP surface: route handlers, the proxy, and everything behind them.
+
+---
+
+## 13. Configuration & Environment
 
 ### Required Environment Variables
 
@@ -928,7 +1016,7 @@ stripe trigger invoice.paid
 
 ---
 
-## 13. Development Commands
+## 14. Development Commands
 
 ```bash
 # Start dev server
@@ -945,6 +1033,12 @@ npm run test
 
 # Run tests in watch mode
 npm run test:watch
+
+# Run the end-to-end suite (starts its own Postgres, Auth stub and app server)
+npm run test:e2e
+
+# ...with the app server's own logs streamed, for debugging a failure
+E2E_APP_LOGS=1 npm run test:e2e
 
 # Run Prisma migrations
 npx prisma migrate dev

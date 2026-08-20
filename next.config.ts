@@ -3,6 +3,11 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  // The E2E harness starts its own dev server. Without a separate build
+  // directory it would share `.next` with whatever `npm run dev` the developer
+  // already has running, and the two would overwrite each other's output.
+  // Unset everywhere else, so the default `.next` is used.
+  ...(process.env.E2E_DIST_DIR ? { distDir: process.env.E2E_DIST_DIR } : {}),
 };
 
 export default withSentryConfig(nextConfig, {

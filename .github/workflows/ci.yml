@@ -33,6 +33,13 @@ jobs:
       - name: Test
         run: npm run test
 
+      # End-to-end: real HTTP against a real Next server against a real
+      # Postgres. Needs no services block and no secrets — the harness starts
+      # Postgres (PGlite over the wire protocol), a stub Supabase Auth server
+      # and the app itself, all on loopback ports it assigns at run time.
+      - name: End-to-end test
+        run: npm run test:e2e
+
       # Catches type errors and build-time failures that lint and unit tests
       # miss. Env vars are placeholders: lib/env.ts validates their shape at
       # import time, and nothing is contacted during a build.
