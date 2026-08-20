@@ -13,6 +13,15 @@ const PUBLIC_PREFIXES = [
   '/f',
   '/api/public',
   '/api/invoice',
+  // Stripe posts here with no session and no cookies, so the gate below would
+  // redirect every delivery to /login and the handler would never run — which
+  // is what was happening: invoice status and payment updates only ever
+  // arrived when somebody pressed "Refresh from Stripe" by hand.
+  //
+  // Being public costs nothing. The handler trusts nothing until it has
+  // verified the Stripe signature against that owner's stored secret, and the
+  // token in the path only selects which secret to check against.
+  '/api/webhooks',
 ]
 
 function isPublic(pathname: string): boolean {
