@@ -227,6 +227,9 @@ model Project {
   @@index([ownerId, status], map: "projects_owner_status_idx")
   @@index([clientId],        map: "projects_client_idx")
   @@index([ownerId, updatedAt(sort: Desc)], map: "projects_owner_updated_idx")
+  // Created by 20260731100000_add_project_archived and never declared here, so
+  // the schema and the database disagreed about it.
+  @@index([ownerId, isArchived], map: "projects_owner_archived_idx")
   @@map("projects")
 }
 
