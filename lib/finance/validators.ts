@@ -39,6 +39,27 @@ export const updateTransactionSchema = z.object({
   recurrenceEndedAt: z.string().date().nullable().optional(),
 })
 
+/**
+ * A rate change on a standing charge: the same charge, at a different price or
+ * cadence, from `effectiveFrom` onward.
+ *
+ * Separate from an update because it is a different intent. Updating rewrites
+ * the charge, and a standing charge is what every month it covers reads its
+ * figure from — so a new price applied that way reaches back and restates
+ * months that were billed at the old one. This carries the date the change
+ * took effect, which is the piece an update has no way to express.
+ */
+export const supersedeStandingChargeSchema = z.object({
+  effectiveFrom: z.string().date(),
+  type: z.enum(['income', 'expense']),
+  amount: z.number().positive('Amount must be greater than 0'),
+  description: z.string().nullable().optional(),
+  category: z.string().refine(validCategory, { message: 'Invalid category' }),
+  clientId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
+  frequency: z.enum(FREQUENCIES),
+})
+
 // Form schema — all HTML inputs are strings; numeric/UUID fields are refined strings.
 export const transactionFormSchema = z.object({
   type: z.enum(['income', 'expense']),
@@ -59,6 +80,7 @@ export const transactionFormSchema = z.object({
 
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>
 export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>
+export type SupersedeStandingChargeInput = z.infer<typeof supersedeStandingChargeSchema>
 export type TransactionFormValues = z.infer<typeof transactionFormSchema>
 
 export const transactionFormDefaultValues: TransactionFormValues = {

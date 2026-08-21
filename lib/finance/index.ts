@@ -5,7 +5,11 @@ import { VISIBLE_TRANSACTION } from './visibility'
 import { serializeTransaction } from './serialize'
 import type { SerializedTransaction } from './serialize'
 import type { Period, TransactionFilters } from './types'
-import type { CreateTransactionInput, UpdateTransactionInput } from './validators'
+import type {
+  CreateTransactionInput,
+  UpdateTransactionInput,
+  SupersedeStandingChargeInput,
+} from './validators'
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
@@ -273,6 +277,140 @@ export async function updateTransaction(
 
   const row = await prisma.transaction.update({ where: { id }, data })
   return serializeTransaction(row)
+}
+
+/**
+ * The last day of the month before `date`, as the boundary between an old rate
+ * and its replacement.
+ *
+ * Everything on the Finance page counts a standing charge by month —
+ * `recurrenceEndedAt` included, which keeps the month it falls in because a
+ * mid-month cancellation was still billed. So the old rate has to stop in the
+ * month *before* the new one starts, or the changeover month counts both and
+ * that month reports the two rates added together.
+ */
+function endOfPreviousMonth(date: Date): Date {
+  // Day 0 of a month is the last day of the one before it.
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 0))
+}
+
+/** Whole months from `a` to `b`; negative when `b` precedes `a`. */
+function monthIndex(d: Date): number {
+  return d.getUTCFullYear() * 12 + d.getUTCMonth()
+}
+
+export interface RateChangeResult {
+  /** The old rate, now carrying the date it stopped. */
+  previous: SerializedTransaction
+  /**
+   * The new rate as its own charge, or null when the change fell inside the
+   * month the charge began — there is no earlier month to protect, so the
+   * original row was simply edited and `previous` is that edit.
+   */
+  next: SerializedTransaction | null
+}
+
+/**
+ * Records a price or cadence change on a standing charge, from a date forward.
+ *
+ * A standing charge is one row that every month it covers reads its figure
+ * from. That makes editing the amount the wrong tool for a subscription that
+ * moved to a different tier: the new price lands on every month back to the
+ * day the charge was created, restating months that were billed — and paid —
+ * at the old rate. Plain `updateTransaction` still does exactly that, which is
+ * right for fixing a typo and wrong for a plan change; the two are different
+ * intents and this is the second one.
+ *
+ * The charge is split in two instead: the old rate stops the month before the
+ * change, and the new figures start a charge of their own on `effectiveFrom`.
+ * Past months keep what they were billed, the current month onward gets the
+ * new rate, and MRR reflects the tier in force rather than the tier that
+ * happened to be entered first.
+ */
+export async function supersedeStandingCharge(
+  ownerId: string,
+  id: string,
+  input: SupersedeStandingChargeInput,
+): Promise<RateChangeResult | null> {
+  const existing = await prisma.transaction.findFirst({ where: { id, ownerId } })
+  if (!existing) return null
+
+  if (!existing.isRecurring) {
+    throw new Error(
+      'Only a recurring charge has rates to change. Edit this one directly.',
+    )
+  }
+  if (existing.source !== 'manual') {
+    // Stripe is the record of what an imported subscription bills. A new tier
+    // arrives as its own charge on the next sync, so splitting it here would
+    // only duplicate what the importer is about to write.
+    throw new Error(
+      'This charge came from Stripe. Its new rate arrives on the next sync — ' +
+      'set "Stopped on" if the old one should stop counting before then.',
+    )
+  }
+
+  const rejection = await checkRelations(ownerId, input.clientId, input.projectId)
+  if (rejection) throw new Error(rejection)
+
+  const effective = new Date(input.effectiveFrom)
+  const startedIndex = monthIndex(existing.occurredAt)
+  const effectiveIndex = monthIndex(effective)
+
+  if (effectiveIndex < startedIndex) {
+    throw new Error('The new rate cannot start before the charge did.')
+  }
+  if (existing.recurrenceEndedAt && monthIndex(existing.recurrenceEndedAt) < effectiveIndex) {
+    throw new Error(
+      'This charge already stopped before that date. Add the new rate as its own charge.',
+    )
+  }
+
+  const nextFields = {
+    type: input.type,
+    amount: input.amount,
+    description: input.description ?? null,
+    category: input.category,
+    clientId: input.clientId ?? null,
+    projectId: input.projectId ?? null,
+    frequency: input.frequency,
+  }
+
+  // The change lands in the month the charge began: no earlier month is billed
+  // at the old rate, so there is nothing to preserve and splitting would leave
+  // a charge that covers no months at all. An ordinary edit is the whole job.
+  if (effectiveIndex === startedIndex) {
+    const row = await prisma.transaction.update({
+      where: { id },
+      data: { ...nextFields, occurredAt: effective },
+    })
+    return { previous: serializeTransaction(row), next: null }
+  }
+
+  const [previous, next] = await prisma.$transaction([
+    prisma.transaction.update({
+      where: { id },
+      data: { recurrenceEndedAt: endOfPreviousMonth(effective) },
+    }),
+    prisma.transaction.create({
+      data: {
+        ownerId,
+        source: 'manual',
+        currency: existing.currency,
+        ...nextFields,
+        occurredAt: effective,
+        isRecurring: true,
+        // A charge already set to stop keeps stopping then; the rate changed,
+        // not the plan to end it.
+        recurrenceEndedAt: existing.recurrenceEndedAt,
+      },
+    }),
+  ])
+
+  return {
+    previous: serializeTransaction(previous),
+    next: serializeTransaction(next),
+  }
 }
 
 export async function deleteTransaction(

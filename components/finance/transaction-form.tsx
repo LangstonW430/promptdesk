@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { AlertCircle, Loader2, Lock } from 'lucide-react'
@@ -21,7 +21,11 @@ import {
   type TransactionFormValues,
 } from '@/lib/finance/validators'
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '@/lib/finance/categories'
-import { createTransactionAction, updateTransactionAction } from '@/lib/actions/finance'
+import {
+  createTransactionAction,
+  updateTransactionAction,
+  supersedeStandingChargeAction,
+} from '@/lib/actions/finance'
 
 export type ClientOption = { id: string; name: string }
 
@@ -46,6 +50,29 @@ interface TransactionFormProps {
   financialsLocked?: boolean
   onSuccess: () => void
   onCancel: () => void
+}
+
+/** Today in UTC as YYYY-MM-DD — the form the date inputs and the API use. */
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/**
+ * What a rate change sends: the new figures, plus the date they took effect.
+ * The start date is deliberately absent — the charge keeps the one it has, and
+ * the new rate begins its own charge on `effectiveFrom`.
+ */
+function toRateChangePayload(values: TransactionFormValues, effectiveFrom: string) {
+  return {
+    effectiveFrom,
+    type: values.type as 'income' | 'expense',
+    amount: Number(values.amount),
+    description: values.description || null,
+    category: values.category,
+    clientId: values.clientId || null,
+    projectId: values.projectId || null,
+    frequency: (values.frequency || 'monthly') as 'monthly' | 'quarterly' | 'annual',
+  }
 }
 
 function toActionPayload(values: TransactionFormValues) {
@@ -87,6 +114,31 @@ export function TransactionForm({
   const watchedType = useWatch({ control: form.control, name: 'type' })
   const watchedRecurring = useWatch({ control: form.control, name: 'isRecurring' })
   const watchedClientId = useWatch({ control: form.control, name: 'clientId' })
+  const watchedAmount = useWatch({ control: form.control, name: 'amount' })
+  const watchedFrequency = useWatch({ control: form.control, name: 'frequency' })
+
+  // How a changed price should be applied. Not a form field: it is a question
+  // about the edit rather than a property of the charge, and it only exists
+  // while the figures on screen differ from the ones that were loaded.
+  const [rateChange, setRateChange] = useState<'from' | 'always'>('from')
+  const [effectiveFrom, setEffectiveFrom] = useState(todayISO())
+
+  /**
+   * True when this edit changes what the charge costs per period.
+   *
+   * A standing charge is a single row that every month it covers reads its
+   * figure from, so saving a new amount restates months that were billed at
+   * the old one — the subscription that went up a tier in August suddenly
+   * costs the higher price back in May too. That is right for a typo and
+   * wrong for a plan change, and only the user knows which this is.
+   */
+  const startedAt = defaultValues?.occurredAt ?? ''
+  const isStandingCharge = isEdit && defaultValues?.isRecurring === true && watchedRecurring
+  const figuresChanged =
+    isStandingCharge &&
+    !financialsLocked &&
+    (Number(watchedAmount) !== Number(defaultValues?.amount ?? NaN) ||
+      watchedFrequency !== (defaultValues?.frequency ?? 'monthly'))
 
   // Only the selected client's work. With no client chosen there is nothing to
   // attribute to, so the picker stays hidden rather than offering every project.
@@ -97,11 +149,19 @@ export function TransactionForm({
     watchedType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES
 
   async function onSubmit(values: TransactionFormValues) {
-    const payload = toActionPayload(values)
     startTransition(async () => {
-      const result = isEdit
-        ? await updateTransactionAction(transactionId, payload)
-        : await createTransactionAction(payload)
+      // A rate change is its own operation: it stops the old rate the month
+      // before and starts the new one as a charge of its own, leaving the
+      // months already billed at the old price alone.
+      const result =
+        figuresChanged && rateChange === 'from'
+          ? await supersedeStandingChargeAction(
+              transactionId,
+              toRateChangePayload(values, effectiveFrom),
+            )
+          : isEdit
+            ? await updateTransactionAction(transactionId, toActionPayload(values))
+            : await createTransactionAction(toActionPayload(values))
 
       if (!result.success) {
         form.setError('root', { message: result.error })
@@ -327,18 +387,74 @@ export function TransactionForm({
           />
         )}
 
-        {/* Changed plans mid-life. Editing the amount in place is the obvious
-            move and the wrong one: this row is what every past month reads its
-            figure from, so a new price rewrites months that were billed at the
-            old one. */}
-        {isEdit && watchedRecurring && (
-          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-            Moved to a different plan or price? Put the changeover date in{' '}
-            <strong>Stopped on</strong> and add the new rate as a separate
-            charge starting then. Changing the amount here applies it to every
-            month this charge has run, including ones already billed at the old
-            price.
-          </p>
+        {/* The figures on a standing charge changed. Which of the two things
+            that can mean is a question only the user can answer, so it is
+            asked here rather than guessed — and the answer that protects
+            already-billed months is the default. */}
+        {figuresChanged && (
+          <fieldset className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 px-3 py-3">
+            <legend className="px-1 text-xs font-medium">
+              How should the new amount apply?
+            </legend>
+
+            <label className="flex items-start gap-2.5 text-xs cursor-pointer">
+              <input
+                type="radio"
+                name="rateChange"
+                className="mt-0.5 size-3.5 accent-primary"
+                checked={rateChange === 'from'}
+                onChange={() => setRateChange('from')}
+              />
+              <span>
+                <span className="font-medium text-foreground">
+                  The price changed on a date
+                </span>
+                <span className="block text-muted-foreground">
+                  Stops this charge the month before and starts the new amount
+                  from then. Months already billed at the old price keep it.
+                </span>
+              </span>
+            </label>
+
+            {rateChange === 'from' && (
+              <div className="pl-6">
+                <label
+                  htmlFor="effectiveFrom"
+                  className="block text-xs text-muted-foreground mb-1"
+                >
+                  New price applies from
+                </label>
+                <input
+                  id="effectiveFrom"
+                  type="date"
+                  value={effectiveFrom}
+                  min={startedAt || undefined}
+                  onChange={(e) => setEffectiveFrom(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                />
+              </div>
+            )}
+
+            <label className="flex items-start gap-2.5 text-xs cursor-pointer">
+              <input
+                type="radio"
+                name="rateChange"
+                className="mt-0.5 size-3.5 accent-primary"
+                checked={rateChange === 'always'}
+                onChange={() => setRateChange('always')}
+              />
+              <span>
+                <span className="font-medium text-foreground">
+                  It was always this amount
+                </span>
+                <span className="block text-muted-foreground">
+                  Corrects the charge everywhere, back to
+                  {startedAt ? ` ${startedAt}` : ' the day it started'}. Use
+                  this to fix a figure that was entered wrong.
+                </span>
+              </span>
+            </label>
+          </fieldset>
         )}
 
         {/* Client */}

@@ -6,10 +6,15 @@ import { getOwnerId } from '@/lib/auth'
 import {
   createTransaction,
   updateTransaction,
+  supersedeStandingCharge,
   deleteTransaction,
   setTransactionHidden,
 } from '@/lib/finance'
-import { createTransactionSchema, updateTransactionSchema } from '@/lib/finance/validators'
+import {
+  createTransactionSchema,
+  updateTransactionSchema,
+  supersedeStandingChargeSchema,
+} from '@/lib/finance/validators'
 import { backfillStripe } from '@/lib/finance/stripe-sync'
 
 export async function createTransactionAction(data: unknown) {
@@ -56,6 +61,40 @@ export async function updateTransactionAction(id: string, data: unknown) {
     return {
       success: false as const,
       error: err instanceof Error ? err.message : 'Failed to save transaction',
+    }
+  }
+}
+
+/**
+ * Records a rate change on a standing charge from a date forward, rather than
+ * rewriting what every month it has already covered was billed.
+ *
+ * Kept apart from updateTransactionAction because the two answer different
+ * questions. "This charge was always £49, I typed it wrong" is an update.
+ * "This charge went from £49 to £99 in August" is this — and putting it through
+ * an update would tell the ledger the higher tier had been running since the
+ * day the subscription was first entered.
+ */
+export async function supersedeStandingChargeAction(id: string, data: unknown) {
+  const ownerId = await getOwnerId()
+  const parsed = supersedeStandingChargeSchema.safeParse(data)
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0].message }
+  }
+  try {
+    const result = await supersedeStandingCharge(ownerId, id, parsed.data)
+    if (!result) {
+      return { success: false as const, error: 'Transaction not found' }
+    }
+    revalidatePath('/finance')
+    revalidatePath('/dashboard')
+    updateTag(financeTag(ownerId))
+    updateTag(dashboardTag(ownerId))
+    return { success: true as const, data: result }
+  } catch (err) {
+    return {
+      success: false as const,
+      error: err instanceof Error ? err.message : 'Failed to record the rate change',
     }
   }
 }
