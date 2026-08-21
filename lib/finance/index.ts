@@ -73,7 +73,7 @@ export async function listTransactions(
 export async function listTransactionsForPeriod(
   ownerId: string,
   period?: Period,
-): Promise<Array<SerializedTransaction & { isProjected: boolean }>> {
+): Promise<Array<SerializedTransaction & { isProjected: boolean; seriesStartAt: string }>> {
   const { from, to } = period
     ? getPeriodBoundaries(period)
     : { from: null, to: null }

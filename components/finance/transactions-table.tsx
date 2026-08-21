@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, Trash2, Lock, EyeOff, Eye } from 'lucide-react'
+import { Plus, Pencil, Trash2, CircleSlash, EyeOff, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import {
   deleteTransactionAction,
   setTransactionHiddenAction,
+  updateTransactionAction,
 } from '@/lib/actions/finance'
 import { TransactionForm, type ClientOption, type ProjectOption } from './transaction-form'
 import type { SerializedTransaction } from '@/lib/finance/serialize'
@@ -29,6 +30,11 @@ function formatAmount(amount: number, type: string) {
   return type === 'income' ? `+${formatted}` : `-${formatted}`
 }
 
+/** Today in UTC as YYYY-MM-DD, the form the date fields and the API both use. */
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', {
     month: 'short',
@@ -38,13 +44,32 @@ function formatDate(iso: string) {
   })
 }
 
-function toFormValues(t: SerializedTransaction): Partial<TransactionFormValues> {
+/**
+ * A row as the table renders it: either a transaction, or one of the repeats a
+ * standing charge was expanded into for this period.
+ */
+type LedgerRow = SerializedTransaction & {
+  isProjected?: boolean
+  /** The date of the underlying row — see `expandRecurring`. */
+  seriesStartAt?: string
+}
+
+/** The date the underlying row actually carries, not the projected one. */
+function startDate(t: LedgerRow) {
+  return t.seriesStartAt ?? t.occurredAt
+}
+
+function toFormValues(t: LedgerRow): Partial<TransactionFormValues> {
   return {
     type: t.type as 'income' | 'expense',
     amount: String(t.amount),
     description: t.description ?? '',
     category: t.category,
-    occurredAt: t.occurredAt.slice(0, 10),
+    // A repeat's `occurredAt` is a date the projection invented for this
+    // period; the row in the database still starts where it always did.
+    // Feeding the projected date back through the form would drag the charge's
+    // start forward every time it was edited from a later month.
+    occurredAt: startDate(t).slice(0, 10),
     clientId: t.clientId ?? '',
     projectId: t.projectId ?? '',
     isRecurring: t.isRecurring,
@@ -61,7 +86,7 @@ type TypeFilter = 'all' | 'income' | 'expense'
 type SourceFilter = 'all' | 'manual' | 'stripe'
 
 interface TransactionsTableProps {
-  transactions: Array<SerializedTransaction & { isProjected?: boolean }>
+  transactions: LedgerRow[]
   /**
    * Rows the user has taken off the ledger, listed separately so they can be
    * put back. Kept out of `transactions` on purpose: that array is also what
@@ -83,9 +108,13 @@ export function TransactionsTable({
   const [, startTransition] = useTransition()
 
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [editing, setEditing] = useState<SerializedTransaction | null>(null)
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
-  const [pendingHideId, setPendingHideId] = useState<string | null>(null)
+  const [editing, setEditing] = useState<LedgerRow | null>(null)
+  // The whole row, not just its id: what a confirmation has to say depends on
+  // whether the thing being removed is a one-off or a charge that has been
+  // running for months.
+  const [pendingDelete, setPendingDelete] = useState<LedgerRow | null>(null)
+  const [pendingHide, setPendingHide] = useState<LedgerRow | null>(null)
+  const [pendingEnd, setPendingEnd] = useState<LedgerRow | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
@@ -101,7 +130,7 @@ export function TransactionsTable({
     setSheetOpen(true)
   }
 
-  function openEdit(t: SerializedTransaction) {
+  function openEdit(t: LedgerRow) {
     setEditing(t)
     setSheetOpen(true)
   }
@@ -115,9 +144,9 @@ export function TransactionsTable({
   // thread and looks nothing like the rest of the app. ConfirmDialog is what
   // every other destructive path here uses.
   function handleDeleteConfirmed() {
-    const id = pendingDeleteId
+    const id = pendingDelete?.id
     if (!id) return
-    setPendingDeleteId(null)
+    setPendingDelete(null)
     startTransition(async () => {
       await deleteTransactionAction(id)
       router.refresh()
@@ -125,11 +154,27 @@ export function TransactionsTable({
   }
 
   function handleHideConfirmed() {
-    const id = pendingHideId
+    const id = pendingHide?.id
     if (!id) return
-    setPendingHideId(null)
+    setPendingHide(null)
     startTransition(async () => {
       await setTransactionHiddenAction(id, true)
+      router.refresh()
+    })
+  }
+
+  /**
+   * Stops a standing charge as of today, leaving every month it did apply to
+   * counting it. This is what someone changing plans needs: the old rate ends,
+   * the new one is added alongside it, and last quarter still reports what was
+   * actually paid. Deleting instead would rewrite that history.
+   */
+  function handleEndConfirmed() {
+    const id = pendingEnd?.id
+    if (!id) return
+    setPendingEnd(null)
+    startTransition(async () => {
+      await updateTransactionAction(id, { recurrenceEndedAt: todayISO() })
       router.refresh()
     })
   }
@@ -241,9 +286,11 @@ export function TransactionsTable({
                             <span
                               className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                               title={
-                                t.isProjected
-                                  ? 'A repeat of a standing charge. Edit the original entry to change it.'
-                                  : 'Standing charge — repeats every period'
+                                t.recurrenceEndedAt
+                                  ? `Standing charge — stopped on ${formatDate(t.recurrenceEndedAt)}`
+                                  : t.isProjected
+                                    ? `A repeat of the standing charge that began ${formatDate(startDate(t))}. Editing or stopping it here changes the charge itself.`
+                                    : 'Standing charge — repeats every period'
                               }
                             >
                               {t.frequency === 'quarterly' ? 'Quarterly'
@@ -265,62 +312,85 @@ export function TransactionsTable({
                         {formatAmount(t.amount, t.type)}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {/* A repeat has no row of its own to act on; the
-                            original entry is where it is edited or removed. */}
-                        {t.isProjected ? (
-                          <Lock
-                            className="ml-auto size-3.5 text-muted-foreground/40"
-                            aria-label="Repeat of a standing charge — edit the original entry"
-                          />
-                        ) : (
-                          <div className="flex justify-end gap-1">
-                            {/* Stripe rows are editable too. Their amount, type
-                                and currency stay read-only in the form, but the
-                                category, client, project and — the reason this
-                                matters — whether the charge still recurs are
-                                the user's to set. Locking the whole row left a
-                                cancelled subscription counting toward MRR with
-                                no way to say it had stopped. */}
+                        {/* Every action here targets `t.id` — the row in the
+                            database — so a repeat is as good a handle on a
+                            standing charge as the month it started in. It has
+                            to be: once the period moves past that first month,
+                            repeats are the only rows of the charge on screen,
+                            and locking them left a subscription with no way to
+                            change or stop it short of switching to All time. */}
+                        <div className="flex justify-end gap-1">
+                          {/* Stripe rows are editable too. Their amount, type
+                              and currency stay read-only in the form, but the
+                              category, client, project and — the reason this
+                              matters — whether the charge still recurs are
+                              the user's to set. Locking the whole row left a
+                              cancelled subscription counting toward MRR with
+                              no way to say it had stopped. */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            onClick={() => openEdit(t)}
+                            aria-label={
+                              t.isRecurring
+                                ? 'Edit standing charge'
+                                : t.source === 'stripe'
+                                  ? 'Edit imported transaction'
+                                  : 'Edit transaction'
+                            }
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+
+                          {/* Ending is the right way out of a charge that is
+                              simply over — a plan changed, a tool was dropped.
+                              Offered only while it is still running, and kept
+                              ahead of delete so the destructive option is not
+                              the obvious one. */}
+                          {t.isRecurring && !t.recurrenceEndedAt && (
                             <Button
                               variant="ghost"
                               size="icon"
                               className="size-7"
-                              onClick={() => openEdit(t)}
+                              onClick={() => setPendingEnd(t)}
+                              aria-label="Stop this standing charge from today"
+                              title="Stop this standing charge from today"
+                            >
+                              <CircleSlash className="size-3.5" />
+                            </Button>
+                          )}
+
+                          {t.source === 'stripe' ? (
+                            // Deleting an imported row does not remove it —
+                            // the next sync reads the same charge from Stripe
+                            // and writes it back. Hiding is reversible and
+                            // actually sticks.
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              onClick={() => setPendingHide(t)}
+                              aria-label="Hide transaction from the ledger"
+                            >
+                              <EyeOff className="size-3.5" />
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-destructive hover:text-destructive"
+                              onClick={() => setPendingDelete(t)}
                               aria-label={
-                                t.source === 'stripe'
-                                  ? 'Edit imported transaction'
-                                  : 'Edit transaction'
+                                t.isRecurring
+                                  ? 'Delete standing charge and all its repeats'
+                                  : 'Delete transaction'
                               }
                             >
-                              <Pencil className="size-3.5" />
+                              <Trash2 className="size-3.5" />
                             </Button>
-                            {t.source === 'stripe' ? (
-                              // Deleting an imported row does not remove it —
-                              // the next sync reads the same charge from Stripe
-                              // and writes it back. Hiding is reversible and
-                              // actually sticks.
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-7"
-                                onClick={() => setPendingHideId(t.id)}
-                                aria-label="Hide transaction from the ledger"
-                              >
-                                <EyeOff className="size-3.5" />
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-7 text-destructive hover:text-destructive"
-                                onClick={() => setPendingDeleteId(t.id)}
-                                aria-label="Delete transaction"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </Button>
-                            )}
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -384,7 +454,13 @@ export function TransactionsTable({
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="flex flex-col sm:max-w-md p-0">
           <SheetHeader className="border-b border-border px-6 py-4 shrink-0">
-            <SheetTitle>{editing ? 'Edit transaction' : 'Add transaction'}</SheetTitle>
+            <SheetTitle>
+              {!editing
+                ? 'Add transaction'
+                : editing.isRecurring
+                  ? 'Edit standing charge'
+                  : 'Edit transaction'}
+            </SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-6 py-5">
             <TransactionForm
@@ -401,18 +477,38 @@ export function TransactionsTable({
       </Sheet>
 
       <ConfirmDialog
-        open={pendingDeleteId !== null}
-        onOpenChange={(open) => { if (!open) setPendingDeleteId(null) }}
-        title="Delete transaction?"
-        description="This permanently removes the transaction and the figures it feeds on the Finance page. This cannot be undone."
-        confirmLabel="Delete transaction"
+        open={pendingEnd !== null}
+        onOpenChange={(open) => { if (!open) setPendingEnd(null) }}
+        title="Stop this standing charge?"
+        description={
+          pendingEnd
+            ? `It stops counting from today. Every month from ${formatDate(startDate(pendingEnd))} up to now keeps it, so past totals and MRR stay as they were actually billed. If you have moved to a different plan, add the new rate as its own charge.`
+            : ''
+        }
+        confirmLabel="Stop charge"
+        onConfirm={handleEndConfirmed}
+      />
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null) }}
+        title={pendingDelete?.isRecurring ? 'Delete this standing charge?' : 'Delete transaction?'}
+        description={
+          // Deleting a standing charge is not the same size of action as
+          // deleting a one-off: it takes the charge out of every month it ran
+          // for, so months that were reported correctly change after the fact.
+          pendingDelete?.isRecurring
+            ? `This removes the charge from every period it applied to, back to ${pendingDelete ? formatDate(startDate(pendingDelete)) : ''}, and cannot be undone. To end a charge that genuinely ran until now, stop it instead — past months keep counting it.`
+            : 'This permanently removes the transaction and the figures it feeds on the Finance page. This cannot be undone.'
+        }
+        confirmLabel={pendingDelete?.isRecurring ? 'Delete standing charge' : 'Delete transaction'}
         variant="destructive"
         onConfirm={handleDeleteConfirmed}
       />
 
       <ConfirmDialog
-        open={pendingHideId !== null}
-        onOpenChange={(open) => { if (!open) setPendingHideId(null) }}
+        open={pendingHide !== null}
+        onOpenChange={(open) => { if (!open) setPendingHide(null) }}
         title="Hide this transaction?"
         description="It comes out of the transactions list and every total on this page. Imported rows cannot be deleted — the next Stripe sync would bring them straight back — so this hides it instead. You can unhide it at any time."
         confirmLabel="Hide transaction"

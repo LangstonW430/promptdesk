@@ -213,16 +213,23 @@ export function TransactionForm({
           )}
         />
 
-        {/* Date */}
+        {/* Date — for a standing charge this is when it began, not one of the
+            months it lands in, and saying so matters when the form was opened
+            from a repeat several months later. */}
         <FormField
           control={form.control}
           name="occurredAt"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Date</FormLabel>
+              <FormLabel>{watchedRecurring ? 'Started on' : 'Date'}</FormLabel>
               <FormControl>
                 <Input {...field} type="date" />
               </FormControl>
+              {watchedRecurring && (
+                <p className="text-xs text-muted-foreground">
+                  The first month this charge applied. It repeats from here.
+                </p>
+              )}
               <FormMessage />
             </FormItem>
           )}
@@ -318,6 +325,20 @@ export function TransactionForm({
               </FormItem>
             )}
           />
+        )}
+
+        {/* Changed plans mid-life. Editing the amount in place is the obvious
+            move and the wrong one: this row is what every past month reads its
+            figure from, so a new price rewrites months that were billed at the
+            old one. */}
+        {isEdit && watchedRecurring && (
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+            Moved to a different plan or price? Put the changeover date in{' '}
+            <strong>Stopped on</strong> and add the new rate as a separate
+            charge starting then. Changing the amount here applies it to every
+            month this charge has run, including ones already billed at the old
+            price.
+          </p>
         )}
 
         {/* Client */}

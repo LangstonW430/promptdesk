@@ -168,16 +168,23 @@ export function occurrenceDates(
  * Expands standing charges into one entry per occurrence within the window,
  * leaving one-off rows untouched.
  *
- * `isProjected` marks the repeats — they are derived, not rows in the database,
- * so nothing may offer to edit or delete them.
+ * `isProjected` marks the repeats: they are derived, so a repeat carries no
+ * figures of its own to change and nothing may write to one directly.
+ *
+ * `seriesStartAt` is the date of the row the occurrence came from, kept on
+ * every entry because `occurredAt` on a repeat is the projected date, not a
+ * date that exists in the database. Editing a standing charge from one of its
+ * repeats — the only rows on screen once the period moves past the month it
+ * began in — needs the real start date, or saving the form would move the
+ * charge's beginning to whichever month happened to be in view.
  */
 export function expandRecurring<T extends RecurringRow>(
   rows: ReadonlyArray<T>,
   from: Date,
   to: Date,
   projectUntil: Date = to,
-): Array<T & { occurredAt: string; isProjected: boolean }> {
-  const out: Array<T & { occurredAt: string; isProjected: boolean }> = []
+): Array<T & { occurredAt: string; isProjected: boolean; seriesStartAt: string }> {
+  const out: Array<T & { occurredAt: string; isProjected: boolean; seriesStartAt: string }> = []
   for (const row of rows) {
     for (const date of occurrenceDates(row, from, to, projectUntil)) {
       const iso = date.toISOString()
@@ -186,6 +193,7 @@ export function expandRecurring<T extends RecurringRow>(
         occurredAt: row.isRecurring ? iso : row.occurredAt,
         // The charge on its original date is the real row; the repeats are not.
         isProjected: row.isRecurring === true && iso.slice(0, 7) !== row.occurredAt.slice(0, 7),
+        seriesStartAt: row.occurredAt,
       })
     }
   }
