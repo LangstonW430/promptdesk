@@ -19,6 +19,7 @@ import {
   updateTransactionAction,
 } from '@/lib/actions/finance'
 import { TransactionForm, type ClientOption, type ProjectOption } from './transaction-form'
+import { recurrenceLabel } from '@/lib/finance/recurrence-label'
 import type { SerializedTransaction } from '@/lib/finance/serialize'
 import type { TransactionFormValues } from '@/lib/finance/validators'
 
@@ -57,6 +58,30 @@ type LedgerRow = SerializedTransaction & {
 /** The date the underlying row actually carries, not the projected one. */
 function startDate(t: LedgerRow) {
   return t.seriesStartAt ?? t.occurredAt
+}
+
+/**
+ * The chip marking a row as a standing charge. It goes muted once the charge
+ * has stopped, so a subscription that ended in July is not the same green as
+ * one still being billed — until now the only sign was the stop button being
+ * absent, which reads as a missing feature rather than a state.
+ */
+function RecurrenceBadge({ t }: { t: LedgerRow }) {
+  if (!t.isRecurring) return null
+  const { label, title, ended } = recurrenceLabel(t)
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+        ended
+          ? 'bg-muted text-muted-foreground'
+          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+      )}
+      title={title}
+    >
+      {label}
+    </span>
+  )
 }
 
 function toFormValues(t: LedgerRow): Partial<TransactionFormValues> {
@@ -282,23 +307,7 @@ export function TransactionsTable({
                               Manual
                             </span>
                           )}
-                          {t.isRecurring && (
-                            <span
-                              className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                              title={
-                                t.recurrenceEndedAt
-                                  ? `Standing charge — stopped on ${formatDate(t.recurrenceEndedAt)}`
-                                  : t.isProjected
-                                    ? `A repeat of the standing charge that began ${formatDate(startDate(t))}. Editing or stopping it here changes the charge itself.`
-                                    : 'Standing charge — repeats every period'
-                              }
-                            >
-                              {t.frequency === 'quarterly' ? 'Quarterly'
-                                : t.frequency === 'annual' ? 'Annual'
-                                : 'Monthly'}
-                              {t.isProjected && ' · repeat'}
-                            </span>
-                          )}
+                          <RecurrenceBadge t={t} />
                         </div>
                       </td>
                       <td
