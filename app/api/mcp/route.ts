@@ -33,6 +33,7 @@ export const maxDuration = 30
 const handler = createMcpHandler(
   (ctx) => {
     const ownerId = ctx.authInfo?.extra?.ownerId
+    const canWrite = ctx.authInfo?.extra?.canWrite === true
     if (typeof ownerId !== 'string') {
       // Unreachable: `serve` below only calls `fetch` after a successful
       // resolve, and that is the only caller. Checked anyway, because the
@@ -40,7 +41,7 @@ const handler = createMcpHandler(
       // owner, and every tool on it would then be a cross-account read.
       throw new Error('MCP server constructed without a resolved owner.')
     }
-    return buildMcpServer(ownerId)
+    return buildMcpServer(ownerId, canWrite)
   },
   {
     onerror: (error) => {
@@ -101,7 +102,9 @@ async function serve(request: Request): Promise<Response> {
       token: '',
       clientId: 'mcp-personal-access-token',
       scopes: [],
-      extra: { ownerId: auth.ownerId },
+      // `canWrite` decides whether the write tools are registered at all, so
+      // it travels with the owner rather than being re-read per call.
+      extra: { ownerId: auth.ownerId, canWrite: auth.canWrite },
     },
   })
 }

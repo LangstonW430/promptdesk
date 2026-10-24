@@ -28,7 +28,7 @@ import { hashToken, isWellFormedToken, parseBearer } from './token'
  */
 
 export type McpAuthResult =
-  | { ok: true; ownerId: string }
+  | { ok: true; ownerId: string; canWrite: boolean }
   | { ok: false; status: 401 | 429; message: string; retryAfterSeconds?: number }
 
 /**
@@ -85,7 +85,13 @@ export async function resolveMcpOwner(request: Request): Promise<McpAuthResult> 
 
   const row = await prisma.mcpToken.findUnique({
     where: { tokenHash },
-    select: { id: true, ownerId: true, revokedAt: true, lastUsedAt: true },
+    select: {
+      id: true,
+      ownerId: true,
+      canWrite: true,
+      revokedAt: true,
+      lastUsedAt: true,
+    },
   })
 
   if (!row || row.revokedAt) {
@@ -94,7 +100,10 @@ export async function resolveMcpOwner(request: Request): Promise<McpAuthResult> 
 
   touchLastUsed(row.id, row.lastUsedAt)
 
-  return { ok: true, ownerId: row.ownerId }
+  // `canWrite` travels with the owner because it is a property of the
+  // credential, not of the account: the same user can hold a read-only token
+  // on a shared machine and a read-write one on their laptop.
+  return { ok: true, ownerId: row.ownerId, canWrite: row.canWrite }
 }
 
 /**

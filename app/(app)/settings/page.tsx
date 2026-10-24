@@ -92,7 +92,10 @@ export default async function SettingsPage() {
       </div>
 
       <div className="border-t border-border pt-8">
-        <McpTokenManager initialTokens={mcpTokens} />
+        <McpTokenManager
+          initialTokens={mcpTokens}
+          appUrl={process.env.NEXT_PUBLIC_APP_URL!}
+        />
       </div>
     </div>
   )

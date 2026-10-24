@@ -1107,10 +1107,11 @@ npx prisma generate
 (Claude Code, Claude Desktop, MCP Inspector) can pull compiled client context
 directly instead of the user copying generated prompts by hand.
 
-Phase 1 is **read-only** and authenticates with personal access tokens.
-[`docs/mcp.md`](docs/mcp.md) is the user-facing guide: creating a token,
-testing with MCP Inspector, and the `claude mcp add` snippet. This section is
-the architecture.
+Authentication is by personal access token. Reads are available to any token;
+writes require a token explicitly granted them, and nothing can be deleted
+over MCP at all. [`docs/mcp.md`](docs/mcp.md) is the user-facing guide —
+creating a token, and per-client setup for Claude Code, Claude Desktop, Cursor
+and VS Code. This section is the architecture.
 
 ### Layout
 
@@ -1123,6 +1124,8 @@ the architecture.
 | `lib/mcp/serialize.ts` | Decimal → string, Date → ISO, `@db.Date` → `YYYY-MM-DD` |
 | `lib/mcp/server.ts` | Per-request `McpServer` factory, built for one account |
 | `lib/mcp/tools.ts` | The four read-only tools |
+| `lib/mcp/write-tools.ts` | The seven write tools, registered only for a token that may write |
+| `lib/mcp/client-config.ts` | The per-client config snippets, generated once and tested |
 | `lib/mcp/prompts.ts` | `BUILT_IN_TEMPLATES` → MCP prompts |
 | `app/api/mcp/route.ts` | Resolve the token, then hand off to the SDK handler |
 
@@ -1155,10 +1158,21 @@ means "no session required", not "unauthenticated".
 
 ### Capabilities
 
-Four read-only tools — `search_clients`, `get_client_summary`, `list_tasks`,
+Four read tools — `search_clients`, `get_client_summary`, `list_tasks`,
 `get_client_financials` — each fetching through the existing `lib/<domain>`
 functions and then serializing. Caps live in `MCP_LIMITS` so no response can
 crowd out the conversation it was meant to inform.
+
+Seven write tools — `log_note`, `update_client`, `create_client`,
+`set_client_archived`, `create_project`, `create_task`, `complete_task` —
+each delegating to the same `lib/<domain>` function the server actions use, so
+the ownership checks, the transaction in `createNote` and the relationship
+summary refresh all come for free. No deletes, at any permission level.
+
+**Write permission is per token** (`McpToken.canWrite`, default false) and
+gates *registration*, not each call: a read-only token's server simply has no
+write tools on it, so they never appear in `tools/list`. Tokens issued before
+write access existed keep the read-only permission they were issued with.
 
 Every built-in prompt template is registered automatically from
 `BUILT_IN_TEMPLATES`, driven through the existing `generatePrompt`. No prompt
@@ -1191,6 +1205,12 @@ data. Two writes do happen, and both are logs of a read rather than a change:
   `after()` from `next/server`. Not a floating promise: on a serverless
   platform the instance can be frozen as soon as the response is sent, so an
   un-awaited write may simply never land.
+
+Write tools revalidate with **`revalidateTag`, not `updateTag`**. The server
+actions use `updateTag`, and copying that here was a real bug: it throws
+outside a Server Action, and these run in a Route Handler — so the write
+committed and *then* the tool reported failure, which would have had a model
+retrying a change that had already landed.
 
 ### Tests
 

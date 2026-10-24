@@ -18,12 +18,24 @@ assistant does the thinking.
 
 ## 0. What a token can do
 
-A token grants **read access to everything in the account that issued it** —
-clients, notes, tasks, projects and financials. There are no scopes in this
-phase.
+Every token grants **read access to everything in the account that issued it** —
+clients, notes, tasks, projects and financials. There is no way to narrow that.
 
-It cannot change or delete anything. There are no write tools, and the only
-thing the server itself writes is a token's own "last used" timestamp.
+A token can additionally be granted **write access** when you create it, which
+adds tools for logging notes, updating client details, and creating clients,
+projects and tasks. Write access is **off by default** and is a property of the
+token, not the account: you can keep a read-only token on a machine you share
+and a read-write one on your laptop.
+
+**Nothing can be deleted over MCP, ever.** There is no tool to remove a client,
+a note, a task or a project, whatever permission the token carries. Deletes
+cascade and cannot be undone, so they stay in the app where a human does them
+deliberately. Archiving a client is the one destructive-ish action exposed, and
+it is reversible.
+
+Tokens issued before write access existed are read-only and stay that way.
+There is no way to add the permission to an existing token — create a new one
+and revoke the old.
 
 Treat a token like a password. If a machine holding one is lost, revoke it.
 
@@ -35,7 +47,12 @@ Treat a token like a password. If a machine holding one is lost, revoke it.
 2. Under **MCP access tokens**, choose **New token**.
 3. Name it after the machine or client it is for — "Laptop — Claude Code".
    The name is how you decide what to revoke later.
-4. Copy the token. **It is shown once.**
+4. Decide whether to tick **Let this token make changes**. Leave it off unless
+   you want your AI client writing to your records; you can always issue a
+   second token later.
+5. Copy the token. **It is shown once.** The setup snippets shown alongside it
+   are already filled in with it, so the easiest path is to copy the one for
+   your client rather than the bare token.
 
 Only a SHA-256 hash is stored, so a token cannot be recovered or shown again.
 If you lose one, revoke it and create another; nothing is lost but the thirty
@@ -78,62 +95,159 @@ Against a deployed instance, use `https://your-app.vercel.app/api/mcp`.
 
 ---
 
-## 3. Adding the server to Claude Code
+## 3. Connecting your AI agent
+
+Four clients, four different shapes. The differences are not cosmetic — each
+one fails in a way that looks like the server is broken, so the gotchas are
+worth reading before you paste.
+
+Settings fills all four in with your real token at the moment you create one,
+and the **How to connect your AI agent** panel there shows them any time with
+a placeholder. The snippets below use `pd_live_YOUR_TOKEN_HERE`; swap in yours.
+
+Replace `http://localhost:3000` with your deployed URL where relevant.
+
+### Claude Code
 
 ```bash
 claude mcp add --transport http promptdesk http://localhost:3000/api/mcp \
-  --header "Authorization: Bearer pd_live_your_token_here"
+  --header "Authorization: Bearer pd_live_YOUR_TOKEN_HERE"
 ```
 
-For a deployed instance, swap the URL:
+Check it with `/mcp`. Keep the default `--scope local`, which writes to
+`~/.claude.json` — `--scope project` would write `.mcp.json` into your
+repository with the token in it.
 
-```bash
-claude mcp add --transport http promptdesk https://your-app.vercel.app/api/mcp \
-  --header "Authorization: Bearer pd_live_your_token_here"
-```
+### Claude Desktop
 
-Run `/mcp` inside Claude Code to check the connection. `claude mcp add` stores
-the configuration without validating it, so a bad token is accepted at add
-time and only fails on connect.
+Claude Desktop **cannot talk to an HTTP MCP server directly.** It speaks stdio
+only, and its Custom Connectors feature uses OAuth, which this phase does not
+serve. So the remote server goes behind the `mcp-remote` bridge.
 
-The default `--scope local` keeps the token in `~/.claude.json`, which is
-usually what you want: **do not** use `--scope project`, because that writes
-`.mcp.json` into the repository and your token with it.
-
-If you prefer to configure it by hand, the equivalent entry is:
+Edit `claude_desktop_config.json` — on macOS
+`~/Library/Application Support/Claude/`, on Windows `%APPDATA%\Claude\`:
 
 ```json
 {
   "mcpServers": {
     "promptdesk": {
-      "type": "http",
-      "url": "http://localhost:3000/api/mcp",
-      "headers": {
-        "Authorization": "Bearer ${PROMPTDESK_TOKEN}"
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@0.15.2",
+        "http://localhost:3000/api/mcp",
+        "--transport",
+        "http-only",
+        "--header",
+        "Authorization:${AUTH_HEADER}"
+      ],
+      "env": {
+        "AUTH_HEADER": "Bearer pd_live_YOUR_TOKEN_HERE"
       }
     }
   }
 }
 ```
 
-`${PROMPTDESK_TOKEN}` is expanded from the environment, which keeps the token
-out of the file.
+**Note the colon with no space after it.** That is not a typo. Claude Desktop
+on Windows does not escape spaces inside `args`, so a literal
+`"Authorization: Bearer …"` arrives mangled. Splitting it — the name in `args`,
+the value in `env`, where spaces are safe — is the workaround `mcp-remote`
+documents. Requires Node 18+, and a full quit-and-reopen of Desktop.
 
-### Claude Desktop and claude.ai
+### Cursor
 
-Claude Desktop connects to Streamable HTTP servers the same way, via its
-developer settings.
+Edit `~/.cursor/mcp.json`:
 
-claude.ai connectors are **not** supported in this phase — they require OAuth
-rather than a bearer token. That is Phase 2.
+```json
+{
+  "mcpServers": {
+    "promptdesk": {
+      "url": "http://localhost:3000/api/mcp",
+      "headers": {
+        "Authorization": "Bearer pd_live_YOUR_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+Use the global `~/.cursor/mcp.json` rather than a project `.cursor/mcp.json`,
+which is committed. Cursor also expands `${env:VAR}` inside `headers`, so you
+can keep the token in your environment instead.
+
+### VS Code
+
+Edit `.vscode/mcp.json`:
+
+```json
+{
+  "inputs": [
+    {
+      "id": "promptdesk-token",
+      "type": "promptString",
+      "description": "PromptDesk MCP token",
+      "password": true
+    }
+  ],
+  "servers": {
+    "promptdesk": {
+      "type": "http",
+      "url": "http://localhost:3000/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:promptdesk-token}"
+      }
+    }
+  }
+}
+```
+
+Two details, both of which fail silently or confusingly:
+
+- The top-level key is **`servers`**, not `mcpServers`. Pasting an
+  `mcpServers` block here does nothing at all.
+- **`"type": "http"` is required.** Without it VS Code assumes stdio and tries
+  to run the URL as a shell command.
+
+No token in the file: VS Code prompts for it the first time the server starts
+and stores it itself, which is better than anything we could write to disk.
+
+### Keeping the token out of places it shouldn't be
+
+- `.cursor/mcp.json` and `.vscode/mcp.json` are **project files**. Prefer the
+  global Cursor config, VS Code's `inputs`, and Claude Code's default
+  `--scope local`.
+- Passing a credential as a command-line argument puts it in the process list,
+  where other users on the machine can read it with `ps`. On a shared machine,
+  use `mcp-remote`'s `--header-file` instead, which takes a file of
+  `Name: value` lines.
+
+### Not supported yet
+
+**claude.ai connectors.** They require OAuth rather than a bearer token, which
+is Phase 2.
+
+### When it doesn't work
+
+| Symptom | Cause |
+| --- | --- |
+| `401` | Token revoked, mistyped, or the `Bearer ` prefix is missing |
+| `406` | The client did not send `Accept: application/json, text/event-stream` |
+| An HTML login page | `/api/mcp` is missing from `PUBLIC_PREFIXES` in `proxy.ts` |
+| Tools listed but no write tools | The token was created without write access — issue a new one |
+| `mcp-remote` stuck or looping | `rm -rf ~/.mcp-auth`, then restart the client |
 
 ---
 
 ## 4. Tools
 
-All four are read-only and scoped to the account that issued the token. None
-of them takes an owner or user argument; there is nothing to pass, because the
-owner comes from the token.
+Every tool is scoped to the account that issued the token. None of them takes
+an owner or user argument; there is nothing to pass, because the owner comes
+from the token.
+
+### Reading
+
+These four are available to any token.
 
 ### `search_clients`
 
@@ -191,6 +305,44 @@ status. Takes `clientId` and optional `includeArchived`.
 transactions; `invoices` reports what was billed. A Stripe-collected invoice
 appears in both, so adding them together double-counts it. They are reported
 side by side rather than summed for exactly that reason.
+
+### Writing
+
+These seven appear **only if the token was granted write access**. A read-only
+token does not see them in `tools/list` at all, so your AI client will not
+offer them or try to use them.
+
+Your client decides how to confirm a write. Claude Code and Claude Desktop
+prompt before each tool call by default, and each tool declares whether it
+overwrites anything (`destructiveHint`), so the ones that change existing data
+prompt more loudly than the ones that only add.
+
+| Tool | What it does |
+| --- | --- |
+| `log_note` | Record a call, meeting or note against a client |
+| `update_client` | Change contact details, industry, pain points, requirements, opportunity notes or the next follow-up date |
+| `create_client` | Add a new client |
+| `set_client_archived` | Archive or restore a client |
+| `create_project` | Add a project under a client |
+| `create_task` | Add a to-do against a project |
+| `complete_task` | Mark a task done, or reopen it |
+
+Three things worth knowing about what these do beyond the obvious:
+
+- **`log_note` does more than insert a note.** It advances the client's
+  last-contact date, writes an activity record, and refreshes their
+  relationship summary — all in one transaction. It is the right way to keep a
+  client current after talking to them, and it is why "I just got off a call
+  with Acme, they want the migration done before their audit" is a single tool
+  call rather than three.
+- **`create_project` moves a client's stage.** Stage is derived from projects,
+  so adding a `proposed` project moves the client to "proposal out" and an
+  `active` one moves them to "active". There is no stage to set directly.
+- **`update_client` only touches the fields you pass.** Omitted fields are left
+  alone; an empty string clears a date.
+
+**No deletes.** There is deliberately no tool to remove a client, note, task or
+project, at any permission level.
 
 ---
 
@@ -259,7 +411,12 @@ All four failures produce the same 401 with the same message. Distinguishing
 them would tell an unauthenticated caller which tokens exist.
 
 `resolveMcpOwner` is the only place that decides whose data a request may see,
-which is what makes Phase 2 an edit to one file rather than to every tool.
+which is what makes Phase 2 an edit to one file rather than to every tool. It
+returns the token's `canWrite` flag alongside the account id, and
+`buildMcpServer` uses it to decide whether the write tools are registered at
+all. That is why a read-only token does not merely get refused — the tools are
+not on its server instance, so there is no handler to reach and nothing to
+forget to check when an eighth write tool is added.
 
 ---
 

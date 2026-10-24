@@ -143,15 +143,15 @@ export async function seedBuiltInTemplates(): Promise<void> {
  */
 export async function seedMcpToken(
   ownerId: string,
-  name = 'E2E client',
+  { name = 'E2E client', canWrite = false }: { name?: string; canWrite?: boolean } = {},
 ): Promise<string> {
   const { generateToken } = await import('@/lib/mcp/token')
   const { plaintext, hash, hint } = generateToken()
 
   await db.query(
-    `INSERT INTO mcp_tokens (owner_id, name, token_hash, token_hint)
-     VALUES ($1, $2, $3, $4)`,
-    [ownerId, name, hash, hint],
+    `INSERT INTO mcp_tokens (owner_id, name, token_hash, token_hint, can_write)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [ownerId, name, hash, hint, canWrite],
   )
 
   return plaintext
