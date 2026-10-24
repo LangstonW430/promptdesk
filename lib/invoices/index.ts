@@ -65,6 +65,35 @@ export async function listInvoices(
   return rows.map((row) => serializeInvoice(row, now))
 }
 
+/**
+ * Invoice totals for one client, grouped by status.
+ *
+ * `listInvoices` has no client filter — it serialises every invoice the owner
+ * has — so answering "what has this client been billed?" through it would mean
+ * fetching and formatting the whole table to add up a handful of rows. This
+ * groups in SQL instead and returns only the figures.
+ *
+ * Archived invoices are excluded, matching `listInvoices`: archiving one is a
+ * statement that it should stop counting.
+ */
+export async function invoiceTotalsForClient(
+  ownerId: string,
+  clientId: string,
+): Promise<Array<{ status: string; count: number; total: number }>> {
+  const groups = await prisma.invoice.groupBy({
+    by: ['status'],
+    where: { ownerId, clientId, isArchived: false },
+    _count: { _all: true },
+    _sum: { total: true },
+  })
+
+  return groups.map((g) => ({
+    status: g.status,
+    count: g._count._all,
+    total: Number(g._sum.total ?? 0),
+  }))
+}
+
 export async function getInvoice(ownerId: string, id: string) {
   const row = await prisma.invoice.findFirst({
     where: { id, ownerId },

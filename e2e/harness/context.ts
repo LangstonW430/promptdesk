@@ -133,6 +133,38 @@ export async function seedBuiltInTemplates(): Promise<void> {
   }
 }
 
+/**
+ * An MCP access token for a user, returning the plaintext to send as a bearer.
+ *
+ * Minted and hashed with the application's own functions rather than a local
+ * copy of the format. That is the point: if the route ever hashed differently
+ * from this helper, the test would fail rather than quietly authenticate
+ * nothing. There is no route for issuing one, so the row is written directly.
+ */
+export async function seedMcpToken(
+  ownerId: string,
+  name = 'E2E client',
+): Promise<string> {
+  const { generateToken } = await import('@/lib/mcp/token')
+  const { plaintext, hash, hint } = generateToken()
+
+  await db.query(
+    `INSERT INTO mcp_tokens (owner_id, name, token_hash, token_hint)
+     VALUES ($1, $2, $3, $4)`,
+    [ownerId, name, hash, hint],
+  )
+
+  return plaintext
+}
+
+/** Marks a seeded token revoked, so the 401 path can be exercised. */
+export async function revokeSeededMcpToken(plaintext: string): Promise<void> {
+  const { hashToken } = await import('@/lib/mcp/token')
+  await db.query('UPDATE mcp_tokens SET revoked_at = now() WHERE token_hash = $1', [
+    hashToken(plaintext),
+  ])
+}
+
 export type RequestOptions = {
   /** Send as this user. Omit for an unauthenticated request. */
   as?: TestUser

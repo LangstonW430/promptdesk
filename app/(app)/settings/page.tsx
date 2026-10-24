@@ -7,7 +7,9 @@ import { CsvImporter } from '@/components/settings/csv-importer'
 import { AccountSettingsForm } from '@/components/settings/account-settings-form'
 import { PromptSettingsForm } from '@/components/settings/forecast-settings-form'
 import { StripeSettings } from '@/components/settings/stripe-settings'
+import { McpTokenManager } from '@/components/settings/mcp-token-manager'
 import { getStripeKeyStatus } from '@/lib/finance/stripe-key'
+import { listMcpTokens } from '@/lib/mcp/tokens'
 import type { UserSettings } from '@/lib/users'
 
 export default async function SettingsPage() {
@@ -18,7 +20,7 @@ export default async function SettingsPage() {
     redirect('/login')
   }
 
-  const [rawTags, user, stripeStatus] = await Promise.all([
+  const [rawTags, user, stripeStatus, mcpTokens] = await Promise.all([
     listTags(ownerId),
     prisma.user.findUnique({
       where: { id: ownerId },
@@ -36,6 +38,7 @@ export default async function SettingsPage() {
       },
     }),
     getStripeKeyStatus(ownerId),
+    listMcpTokens(ownerId),
   ])
 
   const tags = rawTags.map((t) => ({
@@ -86,6 +89,10 @@ export default async function SettingsPage() {
           connected={stripeStatus.connected}
           hint={stripeStatus.hint}
         />
+      </div>
+
+      <div className="border-t border-border pt-8">
+        <McpTokenManager initialTokens={mcpTokens} />
       </div>
     </div>
   )

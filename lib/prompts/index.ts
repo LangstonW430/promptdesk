@@ -3,9 +3,9 @@ import { findTemplate, getUserProfile, fetchContext } from './retrieval'
 import { buildPrompt } from './pipeline'
 import { BUILT_IN_TEMPLATES } from '@/lib/prompt-engine/templates'
 import { getUserSettings } from '@/lib/users'
-import type { GenerateRequest, GenerateResult } from './types'
+import type { GenerateRequest, GenerateResult, GenerateSource } from './types'
 
-export type { GenerateRequest, GenerateResult }
+export type { GenerateRequest, GenerateResult, GenerateSource }
 
 /**
  * Full generate pipeline: retrieval → normalize → dedup → score → budget →
@@ -66,6 +66,7 @@ export async function generatePrompt(
       templateKey: templateRecord.key,
       scope: req.scope,
       clientId: req.clientId ?? null,
+      source: req.source ?? 'app',
       renderedText: result.text,
       tokenCount: result.tokenCount,
       contextMeta: result.contextMeta as unknown as import('@prisma/client/runtime/client').InputJsonValue,

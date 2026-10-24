@@ -20,6 +20,7 @@ An AI-assisted CRM for solo freelancers and small service businesses. PromptDesk
 12. [End-to-End Tests](#12-end-to-end-tests)
 13. [Configuration & Environment](#13-configuration--environment)
 14. [Development Commands](#14-development-commands)
+15. [MCP Server](#15-mcp-server)
 
 ---
 
@@ -77,6 +78,7 @@ promptdesk/
 │   ├── settings/
 │   └── onboarding/
 ├── lib/                    # All business/domain logic
+│   ├── mcp/                # MCP server: auth seam, tools, prompts
 │   ├── actions/            # Next.js server actions (mutations)
 │   ├── auth.ts             # getOwnerId(), getCurrentUser()
 │   ├── clients/            # Client CRUD, filters, serialization
@@ -111,6 +113,7 @@ The app uses two layout groups: `(auth)` for public pages and `(app)` for authen
 |-------|-------------|
 | `/login` | Email/password login via Supabase Auth |
 | `/signup` | New account registration |
+| `/api/mcp` | The MCP server. Public to the session gate because it authenticates itself — see [§15](#15-mcp-server) |
 
 ### Protected Routes (require auth)
 
@@ -331,6 +334,7 @@ History of every prompt the user has generated.
 | renderedText | String | Final output the user copies |
 | tokenCount | Int? | |
 | contextMeta | JSON | Scoring metadata (see Prompt Engine section) |
+| source | String | `"app"` or `"mcp"` — which surface asked for it. Defaults to `"app"` |
 | isSaved | Boolean | User-starred prompts |
 | rating | Int? | `1 \| -1` |
 | createdAt | DateTime | |
@@ -404,6 +408,28 @@ Income and expenses, whether entered by hand or synced from Stripe.
 ### StripeSyncState
 One row per owner: sync status, last backfill, last event, last error.
 
+### McpToken
+A personal access token for the MCP server. See [§15](#15-mcp-server).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID | PK |
+| ownerId | UUID | FK (Cascade) |
+| name | String | The user's own label, e.g. "Laptop — Claude Code" |
+| tokenHash | String | Unique. SHA-256 of the token; the plaintext is never stored |
+| tokenHint | String | Leading non-secret characters, for the settings list |
+| lastUsedAt | DateTime? | Written at most hourly per token |
+| createdAt | DateTime | |
+| revokedAt | DateTime? | Soft revoke, so a revoked token keeps its history |
+
+Index: `(ownerId, createdAt DESC)`. RLS enabled, like every other owner-scoped
+table.
+
+The hash is unique and unsalted deliberately — it is the lookup key, and a
+per-token salt could not be applied before the row was found. That trade is
+only acceptable because the input is 256 bits of CSPRNG output rather than a
+chosen password: there is no dictionary to run against it.
+
 ---
 
 ## 6. Library Modules
@@ -418,6 +444,12 @@ Called at the top of every server action and page. The returned UUID becomes the
 
 ### `lib/db/client.ts`
 Singleton PrismaClient using a pg Pool adapter configured for Vercel's serverless environment. Uses `DATABASE_URL` (transaction pooler, pgBouncer) at runtime and `DIRECT_URL` for migrations.
+
+### `lib/mcp/`
+The MCP server. `auth.ts` holds `resolveMcpOwner()`, the single function that
+decides whose data a request may see; `tools.ts` and `prompts.ts` register
+capabilities that close over the resolved account id, so no tool can accept
+one. See [section 15](#15-mcp-server).
 
 ### `lib/clients/`
 - `createClient(ownerId, input)` — validates with Zod, inserts row
@@ -435,7 +467,21 @@ Singleton PrismaClient using a pg Pool adapter configured for Vercel's serverles
 - `listNotes(ownerId, clientId)` — ordered by `occurredAt DESC`
 
 ### `lib/tasks/`
-Standard CRUD: `createTask`, `listTasks`, `updateTask`, `deleteTask`. Tasks can be global (no clientId) or client-scoped.
+Standard CRUD: `createTask`, `listTasks`, `updateTask`, `deleteTask`, plus
+`listTasksWithContext` and `countTasks`.
+
+A task hangs off a **required** `projectId`; it carries no `clientId` of its
+own, and the project is what carries the client. So `buildTaskWhere`'s
+`clientId` filter reaches through the project relation, and
+`listTasksWithContext` joins the project and client in so a caller can render
+their names.
+
+`status` (`open | done | all`) and `due` (`today | overdue`) are separate axes.
+`due` has always implied "not done", so asking for `status: 'done'` alongside it
+is a contradiction the MCP tool refuses rather than answering with an empty
+list. Both `status` and `limit` are optional with no default at this layer:
+omitting them produces exactly the query this module built before they
+existed.
 
 ### `lib/tags/`
 - `listTags(ownerId)` — includes `_count.clientTags` for display
@@ -697,6 +743,7 @@ All mutations go through server actions in `lib/actions/`. Every action follows 
 | `lib/actions/import.ts` | importClientsFromCsv |
 | `lib/actions/daily-actions.ts` | markFollowUpComplete |
 | `lib/actions/auth.ts` | signup, login, logout |
+| `lib/actions/mcp-tokens.ts` | createMcpToken, revokeMcpToken |
 
 ---
 
@@ -776,7 +823,7 @@ Supabase RLS is enabled with a deny-all default policy. Application-level `owner
 ## 11. Testing
 
 Tests use **Vitest**, and live either in `__tests__/` beside the code they cover
-or under the top-level `__tests__/` directory. 30 files, 450 tests, under two
+or under the top-level `__tests__/` directory. 41 files, 566 tests, under two
 seconds. The end-to-end suite is separate — see
 [section 12](#12-end-to-end-tests).
 
@@ -874,6 +921,7 @@ the object it was handed proves nothing about what was stored.
 | `e2e/specs/migrations.e2e.ts` | That the migration history reproduces `schema.prisma` exactly, that the `auth.users` trigger fires, and that RLS covers every owned table |
 | `e2e/specs/stripe-webhook.e2e.ts` | Genuine HMAC verification, per-user secrets, and that one account's event cannot touch another's invoice |
 | `e2e/specs/cascades.e2e.ts` | What deleting something takes with it: work is disposable, money is not |
+| `e2e/specs/mcp.e2e.ts` | The MCP endpoint over real HTTP: bearer-token auth, that an unauthenticated call gets a 401 rather than a redirect, the four tools, prompt rendering, and cross-account isolation on a second credential |
 | `e2e/specs/clients.e2e.ts` | A client from created to deleted, and validation refusing to store what it rejects |
 | `e2e/specs/prompts.e2e.ts` | Generation over real retrieval, with the client's own words in the output |
 | `e2e/specs/tags.e2e.ts` | The duplicate-label 409, which is a unique constraint and so needs a database to raise it |
@@ -1052,6 +1100,111 @@ npx prisma generate
 
 ---
 
+## 15. MCP Server
+
+`/api/mcp` serves the app's client data and prompt generators over the
+[Model Context Protocol](https://modelcontextprotocol.io), so an AI client
+(Claude Code, Claude Desktop, MCP Inspector) can pull compiled client context
+directly instead of the user copying generated prompts by hand.
+
+Phase 1 is **read-only** and authenticates with personal access tokens.
+[`docs/mcp.md`](docs/mcp.md) is the user-facing guide: creating a token,
+testing with MCP Inspector, and the `claude mcp add` snippet. This section is
+the architecture.
+
+### Layout
+
+| File | Responsibility |
+|------|----------------|
+| `lib/mcp/config.ts` | Server name/version and every result cap. The only place the product is named |
+| `lib/mcp/token.ts` | Mint, hash and recognise a token. Pure — no I/O |
+| `lib/mcp/tokens.ts` | Owner-scoped token rows: list, create, revoke |
+| `lib/mcp/auth.ts` | `resolveMcpOwner()` — **the single auth seam** |
+| `lib/mcp/serialize.ts` | Decimal → string, Date → ISO, `@db.Date` → `YYYY-MM-DD` |
+| `lib/mcp/server.ts` | Per-request `McpServer` factory, built for one account |
+| `lib/mcp/tools.ts` | The four read-only tools |
+| `lib/mcp/prompts.ts` | `BUILT_IN_TEMPLATES` → MCP prompts |
+| `app/api/mcp/route.ts` | Resolve the token, then hand off to the SDK handler |
+
+Built on `@modelcontextprotocol/server` (v2) with Streamable HTTP, stateless,
+on the Node runtime — Prisma's `pg` driver adapter cannot run on edge.
+
+### Owner scoping
+
+This is the part worth understanding before changing anything here.
+
+`resolveMcpOwner()` is the only function that decides whose data a request may
+see. The route calls it first; on success it passes the resolved account id to
+the SDK as pass-through `authInfo`, and the per-request factory in
+`lib/mcp/server.ts` reads it out and passes it to `registerTools` and
+`registerPrompts`, where **every handler closes over it**.
+
+So no tool takes an owner argument, and none *can*: there is nothing in any
+tool's Zod schema for a caller to supply. The rule is enforced by the shape of
+the code rather than by remembering to check it.
+
+`getOwnerId()` is deliberately **not** used on this path. It reads the Supabase
+session cookie, and an MCP client sends a bearer token and no cookies, so it
+would throw on every request. The reflex that is correct everywhere else in
+this codebase is wrong here.
+
+The matching half is in `proxy.ts`, where `/api/mcp` is listed in
+`PUBLIC_PREFIXES`. Without it the session gate would redirect every tool call
+to `/login` — the same failure the Stripe webhook endpoint had. *Public* there
+means "no session required", not "unauthenticated".
+
+### Capabilities
+
+Four read-only tools — `search_clients`, `get_client_summary`, `list_tasks`,
+`get_client_financials` — each fetching through the existing `lib/<domain>`
+functions and then serializing. Caps live in `MCP_LIMITS` so no response can
+crowd out the conversation it was meant to inform.
+
+Every built-in prompt template is registered automatically from
+`BUILT_IN_TEMPLATES`, driven through the existing `generatePrompt`. No prompt
+text is duplicated, and a new template appears over MCP with no code change.
+`invoice_cover_email` is excluded: it needs invoice-specific `extras` that
+`PipelineInput` has no field for.
+
+There are no write tools in this phase.
+
+### Rate limits
+
+| Bucket | Key | Limit |
+|--------|-----|-------|
+| `mcp` | token hash | 60/min |
+| `prompts:generate` | ownerId | 20/min |
+
+Prompt generation shares the second bucket with `/api/prompts/generate` on
+purpose — same name, same key, same numbers. A separate bucket would have made
+MCP a way around that cap rather than another door to the same room.
+
+### Writes
+
+The server is read-only in the sense that matters: no tool changes business
+data. Two writes do happen, and both are logs of a read rather than a change:
+
+- A prompt pulled over MCP is recorded in prompt history with
+  `source = 'mcp'`, so it is visible in the app and distinguishable from one
+  generated on the Prompts page.
+- A token's `lastUsedAt` is updated, at most hourly per token, scheduled with
+  `after()` from `next/server`. Not a floating promise: on a serverless
+  platform the instance can be frozen as soon as the response is sent, so an
+  un-awaited write may simply never land.
+
+### Tests
+
+- `__tests__/lib/mcp/` — token format, hashing, the auth seam, serialization,
+  prompt registration, with Prisma mocked.
+- `__tests__/lib/tasks/filters.test.ts` — the extended `buildTaskWhere`,
+  including a regression guard that an unfiltered `listTasks` still produces
+  exactly what it did before.
+- `e2e/specs/mcp.e2e.ts` — the real endpoint over HTTP against a real
+  Postgres, including cross-account isolation and the assertion that an
+  unauthenticated call gets a 401 rather than a redirect to `/login`.
+
+---
+
 ## Key Architectural Decisions
 
 **No LLM calls.** The app assembles context and renders templates entirely server-side. The user copies the output and pastes it into any AI tool. This keeps costs at zero and keeps user data off third-party LLM APIs.
@@ -1062,4 +1215,4 @@ npx prisma generate
 
 **Server actions for all mutations.** Thin, validated, cache-invalidating wrappers over lib functions. No REST endpoints for mutations.
 
-**Serialization boundary.** Prisma returns `Decimal` and `Date` objects that are not JSON-serializable. `lib/clients/serialize.ts` converts these before they cross the server/client boundary, preventing runtime errors in client components.
+**Serialization boundary.** Prisma returns `Decimal` and `Date` objects that are not JSON-serializable. `lib/clients/serialize.ts` converts these before they cross the server/client boundary, preventing runtime errors in client components. `lib/mcp/serialize.ts` does the same job for the MCP surface, but converts Decimals to *strings* rather than numbers: those responses are read by a model, and a silently rounded figure is worse than a verbose one.
