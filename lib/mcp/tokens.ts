@@ -9,6 +9,12 @@ import { generateToken } from './token'
 
 export const createMcpTokenSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
+  /**
+   * Whether the token may change data. Defaults to false rather than being
+   * required, so every existing caller — and any future one that forgets —
+   * gets the safe answer.
+   */
+  canWrite: z.boolean().optional(),
 })
 
 export type CreateMcpTokenInput = z.infer<typeof createMcpTokenSchema>
@@ -18,6 +24,7 @@ export interface McpTokenSummary {
   id: string
   name: string
   tokenHint: string
+  canWrite: boolean
   lastUsedAt: string | null
   createdAt: string
   revokedAt: string | null
@@ -27,6 +34,7 @@ const SUMMARY_SELECT = {
   id: true,
   name: true,
   tokenHint: true,
+  canWrite: true,
   lastUsedAt: true,
   createdAt: true,
   revokedAt: true,
@@ -36,6 +44,7 @@ type TokenRow = {
   id: string
   name: string
   tokenHint: string
+  canWrite: boolean
   lastUsedAt: Date | null
   createdAt: Date
   revokedAt: Date | null
@@ -46,6 +55,7 @@ function toSummary(row: TokenRow): McpTokenSummary {
     id: row.id,
     name: row.name,
     tokenHint: row.tokenHint,
+    canWrite: row.canWrite,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     revokedAt: row.revokedAt?.toISOString() ?? null,
@@ -83,7 +93,13 @@ export async function createMcpToken(
   const { plaintext, hash, hint } = generateToken()
 
   const row = await prisma.mcpToken.create({
-    data: { ownerId, name: input.name, tokenHash: hash, tokenHint: hint },
+    data: {
+      ownerId,
+      name: input.name,
+      tokenHash: hash,
+      tokenHint: hint,
+      canWrite: input.canWrite ?? false,
+    },
     select: SUMMARY_SELECT,
   })
 

@@ -404,8 +404,8 @@ describe('mcp account isolation', () => {
     await seedBuiltInTemplates()
     owner = await createUser({ email: 'owner@example.test' })
     intruder = await createUser({ email: 'intruder@example.test' })
-    ownerToken = await seedMcpToken(owner.id, 'owner laptop')
-    intruderToken = await seedMcpToken(intruder.id, 'intruder laptop')
+    ownerToken = await seedMcpToken(owner.id, { name: 'owner laptop' })
+    intruderToken = await seedMcpToken(intruder.id, { name: 'intruder laptop' })
 
     const created = await request('/api/clients', {
       as: owner,
@@ -516,5 +516,294 @@ describe('mcp account isolation', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((res.body as any).result.messages[0].content.text).toContain('Northwind')
     })
+  })
+})
+
+// ── Write access ─────────────────────────────────────────────────────────────
+
+/**
+ * Write tools, and the permission that gates them.
+ *
+ * Two separate properties, and both need proving over real HTTP rather than
+ * in a unit test: that a read-only token cannot write, and that a write-
+ * capable token cannot write to somebody *else's* records. The second is the
+ * one that would actually hurt — a write tool takes a `clientId`, which is the
+ * foreign-key-in-a-request-body shape `lib/db/ownership.ts` exists for.
+ */
+describe('mcp write access', () => {
+  let user: TestUser
+  let readToken: string
+  let writeToken: string
+  let clientId: string
+  let projectId: string
+
+  beforeEach(async () => {
+    user = await createUser()
+    readToken = await seedMcpToken(user.id, { name: 'read only' })
+    writeToken = await seedMcpToken(user.id, { name: 'read write', canWrite: true })
+
+    const created = await request('/api/clients', {
+      as: user,
+      method: 'POST',
+      body: { companyName: 'Northwind Traders' },
+    })
+    clientId = created.body.client.id
+    projectId = await seedProject(user.id, clientId)
+  })
+
+  describe('a read-only token', () => {
+    it('is not shown the write tools at all', async () => {
+      const res = await rpc(readToken, 'tools/list')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const names = ((res.body as any).result.tools as Array<{ name: string }>).map(
+        (t) => t.name,
+      )
+
+      expect(names).not.toContain('log_note')
+      expect(names).not.toContain('update_client')
+      expect(names).toContain('search_clients')
+    })
+
+    it('cannot log a note even by naming the tool directly', async () => {
+      const res = await rpc(readToken, 'tools/call', {
+        name: 'log_note',
+        arguments: { clientId, body: 'Planted by a read-only token' },
+      })
+
+      // Unregistered, so the protocol itself rejects it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = (res.body as any).result
+      expect(result?.isError ?? true).toBe(true)
+
+      const { rows } = await db.query('SELECT id FROM notes')
+      expect(rows).toHaveLength(0)
+    })
+
+    it('cannot change a client', async () => {
+      await rpc(readToken, 'tools/call', {
+        name: 'update_client',
+        arguments: { clientId, companyName: 'Taken over' },
+      })
+
+      const { rows } = await db.query(
+        'SELECT company_name FROM clients WHERE id = $1',
+        [clientId],
+      )
+      expect(rows[0].company_name).toBe('Northwind Traders')
+    })
+  })
+
+  describe('a write-capable token', () => {
+    it('logs a note, and it lands in the database', async () => {
+      const result = await callTool(writeToken, 'log_note', {
+        clientId,
+        body: 'Spoke about the migration timeline',
+        noteType: 'call',
+      })
+
+      expect(result.isError).toBe(false)
+
+      const { rows } = await db.query(
+        'SELECT body, note_type FROM notes WHERE client_id = $1',
+        [clientId],
+      )
+      expect(rows).toHaveLength(1)
+      expect(rows[0].body).toBe('Spoke about the migration timeline')
+      expect(rows[0].note_type).toBe('call')
+    })
+
+    /**
+     * Logging a note is not only an insert — it advances the client's
+     * last-contact date, which is what makes the staleness queue work.
+     */
+    it('advances last contact when a note is logged', async () => {
+      await callTool(writeToken, 'log_note', { clientId, body: 'Called them' })
+
+      const { rows } = await db.query(
+        'SELECT last_contact_date FROM clients WHERE id = $1',
+        [clientId],
+      )
+      expect(rows[0].last_contact_date).not.toBeNull()
+    })
+
+    it('updates only the fields it was given', async () => {
+      const result = await callTool(writeToken, 'update_client', {
+        clientId,
+        industry: 'Logistics',
+      })
+
+      // Asserted explicitly: an earlier version of this tool committed the
+      // write and *then* threw on cache revalidation, so checking only the
+      // database would have called that a pass while the model was being told
+      // the change had failed.
+      expect(result.isError).toBe(false)
+
+      const { rows } = await db.query(
+        'SELECT company_name, industry FROM clients WHERE id = $1',
+        [clientId],
+      )
+      expect(rows[0].industry).toBe('Logistics')
+      expect(rows[0].company_name).toBe('Northwind Traders')
+    })
+
+    it('creates a client', async () => {
+      const result = await callTool(writeToken, 'create_client', {
+        companyName: 'Contoso',
+        leadSource: 'referral',
+      })
+
+      expect(result.isError).toBe(false)
+      const { rows } = await db.query(
+        'SELECT owner_id FROM clients WHERE company_name = $1',
+        ['Contoso'],
+      )
+      expect(rows[0].owner_id).toBe(user.id)
+    })
+
+    it('creates and completes a task', async () => {
+      const created = await callTool(writeToken, 'create_task', {
+        projectId,
+        title: 'Send the revised quote',
+      })
+      expect(created.isError).toBe(false)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const taskId = (created.data as any).id
+      const done = await callTool(writeToken, 'complete_task', { taskId })
+      expect(done.isError).toBe(false)
+
+      const { rows } = await db.query('SELECT is_done FROM tasks WHERE id = $1', [
+        taskId,
+      ])
+      expect(rows[0].is_done).toBe(true)
+    })
+
+    it('reports a clear error for a client that does not exist', async () => {
+      const result = await callTool(writeToken, 'log_note', {
+        clientId: '3f1b8c4e-0000-4000-8000-000000000000',
+        body: 'Nowhere',
+      })
+
+      expect(result.isError).toBe(true)
+      expect(result.text.toLowerCase()).not.toContain('prisma')
+    })
+
+    it('exposes no tool that deletes anything', async () => {
+      const res = await rpc(writeToken, 'tools/list')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const names = ((res.body as any).result.tools as Array<{ name: string }>).map(
+        (t) => t.name,
+      )
+
+      expect(names.filter((n) => /delete|remove/i.test(n))).toEqual([])
+    })
+  })
+})
+
+/**
+ * The write half of account isolation.
+ *
+ * An intruder holding a perfectly valid write-capable token of their own must
+ * not be able to point it at another account's rows. Nothing about these
+ * requests is malformed — the token is real, the body validates, and only the
+ * id belongs to somebody else.
+ */
+describe('mcp write isolation', () => {
+  let owner: TestUser
+  let intruder: TestUser
+  let intruderWriteToken: string
+  let clientId: string
+  let projectId: string
+
+  beforeEach(async () => {
+    owner = await createUser({ email: 'owner@example.test' })
+    intruder = await createUser({ email: 'intruder@example.test' })
+    intruderWriteToken = await seedMcpToken(intruder.id, { canWrite: true })
+
+    const created = await request('/api/clients', {
+      as: owner,
+      method: 'POST',
+      body: { companyName: 'Northwind Traders' },
+    })
+    clientId = created.body.client.id
+    projectId = await seedProject(owner.id, clientId)
+  })
+
+  it('refuses to log a note against another account’s client', async () => {
+    const result = await callTool(intruderWriteToken, 'log_note', {
+      clientId,
+      body: 'Planted',
+    })
+
+    expect(result.isError).toBe(true)
+    const { rows } = await db.query('SELECT id FROM notes')
+    expect(rows).toHaveLength(0)
+  })
+
+  it('refuses to change another account’s client', async () => {
+    const result = await callTool(intruderWriteToken, 'update_client', {
+      clientId,
+      companyName: 'Taken over',
+    })
+
+    expect(result.isError).toBe(true)
+    const { rows } = await db.query(
+      'SELECT company_name FROM clients WHERE id = $1',
+      [clientId],
+    )
+    expect(rows[0].company_name).toBe('Northwind Traders')
+  })
+
+  it('refuses to archive another account’s client', async () => {
+    const result = await callTool(intruderWriteToken, 'set_client_archived', {
+      clientId,
+      archived: true,
+    })
+
+    expect(result.isError).toBe(true)
+    const { rows } = await db.query('SELECT is_archived FROM clients WHERE id = $1', [
+      clientId,
+    ])
+    expect(rows[0].is_archived).toBe(false)
+  })
+
+  it('refuses to hang a project off another account’s client', async () => {
+    const result = await callTool(intruderWriteToken, 'create_project', {
+      clientId,
+      title: 'Planted',
+    })
+
+    expect(result.isError).toBe(true)
+    const { rows } = await db.query('SELECT id FROM projects WHERE title = $1', [
+      'Planted',
+    ])
+    expect(rows).toHaveLength(0)
+  })
+
+  it('refuses to hang a task off another account’s project', async () => {
+    const result = await callTool(intruderWriteToken, 'create_task', {
+      projectId,
+      title: 'Planted',
+    })
+
+    expect(result.isError).toBe(true)
+    const { rows } = await db.query('SELECT id FROM tasks')
+    expect(rows).toHaveLength(0)
+  })
+
+  /** And the write still works where it is supposed to. */
+  it('lets the intruder write to their own client', async () => {
+    const own = await request('/api/clients', {
+      as: intruder,
+      method: 'POST',
+      body: { companyName: 'Intruder Ltd' },
+    })
+
+    const result = await callTool(intruderWriteToken, 'log_note', {
+      clientId: own.body.client.id,
+      body: 'Legitimate',
+    })
+
+    expect(result.isError).toBe(false)
   })
 })
