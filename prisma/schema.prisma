@@ -63,6 +63,7 @@ model User {
   timeEntries      TimeEntry[]
   invoices         Invoice[]
   forms            Form[]
+  mcpTokens        McpToken[]
 
   @@map("users")
 }
@@ -339,6 +340,11 @@ model GeneratedPrompt {
   renderedText String   @map("rendered_text")
   tokenCount   Int?     @map("token_count")
   contextMeta  Json     @default("{}") @map("context_meta") @db.JsonB
+  /// Which surface asked for this prompt: "app" for the Prompts page, "mcp"
+  /// for an AI client pulling it over the MCP server. Defaulted rather than
+  /// required so every row written before the MCP server existed reads "app",
+  /// which is what it was.
+  source       String   @default("app")
   isSaved      Boolean  @default(false) @map("is_saved")
   rating       Int?
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -566,4 +572,44 @@ model StripeSyncState {
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@map("stripe_sync_state")
+}
+
+// ============ MCP ACCESS ============
+
+/// A personal access token for the MCP server.
+///
+/// The MCP server has no session cookie to work from: an AI client connects
+/// over HTTP and presents a bearer token, and that token is the only thing
+/// identifying whose data to serve. One row per token the user has issued.
+///
+/// Only the sha-256 of the token is stored. `tokenHash` is unique and
+/// unsalted, which is what makes verification a single indexed lookup — a
+/// per-token salt could not be found without first finding the row it is on.
+/// The usual objection to unsalted hashing does not apply here: the input is
+/// 256 bits of CSPRNG output, not a password somebody chose, so there is no
+/// dictionary to run against it and no rainbow table that could contain it.
+///
+/// Revocation is a timestamp rather than a delete, so a token that has been
+/// turned off can still be told apart from one that never existed — which is
+/// the difference between "you revoked this" and "this was never yours".
+model McpToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId    String    @map("owner_id") @db.Uuid
+  /// The user's own label, so a token can be retired without guessing which
+  /// machine it was for.
+  name       String
+  /// sha-256 of the token, hex-encoded. Never the token itself.
+  tokenHash  String    @unique @map("token_hash")
+  /// The leading, non-secret characters (e.g. `pd_live_a1b2c3`), so the list
+  /// can identify a token without being able to reconstruct it. Same idea as
+  /// `users.stripe_key_hint`.
+  tokenHint  String    @map("token_hint")
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt(sort: Desc)], map: "mcp_tokens_owner_created_idx")
+  @@map("mcp_tokens")
 }

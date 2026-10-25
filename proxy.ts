@@ -24,6 +24,21 @@ const PUBLIC_PREFIXES = [
   // verified the Stripe signature against that owner's stored secret, and the
   // token in the path only selects which secret to check against.
   '/api/webhooks',
+  // An MCP client authenticates with a bearer token, not a session cookie, so
+  // the gate below would redirect every tool call to /login and no tool would
+  // ever run — the same failure the Stripe endpoint above had. Added in the
+  // same commit as app/api/mcp/route.ts, so that the decision to expose this
+  // path is visible in the diff that creates the thing being exposed, which is
+  // what the note above about '/f' and '/api/public' asks for.
+  //
+  // Public here means "no session required", not "unauthenticated". The route
+  // resolves the Authorization header to an owner before an MCP server is even
+  // constructed, every tool on that server is scoped to that owner, and a
+  // missing, malformed, unknown or revoked token is a 401 that reaches no
+  // query. This is the one API path in the app that answers 401 rather than
+  // redirecting — if the gate ever swallowed it again, the symptom would be an
+  // HTML login page arriving where a client expected JSON.
+  '/api/mcp',
 ]
 
 function isPublic(pathname: string): boolean {

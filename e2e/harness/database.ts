@@ -137,6 +137,7 @@ export async function startDatabase(): Promise<TestDatabase> {
 const TABLES = [
   'form_submissions',
   'forms',
+  'mcp_tokens',
   'invoices',
   'time_entries',
   'transactions',
